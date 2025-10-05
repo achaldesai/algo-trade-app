@@ -1,0 +1,227 @@
+{
+  "info": {
+    "name": "Algo Trade Service",
+    "description": "Collection for exercising Algo Trade Service REST API endpoints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Get Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stocks",
+      "item": [
+        {
+          "name": "List Stocks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stocks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "stocks"]
+            }
+          }
+        },
+        {
+          "name": "Create Stock",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"AAPL\",\n  \"name\": \"Apple Inc.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/stocks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "stocks"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Trades",
+      "item": [
+        {
+          "name": "List Trades",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/trades",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "trades"]
+            }
+          }
+        },
+        {
+          "name": "Create Trade",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"AAPL\",\n  \"side\": \"BUY\",\n  \"quantity\": 10,\n  \"price\": 170.25,\n  \"notes\": \"Initial position\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/trades",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "trades"]
+            }
+          }
+        },
+        {
+          "name": "Get Trade Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/trades/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "trades", "summary"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Market Data",
+      "item": [
+        {
+          "name": "Get Market Snapshot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/market-data?symbol=AAPL",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "market-data"],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "AAPL"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Add Market Tick",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tick\": {\n    \"symbol\": \"AAPL\",\n    \"price\": 171.05,\n    \"volume\": 1200,\n    \"timestamp\": \"2024-07-01T10:05:00.000Z\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/market-data/ticks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "market-data", "ticks"]
+            }
+          }
+        },
+        {
+          "name": "Add Market Batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticks\": [\n    {\n      \"symbol\": \"AAPL\",\n      \"price\": 171.25,\n      \"volume\": 900,\n      \"timestamp\": \"2024-07-01T10:06:00.000Z\"\n    },\n    {\n      \"symbol\": \"MSFT\",\n      \"price\": 322.10,\n      \"volume\": 450,\n      \"timestamp\": \"2024-07-01T10:06:30.000Z\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/market-data/batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "market-data", "batch"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Strategies",
+      "item": [
+        {
+          "name": "List Strategies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/strategies",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "strategies"]
+            }
+          }
+        },
+        {
+          "name": "Evaluate Strategy",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticks\": [\n    {\n      \"symbol\": \"AAPL\",\n      \"price\": 171.50,\n      \"volume\": 1000\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/strategies/{{strategyId}}/evaluate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "strategies", "{{strategyId}}", "evaluate"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "strategyId",
+      "value": "vwap"
+    }
+  ]
+}

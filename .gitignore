@@ -2,3 +2,5 @@ node_modules
 dist
 .project
 .settings
+.env
+.DS_Store
