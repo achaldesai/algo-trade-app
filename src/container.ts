@@ -14,7 +14,14 @@ export const marketDataService = new MarketDataService();
 const buildBroker = (): BrokerClient => {
   switch (env.brokerProvider) {
     case "zerodha":
-      return new ZerodhaBroker({ baseUrl: env.brokerBaseUrl, apiKey: env.brokerApiKey });
+      return new ZerodhaBroker({
+        apiKey: env.brokerApiKey,
+        apiSecret: env.brokerApiSecret,
+        accessToken: env.brokerAccessToken,
+        requestToken: env.brokerRequestToken,
+        defaultExchange: env.brokerDefaultExchange,
+        product: env.brokerProduct,
+      });
     default:
       return new PaperBroker();
   }

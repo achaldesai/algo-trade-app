@@ -137,8 +137,28 @@ export class PortfolioService {
       const state = states.get(trade.symbol) ?? { netQuantity: 0, totalCost: 0, realizedPnl: 0 };
 
       if (trade.side === "BUY") {
-        state.totalCost += trade.price * trade.quantity;
-        state.netQuantity += trade.quantity;
+        let remainingQuantity = trade.quantity;
+
+        const openShortQuantity = Math.max(-state.netQuantity, 0);
+        if (openShortQuantity > 0) {
+          const closingQuantity = Math.min(openShortQuantity, remainingQuantity);
+          if (closingQuantity > 0) {
+            const entryAverage = state.totalCost / state.netQuantity;
+            state.realizedPnl += closingQuantity * (entryAverage - trade.price);
+            state.netQuantity += closingQuantity;
+            state.totalCost += entryAverage * closingQuantity;
+            remainingQuantity -= closingQuantity;
+
+            if (state.netQuantity === 0) {
+              state.totalCost = 0;
+            }
+          }
+        }
+
+        if (remainingQuantity > 0) {
+          state.totalCost += trade.price * remainingQuantity;
+          state.netQuantity += remainingQuantity;
+        }
       } else {
         const closingQty = Math.min(Math.max(state.netQuantity, 0), trade.quantity);
         const avgCost = state.netQuantity > 0 ? state.totalCost / state.netQuantity : 0;
@@ -154,6 +174,10 @@ export class PortfolioService {
           state.netQuantity -= residualQty;
           state.totalCost -= residualQty * trade.price;
         }
+      }
+
+      if (state.netQuantity === 0) {
+        state.totalCost = 0;
       }
 
       states.set(trade.symbol, state);
@@ -178,7 +202,10 @@ export class PortfolioService {
   private persistTrade(trade: Trade): void {
     this.trades.push(trade);
     this.trades.sort((a, b) => a.executedAt.getTime() - b.executedAt.getTime());
-    this.lastTradeBySymbol.set(trade.symbol, trade);
+    const latest = this.lastTradeBySymbol.get(trade.symbol);
+    if (!latest || trade.executedAt.getTime() >= latest.executedAt.getTime()) {
+      this.lastTradeBySymbol.set(trade.symbol, trade);
+    }
   }
 }
 
