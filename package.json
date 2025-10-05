@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "lint": "eslint . --ext .ts",
-    "test": "node --import tsx --test"
+    "test": "cross-env NODE_TEST_PATTERN=\"**/*.test.ts\" node --import tsx --test"
   },
   "keywords": [
     "trading",
@@ -38,6 +38,7 @@
     "@types/pino": "^7.0.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
+    "cross-env": "^10.1.0",
     "eslint": "^9.0.0",
     "node-mocks-http": "^1.17.2",
     "pino-pretty": "^11.0.0",
