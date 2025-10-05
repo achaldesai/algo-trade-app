@@ -1,7 +1,10 @@
 import http from "http";
 import app from "./app";
 import env from "./config/env";
+import validateEnvironment from "./config/validateEnv";
 import logger from "./utils/logger";
+
+validateEnvironment(env);
 
 const server = http.createServer(app);
 

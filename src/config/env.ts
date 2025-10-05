@@ -14,6 +14,13 @@ export const env = {
   brokerProvider: (process.env.BROKER_PROVIDER ?? "paper").toLowerCase(),
   brokerBaseUrl: process.env.BROKER_BASE_URL ?? "",
   brokerApiKey: process.env.BROKER_API_KEY ?? "",
+  brokerApiSecret: process.env.BROKER_API_SECRET ?? "",
+  brokerAccessToken: process.env.BROKER_ACCESS_TOKEN ?? "",
+  brokerRequestToken: process.env.BROKER_REQUEST_TOKEN ?? "",
+  brokerDefaultExchange: process.env.BROKER_DEFAULT_EXCHANGE ?? "NSE",
+  brokerProduct: process.env.BROKER_PRODUCT ?? "CNC",
 };
+
+export type EnvConfig = typeof env;
 
 export default env;

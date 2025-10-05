@@ -52,6 +52,12 @@ export interface BrokerOrderExecution {
   message?: string;
 }
 
+export interface BrokerOrderFailure {
+  request: BrokerOrderRequest;
+  error: string;
+  details?: unknown;
+}
+
 export interface MarketTick {
   symbol: string;
   price: number;
@@ -83,4 +89,11 @@ export interface StrategySignal {
 export interface StrategyExecutionResult {
   signal: StrategySignal;
   executions: BrokerOrderExecution[];
+  failures: BrokerOrderFailure[];
+}
+
+export interface StrategyEvaluationError {
+  stage: "SIGNAL_GENERATION" | "EXECUTION";
+  message: string;
+  details?: unknown;
 }
