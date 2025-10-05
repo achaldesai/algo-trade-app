@@ -1,1 +1,2 @@
-src/client/lib/**/*.js
+dist/
+node_modules/

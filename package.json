@@ -1,50 +1,45 @@
 {
-  "name": "sdoosa-algo-trade-app",
-  "version": "1.0.0",
-  "description": "Algorithm based fully automated trading application with multiple broker support",
-  "main": "index.js",
+  "name": "algo-trade-service",
+  "version": "2.0.0",
+  "description": "Modern TypeScript backend for managing algorithmic trading data",
+  "main": "dist/server.js",
+  "type": "commonjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc --project tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "lint": "eslint . --ext .ts",
+    "test": "node --test"
   },
-  "author": "Sreenivas Doosa",
-  "license": "ISC",
+  "keywords": [
+    "trading",
+    "portfolio",
+    "typescript",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17"
+  },
   "dependencies": {
-    "@babel/runtime": "=7.4.4",
-    "async": "=2.6.2",
-    "body-parser": "=1.19.0",
-    "create-react-class": "=15.6.3",
-    "express": "=4.16.4",
-    "express-session": "=1.16.1",
-    "fs-extra": "=7.0.1",
-    "guid": "=0.0.12",
-    "kiteconnect": "=3.0.2",
-    "lodash": "=4.17.11",
-    "passport": "=0.4.0",
-    "passport-local": "=1.0.0",
-    "react": "=16.8.6",
-    "react-dom": "=16.8.6",
-    "request": "=2.85.0",
-    "upstox": "=2.0.0",
-    "uuid": "=3.3.2",
-    "winston": "=3.2.1"
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "pino": "^9.1.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@babel/core": "=7.4.4",
-    "@babel/plugin-transform-runtime": "=7.4.4",
-    "@babel/preset-env": "=7.4.4",
-    "@babel/preset-react": "=7.0.0",
-    "babel-eslint": "=10.0.1",
-    "babelify": "=10.0.0",
-    "browserify": "=16.2.3",
-    "eslint": "=5.16.0",
-    "eslint-plugin-react": "=7.12.4",
-    "gulp": "=3.9.1",
-    "gulp-babel": "=8.0.0",
-    "gulp-clean": "=0.4.0",
-    "gulp-eslint": "=5.0.0",
-    "gulp-nodemon": "=2.4.2",
-    "gulp-watch": "=5.0.1",
-    "reactify": "=1.1.1",
-    "vinyl-source-stream": "=2.0.0"
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.7",
+    "@types/pino": "^7.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.7.1",
+    "@typescript-eslint/parser": "^7.7.1",
+    "eslint": "^8.57.0",
+    "pino-pretty": "^11.0.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "~5.5.4"
   }
 }

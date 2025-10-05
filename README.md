@@ -1,56 +1,107 @@
-## Installation & Deployment Instructions
+# Algo Trade Service
 
--- **Prerequisites**
- - Node JS >= 6.0 should be installed on your machine
- - Note: Due to some library dependecies the Node JS >= 11 version does not work with this app.
-   Hence please install Node JS < 11 version and >= 6 version.
- 
--- **Installation**
-1. Open command prompt and run the following command to install gulp globally
-    `npm install -g gulp`
-2. Go to project root directory (Ex: D:\sdoosa-algo-trade-app\).
-3. Run the command `npm install` to install all dependent npm libraries.
-4. Run the command `gulp deploy` to compile the source code. 
-   This will compile the code to `dist` folder in your project root directory.
-5. If you change only client source code then you can run `gulp deploy-client`.
-   Similarly if you change only server code you can run `gulp deploy-server` commands. 
-   The command `gulp deploy` compiles both server and client code.
- 
--- **Deployment and Configuration**
-1. Create a new directory with the path `C:\algo-trade\`
-2. Copy the `config` folder from the project path (Ex: `D:\sdoosa-algo-trade-app\src\config`) to `C:\algo-trade\` folder.
-3. After copying the config path would be `C:\algo-trade\config\`. 
-4. There are 4 json files in the config path `C:\algo-trade\config\` which are used by the algo app. 
-   They are `users.json`, `config.json`, `strategies.json` and `holidays.json`
-5. Edit `users.json` file to configure your username and password to login to the app. 
-   Note: These are just for app login not broker login credentials.
-6. Edit `config.json` and configure the port number on which you would like to run the algo trade app. 
-   Default port used is `8080`. You need to set `enableSSL` to `true` when you deploy the app on public domain. Because brokers
-   do not accept your public domain with just `http`. They expect your server to support `https`. So when you deploy on cloud
-   the redirect URL you configure starts with `https` instead of `http`. Brokers support `http` only with `localhost` if you are
-   running the app on your local machine instead of cloud.
-7. When you set `enableSSL` to `true` the app expects the `server.key` and `server.cert` files to be present in the folder `C:\algo-trade\ssl-cert\`.
-   Please do search on google how to generate self certified SSL certificate and key and then create the above files 
-   `server.cert` and `server.key` and put the in the mentioned folder. 
-   You can skip this step if you are running the app on your machine locally. This is needed only when you deploy the app on cloud.
-8. Configure your brokers API key and secret key under each broker section. 
-   If you have not subscribed to any broker, then please put some dummy values in api key and secret key fields. 
-   Copy the redirect URL from the respective broker section and go to your broker developer account and 
-   configure the the same in the app of your developer account where you have subscribed to APIs.
-9. Edit `strategies.json` file and configure the parameters for execution of strategy as per the provided details in this file. 
-   Each strategy that you are going to develop should have an entry in this file. 
-10. Edit `holidays.json` if necessary. 
-   Ideally this should be updated once in a year by getting all trading holidays list from your broker.
+A modern TypeScript backend that manages algorithmic trading data such as stocks, trades, and portfolio summaries. The service provides a lightweight REST API that can be extended with broker integrations or connected to any front-end dashboard.
 
--- **Starting Server**
-1. Open command prompt and go to project root directory. (Ex: `D:\sdoosa-algo-trade-app\`)
-2. Run the command `gulp server` to start the app
-3. You should see the logs as `app started and listening on port 8080/8443` without any errors.
-4. Next open your browser and enter `http://localhost:8080` in new tab/window.
-5. Login to the app (with any of the user credentials that you have configured in `users.json` in above section)
-6. Go to to the respective broker tab and click on `Login to {broker name}`to sign in to your broker.
-   This will redirect you to broker authentication page. Login with with your client credentials of the corresponding broker 
-   and accept T&C if any then you will be redirected to algo trade app page.
-7. Click on `Start Algo..` button to start the algo on your app.
-8. Start observing the logs on command prompt and on your broker terminal if all things are working as expected or not.
-9. Have a good day :)
+## Prerequisites
+
+- Node.js >= 18.17
+- npm >= 9
+
+## Getting Started
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Start the development server with automatic reload:
+   ```bash
+   npm run dev
+   ```
+3. Build the production bundle:
+   ```bash
+   npm run build
+   ```
+4. Serve the compiled output:
+   ```bash
+   npm start
+   ```
+
+The server listens on port `3000` by default. Override the port or enable request logging via environment variables:
+
+```bash
+PORT=4000 REQUEST_LOGGING=true npm run dev
+```
+
+## Available Endpoints
+
+| Method | Path              | Description                                      |
+| ------ | ----------------- | ------------------------------------------------ |
+| GET    | `/health`         | Health probe used for readiness checks.         |
+| GET    | `/api/stocks`     | Returns the catalog of tracked instruments.     |
+| POST   | `/api/stocks`     | Adds a new stock symbol to the catalog.         |
+| GET    | `/api/trades`     | Lists trades ordered by most recent execution.  |
+| POST   | `/api/trades`     | Records a trade (buy or sell) for an instrument.|
+| GET    | `/api/trades/summary` | Aggregates trades into high level positions. |
+| GET    | `/api/market-data` | Fetches the latest cached market ticks.        |
+| POST   | `/api/market-data/ticks` | Inserts a single market tick.          |
+| POST   | `/api/market-data/batch` | Inserts multiple ticks in one request. |
+| GET    | `/api/strategies` | Lists registered trading strategies.           |
+| POST   | `/api/strategies/:id/evaluate` | Feeds ticks (optional) and runs the strategy. |
+
+### Sample Request
+
+```bash
+curl -X POST http://localhost:3000/api/trades \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "AAPL",
+    "side": "BUY",
+    "quantity": 10,
+    "price": 170.25
+  }'
+```
+
+## Broker & Strategy Engine
+
+The service now ships with a broker abstraction and a basic VWAP-driven strategy engine:
+
+- **Paper broker** – the default simulated execution venue used in development.
+- **Upstox & Zerodha connectors** – REST clients that fall back to the paper broker when offline; enable them by providing `BROKER_PROVIDER`, `BROKER_BASE_URL`, and `BROKER_API_KEY` environment variables.
+- **Trading engine** – coordinates market data snapshots, portfolio state, and strategy signals before routing orders to the configured broker.
+- **VWAP mean reversion strategy** – demonstrates how to translate market data deviations into actionable orders.
+
+### Environment Flags
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `BROKER_PROVIDER` | `paper`, `upstox`, or `zerodha`. | `paper` |
+| `BROKER_BASE_URL` | REST endpoint for the live broker. | _(empty)_ |
+| `BROKER_API_KEY` | API token supplied by the broker. | _(empty)_ |
+
+## Project Structure
+
+```
+src/
+├── app.ts                 # Express application wiring
+├── config/                # Environment configuration helpers
+├── container.ts           # Service container and data seeding
+├── data/                  # Initial sample data
+├── middleware/            # Error handling and validation middleware
+├── routes/                # REST API route definitions
+├── services/              # Domain services and trading engine
+├── strategies/            # Algorithmic trading strategies
+├── brokers/               # Broker integrations (paper, Upstox, Zerodha)
+├── types.ts               # Shared TypeScript contracts
+└── utils/                 # Logger and common utilities
+```
+
+## Extending the Service
+
+- Replace the in-memory portfolio service with a persistent store (PostgreSQL, MongoDB, etc.).
+- Connect to broker APIs to execute trades in real time.
+- Add authentication/authorization middleware to secure the endpoints.
+- Integrate with message queues to publish trade events for downstream consumers.
+
+## License
+
+MIT
