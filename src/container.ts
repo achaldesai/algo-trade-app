@@ -1,6 +1,5 @@
 import PaperBroker from "./brokers/PaperBroker";
 import type BrokerClient from "./brokers/BrokerClient";
-import UpstoxBroker from "./brokers/UpstoxBroker";
 import ZerodhaBroker from "./brokers/ZerodhaBroker";
 import { seedStocks, seedTrades } from "./data/seed";
 import env from "./config/env";
@@ -14,8 +13,6 @@ export const marketDataService = new MarketDataService();
 
 const buildBroker = (): BrokerClient => {
   switch (env.brokerProvider) {
-    case "upstox":
-      return new UpstoxBroker({ baseUrl: env.brokerBaseUrl, apiKey: env.brokerApiKey });
     case "zerodha":
       return new ZerodhaBroker({ baseUrl: env.brokerBaseUrl, apiKey: env.brokerApiKey });
     default:

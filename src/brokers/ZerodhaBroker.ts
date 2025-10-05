@@ -56,7 +56,7 @@ export class ZerodhaBroker extends RestBrokerBase {
         price: item.average_price,
         executedAt: new Date(),
       }));
-    } catch (error) {
+    } catch (_error) {
       return this.fallback.getPositions();
     }
   }
@@ -84,7 +84,7 @@ export class ZerodhaBroker extends RestBrokerBase {
         executedAt: new Date(response.order_timestamp),
         message: response.status_message,
       };
-    } catch (error) {
+    } catch (_error) {
       return this.fallback.placeOrder(order);
     }
   }
@@ -92,7 +92,7 @@ export class ZerodhaBroker extends RestBrokerBase {
   async cancelOrder(orderId: string): Promise<void> {
     try {
       await this.request(`/orders/${orderId}`, { method: "DELETE" });
-    } catch (error) {
+    } catch (_error) {
       await this.fallback.cancelOrder(orderId);
     }
   }
@@ -107,7 +107,7 @@ export class ZerodhaBroker extends RestBrokerBase {
         quantity: Math.max(1, Math.round(response.tradable_quantity)),
         validUntil: new Date(Date.now() + 30_000),
       };
-    } catch (error) {
+    } catch (_error) {
       return this.fallback.getQuote(symbol, side);
     }
   }

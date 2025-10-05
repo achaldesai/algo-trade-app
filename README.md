@@ -66,7 +66,7 @@ curl -X POST http://localhost:3000/api/trades \
 The service now ships with a broker abstraction and a basic VWAP-driven strategy engine:
 
 - **Paper broker** – the default simulated execution venue used in development.
-- **Upstox & Zerodha connectors** – REST clients that fall back to the paper broker when offline; enable them by providing `BROKER_PROVIDER`, `BROKER_BASE_URL`, and `BROKER_API_KEY` environment variables.
+- **Zerodha connector** – REST client that falls back to the paper broker when offline; enable it by providing `BROKER_PROVIDER`, `BROKER_BASE_URL`, and `BROKER_API_KEY` environment variables.
 - **Trading engine** – coordinates market data snapshots, portfolio state, and strategy signals before routing orders to the configured broker.
 - **VWAP mean reversion strategy** – demonstrates how to translate market data deviations into actionable orders.
 
@@ -74,7 +74,7 @@ The service now ships with a broker abstraction and a basic VWAP-driven strategy
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `BROKER_PROVIDER` | `paper`, `upstox`, or `zerodha`. | `paper` |
+| `BROKER_PROVIDER` | `paper` or `zerodha`. | `paper` |
 | `BROKER_BASE_URL` | REST endpoint for the live broker. | _(empty)_ |
 | `BROKER_API_KEY` | API token supplied by the broker. | _(empty)_ |
 
@@ -90,7 +90,7 @@ src/
 ├── routes/                # REST API route definitions
 ├── services/              # Domain services and trading engine
 ├── strategies/            # Algorithmic trading strategies
-├── brokers/               # Broker integrations (paper, Upstox, Zerodha)
+├── brokers/               # Broker integrations (paper, Zerodha)
 ├── types.ts               # Shared TypeScript contracts
 └── utils/                 # Logger and common utilities
 ```
