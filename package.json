@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "lint": "eslint . --ext .ts",
-    "test": "node scripts/run-tests.mjs"
+    "test": "node --import tsx scripts/run-tests.ts"
   },
   "keywords": [
     "trading",
