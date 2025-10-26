@@ -1,4 +1,5 @@
 import { SmartAPI } from "smartapi-javascript";
+import type { AngelOneOrderBookEntry, AngelOnePosition, OrderParams } from "smartapi-javascript";
 import { authenticator } from "otplib";
 import PaperBroker from "./PaperBroker";
 import type BrokerClient from "./BrokerClient";
@@ -114,8 +115,8 @@ export class AngelOneBroker implements BrokerClient {
 
         if (response.status && Array.isArray(response.data)) {
           return response.data
-            .filter((pos: any) => pos.netqty && pos.netqty !== "0")
-            .map((pos: any) => this.toDomainTrade(pos));
+            .filter((pos) => pos.netqty && pos.netqty !== "0")
+            .map((pos) => this.toDomainTrade(pos));
         }
       } catch (error) {
         logger.warn(
@@ -278,7 +279,7 @@ export class AngelOneBroker implements BrokerClient {
   /**
    * Build order parameters in Angel One format
    */
-  private buildOrderParams(order: BrokerOrderRequest): any {
+  private buildOrderParams(order: BrokerOrderRequest): OrderParams {
     if (order.type === "LIMIT" && typeof order.price !== "number") {
       throw new Error(`Limit order for ${order.symbol} requires a price`);
     }
@@ -286,7 +287,7 @@ export class AngelOneBroker implements BrokerClient {
     return {
       variety: "NORMAL",
       tradingsymbol: order.symbol,
-      symboltoken: this.getSymbolToken(order.symbol), // This needs to be synchronous or cached
+      symboltoken: this.getSymbolToken(order.symbol),
       transactiontype: order.side,
       exchange: this.config.defaultExchange,
       ordertype: order.type,
@@ -318,7 +319,7 @@ export class AngelOneBroker implements BrokerClient {
         throw new Error("Failed to fetch order book");
       }
 
-      const order = response.data.find((o: any) => o.orderid === orderId);
+      const order = response.data.find((o: AngelOneOrderBookEntry) => o.orderid === orderId);
 
       if (!order) {
         return {
@@ -357,14 +358,14 @@ export class AngelOneBroker implements BrokerClient {
   /**
    * Convert Angel One position to domain Trade
    */
-  private toDomainTrade(position: any): Trade {
+  private toDomainTrade(position: AngelOnePosition): Trade {
     const quantity = Math.abs(parseInt(position.netqty || "0", 10));
     const price = parseFloat(position.netprice || position.avgnetprice || "0");
 
     return {
       id: position.symboltoken || `${position.tradingsymbol}-${Date.now()}`,
       symbol: position.tradingsymbol,
-      side: parseInt(position.netqty) > 0 ? "BUY" : "SELL",
+      side: parseInt(position.netqty, 10) > 0 ? "BUY" : "SELL",
       quantity,
       price,
       executedAt: this.dependencies.now(),

@@ -15,6 +15,15 @@ export interface TickerSubscription {
   symbol: string;
 }
 
+interface AngelOneTickMessage {
+  exchange: string;
+  symbolToken: string;
+  ltp?: number;
+  lastPrice?: number;
+  volume?: number;
+  [key: string]: unknown;
+}
+
 /**
  * Angel One WebSocket ticker service for live market data
  * Subscribes to real-time price updates and feeds them to MarketDataService
@@ -240,7 +249,7 @@ export class AngelOneTickerService {
   /**
    * Process market data updates
    */
-  private processMarketData(data: any[]): void {
+  private processMarketData(data: AngelOneTickMessage[]): void {
     for (const tick of data) {
       try {
         // Find the subscription for this tick

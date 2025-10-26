@@ -45,8 +45,22 @@ export interface TokenRepository {
  * LMDB-based token repository
  * Stores authentication tokens in the same LMDB database as portfolio data
  */
+type StoredTokenRecord = ZerodhaTokenData | AngelOneTokenData;
+
+const isZerodhaTokenData = (
+  record: StoredTokenRecord | undefined | null
+): record is ZerodhaTokenData => {
+  return Boolean(record && "userId" in record && typeof record.userId === "string");
+};
+
+const isAngelOneTokenData = (
+  record: StoredTokenRecord | undefined | null
+): record is AngelOneTokenData => {
+  return Boolean(record && "clientId" in record && typeof record.clientId === "string");
+};
+
 export class LmdbTokenRepository implements TokenRepository {
-  private db: Database<any> | null = null;
+  private db: Database<StoredTokenRecord> | null = null;
 
   private readonly ZERODHA_KEY = "auth:zerodha";
   private readonly ANGELONE_KEY = "auth:angelone";
@@ -56,7 +70,7 @@ export class LmdbTokenRepository implements TokenRepository {
   /**
    * Initialize the LMDB database
    */
-  private async ensureDb(): Promise<Database<any>> {
+  private async ensureDb(): Promise<Database<StoredTokenRecord>> {
     if (this.db) {
       return this.db;
     }
@@ -85,9 +99,9 @@ export class LmdbTokenRepository implements TokenRepository {
    */
   async getZerodhaToken(): Promise<ZerodhaTokenData | null> {
     const db = await this.ensureDb();
-    const data = await db.get(this.ZERODHA_KEY);
+    const data = db.get(this.ZERODHA_KEY);
 
-    if (!data) {
+    if (!isZerodhaTokenData(data)) {
       return null;
     }
 
@@ -125,9 +139,9 @@ export class LmdbTokenRepository implements TokenRepository {
    */
   async getAngelOneToken(): Promise<AngelOneTokenData | null> {
     const db = await this.ensureDb();
-    const data = await db.get(this.ANGELONE_KEY);
+    const data = db.get(this.ANGELONE_KEY);
 
-    if (!data) {
+    if (!isAngelOneTokenData(data)) {
       return null;
     }
 

@@ -1,10 +1,14 @@
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import TradingEngine from "./TradingEngine";
 import { resolvePortfolioService, resolveMarketDataService } from "../container";
 import PaperBroker from "../brokers/PaperBroker";
 import type { BrokerOrderRequest, StrategySignal } from "../types";
 import env from "../config/env";
+
+const setDryRunFlag = (value: boolean): void => {
+  Reflect.set(env, "dryRun", value);
+};
 
 describe("TradingEngine - Dry Run Mode", () => {
   let engine: TradingEngine;
@@ -28,12 +32,12 @@ describe("TradingEngine - Dry Run Mode", () => {
 
   afterEach(() => {
     // Restore original setting
-    (env as any).dryRun = originalDryRun;
+    setDryRunFlag(originalDryRun);
   });
 
   it("should not execute orders when dry-run mode is enabled", async () => {
     // Enable dry-run mode
-    (env as any).dryRun = true;
+    setDryRunFlag(true);
 
     const signal: StrategySignal = {
       strategyId: "test-strategy",
@@ -70,7 +74,7 @@ describe("TradingEngine - Dry Run Mode", () => {
 
   it("should execute orders normally when dry-run mode is disabled", async () => {
     // Disable dry-run mode
-    (env as any).dryRun = false;
+    setDryRunFlag(false);
 
     const portfolioService = resolvePortfolioService();
 
@@ -109,7 +113,7 @@ describe("TradingEngine - Dry Run Mode", () => {
 
   it("should validate order limits before execution", async () => {
     // Disable dry-run mode to test validation
-    (env as any).dryRun = false;
+    setDryRunFlag(false);
 
     const portfolioService = resolvePortfolioService();
 
@@ -144,7 +148,7 @@ describe("TradingEngine - Dry Run Mode", () => {
   });
 
   it("should reject orders with invalid price", async () => {
-    (env as any).dryRun = false;
+    setDryRunFlag(false);
 
     const portfolioService = resolvePortfolioService();
     try {
@@ -175,7 +179,7 @@ describe("TradingEngine - Dry Run Mode", () => {
   });
 
   it("should reject orders with invalid quantity", async () => {
-    (env as any).dryRun = false;
+    setDryRunFlag(false);
 
     const portfolioService = resolvePortfolioService();
     try {

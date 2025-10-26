@@ -197,8 +197,8 @@ export class TradingEngine {
         executions.push({
           id: `dry-run-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           request: order,
-          status: "COMPLETED" as any, // Mock as completed for dry-run
-          filledQuantity: 0, // No actual fill in dry-run
+          status: "PARTIALLY_FILLED",
+          filledQuantity: 0, // No actual fill in dry-run, keep status consistent with simulation
           averagePrice: order.price ?? 0,
           executedAt: new Date(),
         });

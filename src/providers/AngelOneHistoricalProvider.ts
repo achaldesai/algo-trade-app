@@ -1,4 +1,5 @@
 import { SmartAPI } from "smartapi-javascript";
+import type { SmartApiCandleTuple } from "smartapi-javascript";
 import { authenticator } from "otplib";
 import type { HistoricalDataProvider } from "../services/HistoricalDataService";
 import type { HistoricalCandle, HistoricalDataRequest } from "../types";
@@ -160,11 +161,7 @@ export class AngelOneHistoricalProvider implements HistoricalDataProvider {
    * Parse Angel One candle data to our HistoricalCandle format
    * Angel One returns: [timestamp, open, high, low, close, volume]
    */
-  private parseCandles(symbol: string, data: any[]): HistoricalCandle[] {
-    if (!Array.isArray(data)) {
-      return [];
-    }
-
+  private parseCandles(symbol: string, data: SmartApiCandleTuple[]): HistoricalCandle[] {
     return data.map((candle) => {
       const [timestamp, open, high, low, close, volume] = candle;
 

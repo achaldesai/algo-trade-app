@@ -36,10 +36,19 @@ declare module "smartapi-javascript" {
     todate: string;
   }
 
+  export type SmartApiCandleTuple = [
+    string | number,
+    string | number,
+    string | number,
+    string | number,
+    string | number,
+    string | number
+  ];
+
   export interface CandleDataResponse {
     status: boolean;
     message?: string;
-    data?: any[];
+    data?: SmartApiCandleTuple[];
   }
 
   export interface OrderParams {
@@ -74,24 +83,61 @@ declare module "smartapi-javascript" {
     exchangeTokens: Record<string, string[]>;
   }
 
+  export interface AngelOneQuoteDepthLevel {
+    price?: number;
+    quantity?: number;
+    [key: string]: unknown;
+  }
+
+  export interface AngelOneQuoteDepth {
+    buy?: AngelOneQuoteDepthLevel[];
+    sell?: AngelOneQuoteDepthLevel[];
+  }
+
+  export interface AngelOneQuoteDetails {
+    exchange: string;
+    symboltoken: string;
+    ltp?: number;
+    depth?: AngelOneQuoteDepth;
+    [key: string]: unknown;
+  }
+
   export interface QuoteResponse {
     status: boolean;
     message?: string;
     data?: {
-      fetched: any[];
+      fetched: AngelOneQuoteDetails[];
     };
+  }
+
+  export interface AngelOnePosition {
+    netqty: string;
+    tradingsymbol: string;
+    symboltoken?: string;
+    netprice?: string;
+    avgnetprice?: string;
+    [key: string]: unknown;
   }
 
   export interface PositionResponse {
     status: boolean;
     message?: string;
-    data?: any[];
+    data?: AngelOnePosition[];
+  }
+
+  export interface AngelOneOrderBookEntry {
+    orderid: string;
+    filledshares?: string;
+    quantity?: string;
+    averageprice?: string;
+    updatetime?: string;
+    [key: string]: unknown;
   }
 
   export interface OrderBookResponse {
     status: boolean;
     message?: string;
-    data?: any[];
+    data?: AngelOneOrderBookEntry[];
   }
 
   export class SmartAPI {
@@ -119,6 +165,6 @@ declare module "smartapi-javascript" {
 
     generateToken(refreshToken: string): Promise<TokenRefreshResponse>;
 
-    logOut(): Promise<any>;
+    logOut(): Promise<{ status: boolean; message?: string }>;
   }
 }
