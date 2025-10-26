@@ -39,6 +39,7 @@ export class VWAPStrategy extends BaseStrategy {
             symbol: tick.symbol,
             side: direction,
             quantity: orderSize,
+            price: tick.price, // Include current market price
             type: "MARKET",
             tag: `VWAP-${Date.now()}`,
           },

@@ -17,7 +17,179 @@
               "raw": "{{baseUrl}}/health",
               "host": ["{{baseUrl}}"],
               "path": ["health"]
-            }
+            },
+            "description": "Basic health check endpoint"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Get Zerodha Login URL",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/zerodha/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "zerodha", "login"]
+            },
+            "description": "Get the Zerodha OAuth2 login URL. Open this URL in browser to login."
+          }
+        },
+        {
+          "name": "Complete Zerodha Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestToken\": \"your_request_token_from_redirect\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/zerodha/callback",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "zerodha", "callback"]
+            },
+            "description": "Exchange the request token (from redirect URL) for an access token. The access token is automatically saved."
+          }
+        },
+        {
+          "name": "Check Auth Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/zerodha/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "zerodha", "status"]
+            },
+            "description": "Check if Zerodha authentication is active and token validity"
+          }
+        },
+        {
+          "name": "Get Current Token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/zerodha/token",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "zerodha", "token"]
+            },
+            "description": "Get the currently saved access token (for debugging or manual use)"
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/zerodha/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "zerodha", "logout"]
+            },
+            "description": "Clear the saved access token and logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Get Admin Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "health"]
+            },
+            "description": "Get detailed system health status including database backend, broker provider, and data counts"
+          }
+        },
+        {
+          "name": "Get Database Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/db-stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "db-stats"]
+            },
+            "description": "Get database statistics (size, record counts, backend type)"
+          }
+        },
+        {
+          "name": "Create Backup",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/backup",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "backup"]
+            },
+            "description": "Manually trigger a database backup (LMDB only)"
+          }
+        },
+        {
+          "name": "List Backups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/backups",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "backups"]
+            },
+            "description": "List all available database backups (LMDB only)"
+          }
+        },
+        {
+          "name": "Restore from Backup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"backupPath\": \"/absolute/path/to/backup/folder\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/restore",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "restore"]
+            },
+            "description": "Restore database from a backup path (LMDB only)"
+          }
+        },
+        {
+          "name": "Export Database",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/export",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "export"]
+            },
+            "description": "Export entire database to JSON format for inspection"
           }
         }
       ]
@@ -34,7 +206,8 @@
               "raw": "{{baseUrl}}/api/stocks",
               "host": ["{{baseUrl}}"],
               "path": ["api", "stocks"]
-            }
+            },
+            "description": "Retrieve all stocks in the portfolio"
           }
         },
         {
@@ -55,7 +228,8 @@
               "raw": "{{baseUrl}}/api/stocks",
               "host": ["{{baseUrl}}"],
               "path": ["api", "stocks"]
-            }
+            },
+            "description": "Add a new stock to the portfolio. Requires symbol (ticker) and name."
           }
         }
       ]
@@ -72,7 +246,8 @@
               "raw": "{{baseUrl}}/api/trades",
               "host": ["{{baseUrl}}"],
               "path": ["api", "trades"]
-            }
+            },
+            "description": "Retrieve all executed trades"
           }
         },
         {
@@ -87,13 +262,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"symbol\": \"AAPL\",\n  \"side\": \"BUY\",\n  \"quantity\": 10,\n  \"price\": 170.25,\n  \"notes\": \"Initial position\"\n}"
+              "raw": "{\n  \"symbol\": \"AAPL\",\n  \"side\": \"BUY\",\n  \"quantity\": 10,\n  \"price\": 170.25,\n  \"executedAt\": \"2024-07-01T10:30:00.000Z\",\n  \"notes\": \"Initial position\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/trades",
               "host": ["{{baseUrl}}"],
               "path": ["api", "trades"]
-            }
+            },
+            "description": "Record a new trade execution. Fields: symbol, side (BUY/SELL), quantity, price, executedAt (optional ISO datetime), notes (optional)"
           }
         },
         {
@@ -105,7 +281,21 @@
               "raw": "{{baseUrl}}/api/trades/summary",
               "host": ["{{baseUrl}}"],
               "path": ["api", "trades", "summary"]
-            }
+            },
+            "description": "Get aggregated trade summaries by symbol with total quantities, average prices, and realized P&L"
+          }
+        },
+        {
+          "name": "Get Portfolio Snapshot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/trades/portfolio",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "trades", "portfolio"]
+            },
+            "description": "Get complete portfolio snapshot with both realized and unrealized P&L for all positions. Includes current mark-to-market values based on latest trade prices."
           }
         }
       ]
@@ -128,7 +318,8 @@
                   "value": "AAPL"
                 }
               ]
-            }
+            },
+            "description": "Get current market snapshot for a specific symbol including last price, volume, and timestamp"
           }
         },
         {
@@ -149,7 +340,8 @@
               "raw": "{{baseUrl}}/api/market-data/ticks",
               "host": ["{{baseUrl}}"],
               "path": ["api", "market-data", "ticks"]
-            }
+            },
+            "description": "Add a single market tick with price, volume, and timestamp. Used by market data feeds."
           }
         },
         {
@@ -170,7 +362,8 @@
               "raw": "{{baseUrl}}/api/market-data/batch",
               "host": ["{{baseUrl}}"],
               "path": ["api", "market-data", "batch"]
-            }
+            },
+            "description": "Add multiple market ticks in a single request for efficient bulk updates"
           }
         }
       ]
@@ -187,7 +380,8 @@
               "raw": "{{baseUrl}}/api/strategies",
               "host": ["{{baseUrl}}"],
               "path": ["api", "strategies"]
-            }
+            },
+            "description": "List all available trading strategies with their IDs and descriptions"
           }
         },
         {
@@ -202,13 +396,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"ticks\": [\n    {\n      \"symbol\": \"AAPL\",\n      \"price\": 171.50,\n      \"volume\": 1000\n    }\n  ]\n}"
+              "raw": "{\n  \"ticks\": [\n    {\n      \"symbol\": \"AAPL\",\n      \"price\": 171.50,\n      \"volume\": 1000,\n      \"timestamp\": \"2024-07-01T10:30:00.000Z\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/strategies/{{strategyId}}/evaluate",
               "host": ["{{baseUrl}}"],
               "path": ["api", "strategies", "{{strategyId}}", "evaluate"]
-            }
+            },
+            "description": "Evaluate a specific strategy with market tick data. Returns buy/sell signals. Use 'vwap' as strategyId for VWAP strategy."
           }
         }
       ]
@@ -217,11 +412,13 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:3000"
+      "value": "http://localhost:3000",
+      "description": "Base URL for the Algo Trade Service API"
     },
     {
       "key": "strategyId",
-      "value": "vwap"
+      "value": "vwap",
+      "description": "Strategy identifier (e.g., vwap, macd, rsi)"
     }
   ]
 }

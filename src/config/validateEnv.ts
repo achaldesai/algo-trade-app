@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import logger from "../utils/logger";
 import type { EnvConfig } from "./env";
 
@@ -5,7 +6,7 @@ const SUPPORTED_BROKERS = new Set(["paper", "zerodha"]);
 const SUPPORTED_EXCHANGES = new Set(["NSE", "BSE", "NFO", "BFO", "CDS", "MCX", "BCD"]);
 const SUPPORTED_PRODUCTS = new Set(["CNC", "MIS", "NRML"]);
 
-export const validateEnvironment = (env: EnvConfig): void => {
+export const validateEnvironment = async (env: EnvConfig): Promise<void> => {
   const warnings: string[] = [];
   const errors: string[] = [];
 
@@ -34,6 +35,19 @@ export const validateEnvironment = (env: EnvConfig): void => {
     }
   }
 
+  try {
+    const stats = await fs.stat(env.portfolioStorePath);
+    if (env.portfolioBackend === "lmdb" && !stats.isDirectory()) {
+      warnings.push(`Portfolio store '${env.portfolioStorePath}' is not a directory; a new LMDB store will be initialised.`);
+    }
+    if (env.portfolioBackend === "file" && !stats.isFile()) {
+      warnings.push(`Portfolio store '${env.portfolioStorePath}' is not a file; it will be recreated on first run.`);
+    }
+  } catch {
+    const storeDescriptor = env.portfolioBackend === "lmdb" ? "LMDB store" : "portfolio store";
+    warnings.push(`${storeDescriptor} '${env.portfolioStorePath}' does not exist yet and will be created on first run.`);
+  }
+
   warnings.forEach((message) => {
     logger.warn({ message }, "Environment validation warning");
   });
@@ -41,6 +55,13 @@ export const validateEnvironment = (env: EnvConfig): void => {
   errors.forEach((message) => {
     logger.error({ message }, "Environment validation error");
   });
+
+  if (errors.length > 0) {
+    const summary = errors.length === 1
+      ? errors[0]
+      : `Multiple environment validation errors: ${errors.join("; ")}`;
+    throw new Error(summary);
+  }
 
   if (!warnings.length && !errors.length) {
     logger.info("Environment validation completed successfully");

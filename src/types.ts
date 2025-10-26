@@ -93,7 +93,63 @@ export interface StrategyExecutionResult {
 }
 
 export interface StrategyEvaluationError {
-  stage: "SIGNAL_GENERATION" | "EXECUTION";
+  stage: "BROKER_CONNECTION" | "SIGNAL_GENERATION" | "EXECUTION";
   message: string;
   details?: unknown;
+}
+
+export interface HistoricalCandle {
+  symbol: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  timestamp: Date;
+}
+
+export interface HistoricalDataRequest {
+  symbol: string;
+  interval: "1day" | "1week" | "1month";
+  fromDate: Date;
+  toDate: Date;
+}
+
+export interface TechnicalIndicatorValues {
+  sma?: number;
+  ema?: number;
+  rsi?: number;
+  macd?: {
+    macd: number;
+    signal: number;
+    histogram: number;
+  };
+  bollinger?: {
+    upper: number;
+    middle: number;
+    lower: number;
+  };
+}
+
+export interface PortfolioTarget {
+  symbol: string;
+  targetWeight: number;
+  targetQuantity: number;
+  currentQuantity: number;
+  requiredQuantity: number;
+  rebalanceAction: "BUY" | "SELL" | "HOLD";
+}
+
+export interface RebalanceResult {
+  targets: PortfolioTarget[];
+  totalValue: number;
+  cashRequired: number;
+  ordersToExecute: BrokerOrderRequest[];
+}
+
+export interface ExecutionPlan {
+  orders: BrokerOrderRequest[];
+  estimatedImpact: number;
+  recommendedTiming: "IMMEDIATE" | "SPREAD" | "DELAYED";
+  executionStrategy: "MARKET" | "LIMIT" | "TWAP";
 }

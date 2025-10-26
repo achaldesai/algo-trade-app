@@ -1,6 +1,16 @@
 # Algo Trade Service
 
-A modern TypeScript backend that manages algorithmic trading data such as stocks, trades, and portfolio summaries. The service provides a lightweight REST API that can be extended with broker integrations or connected to any front-end dashboard.
+A modern TypeScript backend for algorithmic trading with **FREE** market data integration. Manage stocks, trades, and portfolios with a lightweight REST API. Supports Angel One SmartAPI for free historical data and order execution.
+
+## 🆓 Free Market Data with Angel One
+
+Unlike other brokers that charge ₹2000/month for market data APIs, **Angel One SmartAPI** provides:
+- ✅ **FREE** historical OHLC data
+- ✅ **FREE** real-time WebSocket tickers
+- ✅ **FREE** market quotes and depth
+- ✅ Only ₹20 per executed trade
+
+**[Quick Start Guide](docs/ANGEL_ONE_QUICKSTART.md)** | **[Detailed Setup](docs/ANGEL_ONE_SETUP.md)**
 
 ## Prerequisites
 
@@ -26,10 +36,16 @@ A modern TypeScript backend that manages algorithmic trading data such as stocks
    npm start
    ```
 
+Run-once workflows are supported through the lightweight CLI:
+
+```bash
+npm run once -- --strategy vwap
+```
+
 The server listens on port `3000` by default. Override the port or enable request logging via environment variables:
 
 ```bash
-PORT=4000 REQUEST_LOGGING=true npm run dev
+PORT=4000 npm run dev
 ```
 
 ## Available Endpoints
@@ -77,6 +93,15 @@ The service now ships with a broker abstraction and a basic VWAP-driven strategy
 | `BROKER_PROVIDER` | `paper` or `zerodha`. | `paper` |
 | `BROKER_BASE_URL` | REST endpoint for the live broker. | _(empty)_ |
 | `BROKER_API_KEY` | API token supplied by the broker. | _(empty)_ |
+| `PORTFOLIO_BACKEND` | `lmdb` (default) or `file` for JSON storage. | `lmdb` |
+
+### Data Store
+
+Persisted stocks and trades now default to an LMDB store located at `data/portfolio-store`. Override the location with `PORTFOLIO_STORE` if you prefer a custom path (directories for LMDB, files for the legacy JSON backend). To continue using the JSON store, set `PORTFOLIO_BACKEND=file` and point `PORTFOLIO_STORE` to a `.json` file:
+
+```bash
+PORTFOLIO_BACKEND=file PORTFOLIO_STORE=~/portfolio.json npm run once
+```
 
 ## Project Structure
 
@@ -89,6 +114,7 @@ src/
 ├── middleware/            # Error handling and validation middleware
 ├── routes/                # REST API route definitions
 ├── services/              # Domain services and trading engine
+├── persistence/           # Lightweight file-based portfolio repository
 ├── strategies/            # Algorithmic trading strategies
 ├── brokers/               # Broker integrations (paper, Zerodha)
 ├── types.ts               # Shared TypeScript contracts
@@ -97,7 +123,7 @@ src/
 
 ## Extending the Service
 
-- Replace the in-memory portfolio service with a persistent store (PostgreSQL, MongoDB, etc.).
+- Swap the JSON-backed store for a durable database if you ever outgrow single-user, run-once needs.
 - Connect to broker APIs to execute trades in real time.
 - Add authentication/authorization middleware to secure the endpoints.
 - Integrate with message queues to publish trade events for downstream consumers.
