@@ -50,6 +50,7 @@ PORT=4000 npm run dev
 
 ## Available Endpoints
 
+### Core APIs
 | Method | Path              | Description                                      |
 | ------ | ----------------- | ------------------------------------------------ |
 | GET    | `/health`         | Health probe used for readiness checks.         |
@@ -63,6 +64,24 @@ PORT=4000 npm run dev
 | POST   | `/api/market-data/batch` | Inserts multiple ticks in one request. |
 | GET    | `/api/strategies` | Lists registered trading strategies.           |
 | POST   | `/api/strategies/:id/evaluate` | Feeds ticks (optional) and runs the strategy. |
+
+### Authentication (Angel One)
+| Method | Path              | Description                                      |
+| ------ | ----------------- | ------------------------------------------------ |
+| POST   | `/api/auth/angelone/login` | Authenticate with Angel One (auto TOTP). |
+| GET    | `/api/auth/angelone/status` | Check authentication status.            |
+| POST   | `/api/auth/angelone/refresh` | Manually refresh auth token.          |
+| POST   | `/api/auth/angelone/logout` | Clear authentication session.          |
+
+### Admin & Backup
+| Method | Path              | Description                                      |
+| ------ | ----------------- | ------------------------------------------------ |
+| POST   | `/api/admin/backup` | Create manual LMDB backup.                     |
+| GET    | `/api/admin/backups` | List all available backups.                   |
+| POST   | `/api/admin/restore` | Restore from backup.                          |
+| GET    | `/api/admin/export` | Export database to JSON.                       |
+| GET    | `/api/admin/db-stats` | Get database statistics.                     |
+| GET    | `/api/admin/health` | Admin health check.                            |
 
 ### Sample Request
 
@@ -82,9 +101,11 @@ curl -X POST http://localhost:3000/api/trades \
 The service now ships with a broker abstraction and a basic VWAP-driven strategy engine:
 
 - **Paper broker** – the default simulated execution venue used in development.
+- **Angel One connector** – Full SmartAPI integration with **FREE market data** (historical OHLC, WebSocket tickers, quotes). Includes automatic TOTP authentication and daily token refresh at 4:30 AM IST.
 - **Zerodha connector** – REST client that falls back to the paper broker when offline; enable it by providing `BROKER_PROVIDER`, `BROKER_BASE_URL`, and `BROKER_API_KEY` environment variables.
 - **Trading engine** – coordinates market data snapshots, portfolio state, and strategy signals before routing orders to the configured broker.
 - **VWAP mean reversion strategy** – demonstrates how to translate market data deviations into actionable orders.
+- **Automatic Token Management** – `TokenRefreshService` handles daily re-authentication for Angel One (eliminates manual token renewal).
 
 ### Environment Flags
 

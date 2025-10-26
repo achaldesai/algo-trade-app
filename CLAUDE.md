@@ -109,6 +109,35 @@ Each backup is a timestamped directory containing:
 3. Restore: `POST /api/admin/restore` with `backupPath`
 4. Server automatically reinitializes the database
 
+## Authentication & Token Management
+
+### Automatic Token Refresh (Angel One)
+The application includes automatic token refresh to eliminate manual re-authentication:
+
+**Automatic Daily Re-authentication:**
+- Runs at 4:30 AM IST daily (before 5 AM token expiry)
+- Uses TOTP for automatic 2FA (requires `ANGEL_ONE_TOTP_SECRET`)
+- Zero manual intervention required
+- Managed by `TokenRefreshService`
+
+**Manual Token Refresh:**
+```bash
+# Refresh current token (keeps same expiry)
+curl -X POST http://localhost:3000/api/auth/angelone/refresh
+```
+
+**Token Storage:**
+- All tokens stored in LMDB with ACID guarantees
+- Automatic expiry validation
+- Included in automatic backups
+- Migrates automatically from old file-based storage
+
+**Authentication Endpoints:**
+- `POST /api/auth/angelone/login` - Initial authentication
+- `GET /api/auth/angelone/status` - Check authentication status
+- `POST /api/auth/angelone/refresh` - Manual token refresh
+- `POST /api/auth/angelone/logout` - Clear session
+
 ## Safety Features
 
 ### Dry-Run Mode
