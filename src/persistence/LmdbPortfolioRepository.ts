@@ -40,10 +40,11 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
    * @returns Path to the created backup directory
    */
   async createBackup(): Promise<string> {
-    // Include milliseconds to ensure unique backup names even when created rapidly
+    // Include milliseconds and add random suffix to ensure unique backup names
     const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\./g, '-');
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
     const backupDir = path.join(path.dirname(this.storePath), 'backups');
-    const backupPath = path.join(backupDir, `portfolio-${timestamp}`);
+    const backupPath = path.join(backupDir, `portfolio-${timestamp}-${randomSuffix}`);
 
     // Ensure backup directory exists
     await fs.mkdir(backupDir, { recursive: true });
