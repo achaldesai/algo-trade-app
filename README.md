@@ -105,7 +105,7 @@ The service now ships with a broker abstraction and a basic VWAP-driven strategy
 - **Zerodha connector** – REST client that falls back to the paper broker when offline; enable it by providing `BROKER_PROVIDER`, `BROKER_BASE_URL`, and `BROKER_API_KEY` environment variables.
 - **Trading engine** – coordinates market data snapshots, portfolio state, and strategy signals before routing orders to the configured broker.
 - **VWAP mean reversion strategy** – demonstrates how to translate market data deviations into actionable orders.
-- **Automatic Token Management** – `TokenRefreshService` handles daily re-authentication for Angel One (eliminates manual token renewal).
+- **Automatic Token Management** – `TokenRefreshService` handles daily re-authentication for Angel One (eliminates manual token renewal), recalculates the next 04:30 IST window purely in UTC, and triggers a full re-auth when no persisted token is found.
 
 ### Environment Flags
 

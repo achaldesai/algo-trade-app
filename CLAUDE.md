@@ -116,6 +116,8 @@ The application includes automatic token refresh to eliminate manual re-authenti
 
 **Automatic Daily Re-authentication:**
 - Runs at 4:30 AM IST daily (before 5 AM token expiry)
+- Scheduler computes the next run entirely in UTC to stay stable across host timezones
+- Falls back to a full re-authentication when the stored token is missing or expired
 - Uses TOTP for automatic 2FA (requires `ANGEL_ONE_TOTP_SECRET`)
 - Zero manual intervention required
 - Managed by `TokenRefreshService`

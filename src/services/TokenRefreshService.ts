@@ -41,19 +41,22 @@ export class TokenRefreshService {
    */
   private calculateNextRefreshDelay(): number {
     const now = new Date();
+    const IST_OFFSET_MINUTES = 330; // UTC+5:30
+    const refreshMinutesIst = this.REFRESH_HOUR_IST * 60 + this.REFRESH_MINUTE_IST;
+    const refreshMinutesUtc = (refreshMinutesIst - IST_OFFSET_MINUTES + 24 * 60) % (24 * 60);
 
-    // Convert IST to UTC: IST is UTC+5:30
-    // 4:30 AM IST = 11:00 PM UTC previous day
-    const targetHourUTC = this.REFRESH_HOUR_IST - 5; // 4 - 5 = -1 (previous day 23:00)
-    const targetMinuteUTC = this.REFRESH_MINUTE_IST - 30; // 30 - 30 = 0
+    const target = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        Math.floor(refreshMinutesUtc / 60),
+        refreshMinutesUtc % 60,
+        0,
+        0
+      )
+    );
 
-    const target = new Date(now);
-    target.setUTCHours(targetHourUTC < 0 ? 24 + targetHourUTC : targetHourUTC);
-    target.setUTCMinutes(targetMinuteUTC < 0 ? 60 + targetMinuteUTC : targetMinuteUTC);
-    target.setUTCSeconds(0);
-    target.setUTCMilliseconds(0);
-
-    // If target time has passed today, schedule for tomorrow
     if (target <= now) {
       target.setUTCDate(target.getUTCDate() + 1);
     }
@@ -136,7 +139,8 @@ export class TokenRefreshService {
     const tokenData = await loadAngelToken();
 
     if (!tokenData) {
-      logger.warn("No Angel One token found to refresh");
+      logger.info("No persisted Angel One token found, performing full re-authentication");
+      await this.performReauthentication();
       return;
     }
 

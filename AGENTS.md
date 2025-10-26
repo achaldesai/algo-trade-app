@@ -13,7 +13,7 @@ The enhanced service layer supports sophisticated weekly trading operations:
 
 ### Authentication & Token Management
 - `AuthService` - Manages broker authentication state with automatic token loading on startup
-- `TokenRefreshService` - Handles automatic daily token refresh at 4:30 AM IST for Angel One (prevents manual re-authentication)
+- `TokenRefreshService` - Handles automatic daily token refresh at 4:30 AM IST for Angel One (prevents manual re-authentication), recalculating the next run entirely in UTC to avoid timezone drift and re-authing when no persisted token is available
 - `TokenMigrationService` - One-time migration service for moving file-based tokens to LMDB storage
 - Token storage uses LMDB with ACID guarantees, automatic expiry checking, and backup integration
 - Supports both Zerodha and Angel One authentication with TOTP-based automatic 2FA for Angel One
