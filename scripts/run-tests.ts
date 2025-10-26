@@ -11,6 +11,14 @@ type WalkFn = (dir: string, results: string[]) => void;
 
 const ROOT = process.cwd();
 
+if (!process.env.PORTFOLIO_BACKEND) {
+  process.env.PORTFOLIO_BACKEND = "file";
+}
+
+if (!process.env.PORTFOLIO_STORE) {
+  process.env.PORTFOLIO_STORE = path.resolve(ROOT, "data/portfolio-store.test.json");
+}
+
 const collectTests: FileCollector = (dir) => {
   const absoluteDir = path.resolve(ROOT, dir);
   const results: string[] = [];
@@ -40,6 +48,14 @@ const collectTests: FileCollector = (dir) => {
   return results;
 };
 
+const loadPersistence = async () => {
+  const mod = await import("../src/persistence/index.ts");
+  const exports = (mod as { default?: unknown }).default as Record<string, unknown> | undefined;
+  const ensurePortfolioStore = (exports?.ensurePortfolioStore ?? (mod as Record<string, unknown>).ensurePortfolioStore) as () => Promise<void>;
+  const resetPortfolioStore = (exports?.resetPortfolioStore ?? (mod as Record<string, unknown>).resetPortfolioStore) as () => Promise<void>;
+  return { ensurePortfolioStore, resetPortfolioStore };
+};
+
 const testFiles = collectTests("src");
 
 if (testFiles.length === 0) {
@@ -47,9 +63,9 @@ if (testFiles.length === 0) {
   process.exit(0);
 }
 
-const runTests = (files: string[]): SpawnResult => {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, ["--import", "tsx", "--test", ...files], {
+const runTestFile = (file: string): SpawnResult =>
+  new Promise((resolve) => {
+    const child = spawn(process.execPath, ["--import", "tsx", "--test", file], {
       stdio: "inherit",
     });
 
@@ -63,8 +79,35 @@ const runTests = (files: string[]): SpawnResult => {
       resolve(code);
     });
   });
+
+const runTests = async (files: string[]): Promise<number | null> => {
+  const { ensurePortfolioStore, resetPortfolioStore } = await loadPersistence();
+  for (const file of files) {
+    await ensurePortfolioStore();
+    await resetPortfolioStore();
+    const code = await runTestFile(file);
+    if (code === null) {
+      return null;
+    }
+    if (code !== 0) {
+      return code;
+    }
+  }
+
+  return 0;
 };
 
-runTests(testFiles).then((code) => {
+const main = async () => {
+  const { ensurePortfolioStore, resetPortfolioStore } = await loadPersistence();
+  await ensurePortfolioStore();
+  await resetPortfolioStore();
+
+  const code = await runTests(testFiles);
+
   process.exit(code ?? 0);
+};
+
+main().catch((error) => {
+  console.error("Failed to run tests", error);
+  process.exit(1);
 });

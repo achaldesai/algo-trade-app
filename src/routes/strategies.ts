@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { marketDataService, tradingEngine } from "../container";
+import { resolveMarketDataService, resolveTradingEngine } from "../container";
 import { validateBody } from "../middleware/validateRequest";
 
 const router = Router();
@@ -19,6 +19,7 @@ const evaluateSchema = z.object({
 });
 
 router.get("/", (_req, res) => {
+  const tradingEngine = resolveTradingEngine();
   const strategies = tradingEngine.getStrategies().map((strategy) => ({
     id: strategy.id,
     name: strategy.name,
@@ -35,6 +36,8 @@ router.post(
     try {
       const { strategyId } = req.params;
       const payload = req.body as z.infer<typeof evaluateSchema>;
+      const tradingEngine = resolveTradingEngine();
+      const marketDataService = resolveMarketDataService();
 
       payload.ticks?.forEach((tick) => {
         marketDataService.updateTick({

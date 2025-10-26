@@ -8,6 +8,12 @@ import type {
   TradeSide,
   TradeSummary,
 } from "../types";
+import type {
+  CreateStockRecord,
+  CreateTradeRecord,
+  PortfolioRepository,
+} from "../persistence/PortfolioRepository";
+import { RepositoryConflictError } from "../persistence/errors";
 
 export interface CreateStockInput {
   symbol: string;
@@ -29,49 +35,50 @@ interface PositionState {
   realizedPnl: number;
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export class PortfolioService {
-  private readonly stocks = new Map<string, Stock>();
+  constructor(private readonly repository: PortfolioRepository) {}
 
-  private readonly trades: Trade[] = [];
-
-  private readonly lastTradeBySymbol = new Map<string, Trade>();
-
-  constructor(initialStocks: CreateStockInput[] = [], initialTrades: CreateTradeInput[] = []) {
-    initialStocks.forEach((stock) => {
-      this.addStock(stock);
-    });
-    initialTrades.forEach((trade) => {
-      this.addTrade(trade);
-    });
-  }
-
-  public addStock(input: CreateStockInput): Stock {
+  public async addStock(input: CreateStockInput): Promise<Stock> {
     const symbol = input.symbol.trim().toUpperCase();
     if (!symbol) {
       throw new HttpError(400, "Stock symbol is required");
     }
 
-    if (this.stocks.has(symbol)) {
-      throw new HttpError(409, `Stock with symbol ${symbol} already exists`);
+    const name = input.name.trim();
+    if (!name) {
+      throw new HttpError(400, "Stock name is required");
     }
 
-    const stock: Stock = {
+    const record: CreateStockRecord = {
       symbol,
-      name: input.name.trim(),
+      name,
       createdAt: new Date(),
     };
 
-    this.stocks.set(symbol, stock);
-    return stock;
+    try {
+      return await this.repository.createStock(record);
+    } catch (error) {
+      if (error instanceof RepositoryConflictError) {
+        throw new HttpError(409, `Stock with symbol ${symbol} already exists`);
+      }
+      throw error;
+    }
   }
 
-  public listStocks(): Stock[] {
-    return Array.from(this.stocks.values()).sort((a, b) => a.symbol.localeCompare(b.symbol));
+  public async listStocks(): Promise<Stock[]> {
+    return this.repository.listStocks();
   }
 
-  public addTrade(input: CreateTradeInput): Trade {
+  public async addTrade(input: CreateTradeInput): Promise<Trade> {
     const symbol = input.symbol.trim().toUpperCase();
-    if (!this.stocks.has(symbol)) {
+    if (!symbol) {
+      throw new HttpError(400, "Trade symbol is required");
+    }
+
+    const stock = await this.repository.findStock(symbol);
+    if (!stock) {
       throw new HttpError(404, `Unknown stock symbol ${symbol}`);
     }
 
@@ -83,38 +90,54 @@ export class PortfolioService {
       throw new HttpError(400, "Trade price must be a positive number");
     }
 
-    const trade: Trade = {
+    const record: CreateTradeRecord = {
       id: randomUUID(),
       symbol,
       side: input.side,
       quantity: Math.round(input.quantity),
-      price: input.price,
+      price: Number(input.price),
       executedAt: input.executedAt ?? new Date(),
       notes: input.notes?.trim() || undefined,
     };
 
-    this.persistTrade(trade);
-    return trade;
+    return this.repository.createTrade(record);
   }
 
-  public listTrades(): Trade[] {
-    return [...this.trades].sort((a, b) => b.executedAt.getTime() - a.executedAt.getTime());
+  public async listTrades(): Promise<Trade[]> {
+    const trades = await this.repository.listTrades();
+    return [...trades].sort((a, b) => b.executedAt.getTime() - a.executedAt.getTime());
   }
 
-  public recordExternalTrade(trade: Trade): void {
+  public async recordExternalTrade(trade: Trade): Promise<void> {
     const symbol = trade.symbol.trim().toUpperCase();
-    if (!this.stocks.has(symbol)) {
-      this.addStock({ symbol, name: symbol });
+    if (!symbol) {
+      throw new HttpError(400, "Trade symbol is required");
     }
 
-    this.persistTrade({ ...trade, symbol });
+    await this.repository.ensureStock({ symbol, name: symbol, createdAt: new Date() });
+
+    const id = UUID_PATTERN.test(trade.id) ? trade.id : randomUUID();
+
+    await this.repository.createTradeIfMissing({
+      id,
+      symbol,
+      side: trade.side,
+      quantity: Math.round(trade.quantity),
+      price: Number(trade.price),
+      executedAt: trade.executedAt,
+      notes: trade.notes,
+    });
   }
 
-  public getSnapshot(): PortfolioSnapshot {
-    const summaries = this.getTradeSummaries();
+  public async getSnapshot(): Promise<PortfolioSnapshot> {
+    const trades = await this.repository.listTrades();
+    const [summaries, latestPrices] = await Promise.all([
+      this.getTradeSummaries(trades),
+      this.getLatestTradePrices(trades),
+    ]);
 
     const positions: PortfolioPositionSnapshot[] = summaries.map((summary) => {
-      const markPrice = this.lastTradeBySymbol.get(summary.symbol)?.price ?? summary.averageEntryPrice;
+      const markPrice = latestPrices.get(summary.symbol) ?? summary.averageEntryPrice;
       const unrealizedPnl = summary.netQuantity * (markPrice - summary.averageEntryPrice);
       return {
         ...summary,
@@ -125,15 +148,18 @@ export class PortfolioService {
     return {
       generatedAt: new Date(),
       positions,
-      totalTrades: this.trades.length,
+      totalTrades: trades.length,
     } satisfies PortfolioSnapshot;
   }
 
-  public getTradeSummaries(): TradeSummary[] {
+  public async getTradeSummaries(tradesOverride?: Trade[]): Promise<TradeSummary[]> {
+    const trades = tradesOverride ?? (await this.repository.listTrades());
+    const stocks = await this.repository.listStocks();
+    const stockMap = new Map(stocks.map((stock) => [stock.symbol, stock.name]));
+
     const states = new Map<string, PositionState>();
 
-    const sortedTrades = [...this.trades].sort((a, b) => a.executedAt.getTime() - b.executedAt.getTime());
-    for (const trade of sortedTrades) {
+    for (const trade of trades) {
       const state = states.get(trade.symbol) ?? { netQuantity: 0, totalCost: 0, realizedPnl: 0 };
 
       if (trade.side === "BUY") {
@@ -143,7 +169,7 @@ export class PortfolioService {
         if (openShortQuantity > 0) {
           const closingQuantity = Math.min(openShortQuantity, remainingQuantity);
           if (closingQuantity > 0) {
-            const entryAverage = state.totalCost / state.netQuantity;
+            const entryAverage = state.netQuantity !== 0 ? state.totalCost / state.netQuantity : 0;
             state.realizedPnl += closingQuantity * (entryAverage - trade.price);
             state.netQuantity += closingQuantity;
             state.totalCost += entryAverage * closingQuantity;
@@ -170,7 +196,6 @@ export class PortfolioService {
 
         const residualQty = trade.quantity - closingQty;
         if (residualQty > 0) {
-          // Transition to a short position: treat proceeds as negative cost basis.
           state.netQuantity -= residualQty;
           state.totalCost -= residualQty * trade.price;
         }
@@ -184,13 +209,12 @@ export class PortfolioService {
     }
 
     return Array.from(states.entries()).map(([symbol, state]) => {
-      const stock = this.stocks.get(symbol);
       const position = state.netQuantity > 0 ? "LONG" : state.netQuantity < 0 ? "SHORT" : "FLAT";
       const averageEntryPrice = state.netQuantity !== 0 ? Math.abs(state.totalCost / state.netQuantity) : 0;
 
       return {
         symbol,
-        name: stock?.name ?? symbol,
+        name: stockMap.get(symbol) ?? symbol,
         netQuantity: state.netQuantity,
         averageEntryPrice: Number(averageEntryPrice.toFixed(4)),
         realizedPnl: Number(state.realizedPnl.toFixed(2)),
@@ -199,13 +223,18 @@ export class PortfolioService {
     });
   }
 
-  private persistTrade(trade: Trade): void {
-    this.trades.push(trade);
-    this.trades.sort((a, b) => a.executedAt.getTime() - b.executedAt.getTime());
-    const latest = this.lastTradeBySymbol.get(trade.symbol);
-    if (!latest || trade.executedAt.getTime() >= latest.executedAt.getTime()) {
-      this.lastTradeBySymbol.set(trade.symbol, trade);
+  private async getLatestTradePrices(tradesOverride?: Trade[]): Promise<Map<string, number>> {
+    const trades = tradesOverride ?? (await this.repository.listTrades());
+    const latest = new Map<string, number>();
+
+    for (let index = trades.length - 1; index >= 0; index -= 1) {
+      const trade = trades[index];
+      if (!latest.has(trade.symbol)) {
+        latest.set(trade.symbol, trade.price);
+      }
     }
+
+    return latest;
   }
 }
 

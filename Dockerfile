@@ -5,7 +5,9 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+  && npm ci \
+  && apk del .build-deps
 
 FROM base AS build
 COPY package.json package-lock.json ./
@@ -25,6 +27,7 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+RUN mkdir -p data/portfolio-store backups && chown -R node:node data backups
 USER node
 EXPOSE 3000
 CMD ["node", "dist/server.js"]

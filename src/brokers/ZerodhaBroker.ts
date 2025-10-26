@@ -8,7 +8,15 @@ import type {
   Trade,
   TradeSide,
 } from "../types";
-import type { Connect, Trade as KiteTrade } from "kiteconnect/types/connect";
+import type {
+  Connect,
+  Trade as KiteTrade,
+  Exchanges,
+  Product as KiteProduct,
+  OrderType as KiteOrderType,
+  Validity as KiteValidity,
+  TransactionType,
+} from "kiteconnect/types/connect";
 import logger from "../utils/logger";
 
 export interface ZerodhaBrokerConfig {
@@ -201,14 +209,20 @@ export class ZerodhaBroker implements BrokerClient {
       throw new Error(`Limit order for ${order.symbol} requires a price`);
     }
 
+    const exchange = this.config.defaultExchange.toUpperCase() as Exchanges;
+    const product = this.config.product.toUpperCase() as KiteProduct;
+    const transactionType = order.side as TransactionType;
+    const orderType = order.type as KiteOrderType;
+    const validity = (this.kite?.VALIDITY_DAY ?? "DAY") as KiteValidity;
+
     return {
-      exchange: this.config.defaultExchange,
+      exchange,
       tradingsymbol: order.symbol,
-      transaction_type: order.side,
+      transaction_type: transactionType,
       quantity: order.quantity,
-      product: this.config.product,
-      order_type: order.type,
-      validity: this.kite?.VALIDITY_DAY ?? "DAY",
+      product,
+      order_type: orderType,
+      validity,
       price: order.price,
       tag: order.tag,
     };

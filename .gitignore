@@ -4,3 +4,11 @@ dist
 .settings
 .env
 .DS_Store
+
+# Runtime data
+data/
+backups/
+
+# Logs
+*.log
+error.log
