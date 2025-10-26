@@ -4,8 +4,54 @@ import { getPortfolioRepository } from "../persistence";
 import logger from "../utils/logger";
 import { HttpError } from "../utils/HttpError";
 import env from "../config/env";
+import { adminAuthMiddleware } from "../middleware/adminAuth";
 
 const router = Router();
+
+// Apply authentication middleware to all admin routes
+router.use(adminAuthMiddleware);
+
+/**
+ * Type guard to check if repository supports backup operations
+ */
+interface BackupCapableRepository {
+  createBackup(): Promise<string>;
+  listBackups(): Promise<string[]>;
+  restoreFromBackup(backupPath: string): Promise<void>;
+  exportToJson(): Promise<unknown>;
+  getStats(): Promise<unknown>;
+}
+
+function hasBackupCapability(repo: unknown): repo is BackupCapableRepository {
+  return (
+    repo !== null &&
+    typeof repo === "object" &&
+    "createBackup" in repo &&
+    typeof repo.createBackup === "function" &&
+    "listBackups" in repo &&
+    typeof repo.listBackups === "function" &&
+    "restoreFromBackup" in repo &&
+    typeof repo.restoreFromBackup === "function"
+  );
+}
+
+function hasStatsCapability(repo: unknown): repo is { getStats(): Promise<unknown> } {
+  return (
+    repo !== null &&
+    typeof repo === "object" &&
+    "getStats" in repo &&
+    typeof repo.getStats === "function"
+  );
+}
+
+function hasExportCapability(repo: unknown): repo is { exportToJson(): Promise<unknown> } {
+  return (
+    repo !== null &&
+    typeof repo === "object" &&
+    "exportToJson" in repo &&
+    typeof repo.exportToJson === "function"
+  );
+}
 
 /**
  * GET /admin/db-stats
@@ -16,11 +62,11 @@ router.get("/db-stats", async (req: Request, res: Response) => {
     const repo = await getPortfolioRepository();
 
     // Check if repository has stats method (LMDB only)
-    if ('getStats' in repo && typeof repo.getStats === 'function') {
+    if (hasStatsCapability(repo)) {
       const stats = await repo.getStats();
       res.json({
         backend: env.portfolioBackend,
-        ...stats,
+        ...(stats as Record<string, unknown>),
       });
     } else {
       // Fallback for file-based repository
@@ -48,7 +94,7 @@ router.post("/backup", async (req: Request, res: Response) => {
   try {
     const repo = await getPortfolioRepository();
 
-    if ('createBackup' in repo && typeof repo.createBackup === 'function') {
+    if (hasBackupCapability(repo)) {
       const backupPath = await repo.createBackup();
       logger.info({ backupPath }, "Manual backup created");
 
@@ -76,7 +122,7 @@ router.get("/backups", async (req: Request, res: Response) => {
   try {
     const repo = await getPortfolioRepository();
 
-    if ('listBackups' in repo && typeof repo.listBackups === 'function') {
+    if (hasBackupCapability(repo)) {
       const backups = await repo.listBackups();
 
       res.json({
@@ -111,7 +157,7 @@ router.post("/restore", async (req: Request, res: Response) => {
     const { backupPath } = RestoreSchema.parse(req.body);
     const repo = await getPortfolioRepository();
 
-    if ('restoreFromBackup' in repo && typeof repo.restoreFromBackup === 'function') {
+    if (hasBackupCapability(repo)) {
       await repo.restoreFromBackup(backupPath);
       logger.info({ backupPath }, "Database restored from backup");
 
@@ -139,7 +185,7 @@ router.get("/export", async (req: Request, res: Response) => {
   try {
     const repo = await getPortfolioRepository();
 
-    if ('exportToJson' in repo && typeof repo.exportToJson === 'function') {
+    if (hasExportCapability(repo)) {
       const data = await repo.exportToJson();
 
       res.setHeader('Content-Type', 'application/json');

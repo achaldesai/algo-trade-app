@@ -65,6 +65,7 @@ export const env = {
   dryRun: process.env.DRY_RUN === "true",
   maxPositionSize: parsePort(process.env.MAX_POSITION_SIZE, 100000),
   enableNotifications: process.env.ENABLE_NOTIFICATIONS === "true",
+  adminApiKey: process.env.ADMIN_API_KEY ?? "",
 };
 
 export type EnvConfig = typeof env;

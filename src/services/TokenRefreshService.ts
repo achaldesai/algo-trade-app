@@ -17,6 +17,9 @@ export class TokenRefreshService {
   private static instance: TokenRefreshService;
   private refreshTimer: NodeJS.Timeout | null = null;
   private smartApi: SmartAPI | null = null;
+  private retryCount = 0;
+  private readonly MAX_RETRIES = 5;
+  private readonly BASE_RETRY_DELAY_MS = 60000; // 1 minute
 
   // Angel One tokens expire at 5 AM IST (23:30 UTC previous day)
   // We'll refresh at 4:30 AM IST (23:00 UTC previous day) to be safe
@@ -34,6 +37,16 @@ export class TokenRefreshService {
       TokenRefreshService.instance = new TokenRefreshService();
     }
     return TokenRefreshService.instance;
+  }
+
+  /**
+   * Calculate exponential backoff delay for retries
+   * Returns delay in milliseconds: 1min, 2min, 4min, 8min, 16min
+   */
+  private calculateBackoffDelay(): number {
+    const delay = this.BASE_RETRY_DELAY_MS * Math.pow(2, this.retryCount);
+    const maxDelay = 30 * 60 * 1000; // Cap at 30 minutes
+    return Math.min(delay, maxDelay);
   }
 
   /**
@@ -182,12 +195,16 @@ export class TokenRefreshService {
    * Start the automatic refresh scheduler
    */
   public start(): void {
-    if (env.brokerProvider !== "angelone") {
+    // Read from process.env directly to support testing
+    const brokerProvider = (process.env.BROKER_PROVIDER ?? "paper").toLowerCase();
+    const totpSecret = process.env.ANGEL_ONE_TOTP_SECRET ?? "";
+
+    if (brokerProvider !== "angelone") {
       logger.debug("Angel One broker not enabled, skipping token refresh scheduler");
       return;
     }
 
-    if (!env.angelOneTotpSecret) {
+    if (!totpSecret) {
       logger.warn(
         "Angel One TOTP secret not configured. Automatic token refresh disabled. " +
         "Set ANGEL_ONE_TOTP_SECRET in .env to enable automatic re-authentication."
@@ -204,8 +221,48 @@ export class TokenRefreshService {
       this.refreshTimer = setTimeout(async () => {
         try {
           await this.performReauthentication();
+          // Reset retry count on success
+          this.retryCount = 0;
         } catch (error) {
-          logger.error({ err: error }, "Automatic token re-authentication failed");
+          logger.error(
+            { err: error, retryCount: this.retryCount },
+            "Automatic token re-authentication failed"
+          );
+
+          // Apply exponential backoff for retries
+          if (this.retryCount < this.MAX_RETRIES) {
+            this.retryCount++;
+            const backoffDelay = this.calculateBackoffDelay();
+
+            logger.warn(
+              {
+                retryCount: this.retryCount,
+                maxRetries: this.MAX_RETRIES,
+                nextRetryIn: `${Math.round(backoffDelay / 60000)} minutes`,
+              },
+              "Scheduling retry with exponential backoff"
+            );
+
+            this.refreshTimer = setTimeout(async () => {
+              // Retry the authentication
+              try {
+                await this.performReauthentication();
+                this.retryCount = 0; // Reset on success
+                scheduleNext(); // Schedule normal daily refresh
+              } catch (retryError) {
+                logger.error({ err: retryError }, "Retry failed, continuing with backoff");
+                scheduleNext(); // This will apply backoff again if needed
+              }
+            }, backoffDelay);
+
+            return; // Don't schedule the normal refresh yet
+          } else {
+            logger.error(
+              { maxRetries: this.MAX_RETRIES },
+              "Max retries reached for token refresh. Resetting retry count and scheduling next daily attempt."
+            );
+            this.retryCount = 0; // Reset for next daily attempt
+          }
         }
 
         // Schedule next refresh

@@ -40,8 +40,9 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
    * @returns Path to the created backup directory
    */
   async createBackup(): Promise<string> {
-    const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-    const backupDir = path.join(path.dirname(this.storePath), '../backups');
+    // Include milliseconds to ensure unique backup names even when created rapidly
+    const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\./g, '-');
+    const backupDir = path.join(path.dirname(this.storePath), 'backups');
     const backupPath = path.join(backupDir, `portfolio-${timestamp}`);
 
     // Ensure backup directory exists
@@ -93,7 +94,7 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
    * @returns Array of backup paths sorted by date (newest first)
    */
   async listBackups(): Promise<string[]> {
-    const backupDir = path.join(path.dirname(this.storePath), '../backups');
+    const backupDir = path.join(path.dirname(this.storePath), 'backups');
 
     try {
       const entries = await fs.readdir(backupDir);
@@ -124,21 +125,31 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
   }
 
   /**
-   * Gets database statistics
+   * Gets database statistics including backup information
    */
-  async getStats(): Promise<{ path: string; sizeMB: number; stockCount: number; tradeCount: number }> {
+  async getStats(): Promise<{
+    path: string;
+    sizeMB: number;
+    stockCount: number;
+    tradeCount: number;
+    backupCount: number;
+    lastBackup: string | null;
+  }> {
     const dataFilePath = path.join(this.storePath, 'data.mdb');
 
     try {
       const stats = await fs.stat(dataFilePath);
       const stocks = await this.listStocks();
       const trades = await this.listTrades();
+      const backups = await this.listBackups();
 
       return {
         path: this.storePath,
         sizeMB: Math.round((stats.size / 1024 / 1024) * 100) / 100,
         stockCount: stocks.length,
         tradeCount: trades.length,
+        backupCount: backups.length,
+        lastBackup: backups.length > 0 ? path.basename(backups[0]) : null,
       };
     } catch {
       return {
@@ -146,6 +157,8 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
         sizeMB: 0,
         stockCount: 0,
         tradeCount: 0,
+        backupCount: 0,
+        lastBackup: null,
       };
     }
   }
@@ -234,7 +247,7 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
       createdAt: record.createdAt.toISOString(),
     };
 
-    stocksDb.put(symbol, entry);
+    await stocksDb.put(symbol, entry);
     return this.toStock(entry);
   }
 
@@ -271,7 +284,7 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
     }
 
     const entry: TradeRecordData = this.toTradeRecord(record);
-    tradesDb.put(entry.id, entry);
+    await tradesDb.put(entry.id, entry);
     return this.toTrade(entry);
   }
 
@@ -283,7 +296,7 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
     }
 
     const entry: TradeRecordData = this.toTradeRecord(record);
-    tradesDb.put(entry.id, entry);
+    await tradesDb.put(entry.id, entry);
     return true;
   }
 
@@ -338,15 +351,16 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
     stocksDb.clearSync();
     tradesDb.clearSync();
 
-    seededStocks.forEach((entry) => {
-      stocksDb.put(entry.symbol, entry);
-    });
+    for (const entry of seededStocks) {
+      await stocksDb.put(entry.symbol, entry);
+    }
 
-    seededTrades
-      .sort((a, b) => new Date(a.executedAt).getTime() - new Date(b.executedAt).getTime())
-      .forEach((entry) => {
-        tradesDb.put(entry.id, entry);
-      });
+    const sortedTrades = seededTrades
+      .sort((a, b) => new Date(a.executedAt).getTime() - new Date(b.executedAt).getTime());
+
+    for (const entry of sortedTrades) {
+      await tradesDb.put(entry.id, entry);
+    }
   }
 
   private toStock(record: StockRecordData): Stock {

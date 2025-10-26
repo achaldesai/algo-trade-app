@@ -8,7 +8,12 @@ export interface HistoricalDataCache {
 }
 
 class InMemoryCache implements HistoricalDataCache {
-  private cache = new Map<string, { data: HistoricalCandle[]; expires: number }>();
+  private cache = new Map<string, { data: HistoricalCandle[]; expires: number; lastAccessed: number }>();
+  private readonly maxEntries: number;
+
+  constructor(maxEntries: number = 100) {
+    this.maxEntries = maxEntries;
+  }
 
   get(key: string): HistoricalCandle[] | undefined {
     const entry = this.cache.get(key);
@@ -16,14 +21,49 @@ class InMemoryCache implements HistoricalDataCache {
       this.cache.delete(key);
       return undefined;
     }
+
+    // Update last accessed time for LRU
+    entry.lastAccessed = Date.now();
     return entry.data;
   }
 
   set(key: string, data: HistoricalCandle[], ttlMs: number): void {
+    // Evict LRU entry if cache is full
+    if (this.cache.size >= this.maxEntries && !this.cache.has(key)) {
+      this.evictLRU();
+    }
+
     this.cache.set(key, {
       data,
       expires: Date.now() + ttlMs,
+      lastAccessed: Date.now(),
     });
+  }
+
+  /**
+   * Evict the least recently used entry from cache
+   */
+  private evictLRU(): void {
+    let oldestKey: string | null = null;
+    let oldestTime = Infinity;
+
+    for (const [key, entry] of this.cache.entries()) {
+      // Also evict expired entries opportunistically
+      if (Date.now() > entry.expires) {
+        this.cache.delete(key);
+        continue;
+      }
+
+      if (entry.lastAccessed < oldestTime) {
+        oldestTime = entry.lastAccessed;
+        oldestKey = key;
+      }
+    }
+
+    if (oldestKey) {
+      logger.debug({ evictedKey: oldestKey }, "Evicted LRU cache entry");
+      this.cache.delete(oldestKey);
+    }
   }
 
   clear(): void {

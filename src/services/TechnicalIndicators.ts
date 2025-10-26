@@ -70,25 +70,33 @@ export class TechnicalIndicators {
       return undefined;
     }
 
-    const fastEMA = this.calculateEMA(candles, fastPeriod);
-    const slowEMA = this.calculateEMA(candles, slowPeriod);
+    const fastMultiplier = 2 / (fastPeriod + 1);
+    const slowMultiplier = 2 / (slowPeriod + 1);
+    const signalMultiplier = 2 / (signalPeriod + 1);
 
-    if (!fastEMA || !slowEMA) {
+    // Calculate initial SMA values for fast and slow EMAs
+    let fastEMA = candles.slice(0, fastPeriod).reduce((sum, c) => sum + c.close, 0) / fastPeriod;
+    let slowEMA = candles.slice(0, slowPeriod).reduce((sum, c) => sum + c.close, 0) / slowPeriod;
+
+    const macdValues: number[] = [];
+
+    // Calculate MACD values incrementally (O(n) instead of O(n²))
+    for (let i = slowPeriod; i < candles.length; i++) {
+      // Update fast EMA
+      fastEMA = (candles[i].close * fastMultiplier) + (fastEMA * (1 - fastMultiplier));
+
+      // Update slow EMA
+      slowEMA = (candles[i].close * slowMultiplier) + (slowEMA * (1 - slowMultiplier));
+
+      // Calculate MACD line
+      macdValues.push(fastEMA - slowEMA);
+    }
+
+    if (macdValues.length === 0) {
       return undefined;
     }
 
-    const macd = fastEMA - slowEMA;
-
-    // Calculate MACD values for signal line
-    const macdValues: number[] = [];
-    for (let i = slowPeriod - 1; i < candles.length; i++) {
-      const subCandles = candles.slice(0, i + 1);
-      const fEMA = this.calculateEMA(subCandles, fastPeriod);
-      const sEMA = this.calculateEMA(subCandles, slowPeriod);
-      if (fEMA && sEMA) {
-        macdValues.push(fEMA - sEMA);
-      }
-    }
+    const macd = macdValues[macdValues.length - 1];
 
     if (macdValues.length < signalPeriod) {
       return {
@@ -99,12 +107,11 @@ export class TechnicalIndicators {
     }
 
     // Calculate signal line (EMA of MACD) - use SMA for first value
-    const multiplier = 2 / (signalPeriod + 1);
     const firstMacdValues = macdValues.slice(0, signalPeriod);
     let signal = firstMacdValues.reduce((sum, val) => sum + val, 0) / signalPeriod;
 
     for (let i = signalPeriod; i < macdValues.length; i++) {
-      signal = (macdValues[i] * multiplier) + (signal * (1 - multiplier));
+      signal = (macdValues[i] * signalMultiplier) + (signal * (1 - signalMultiplier));
     }
 
     const histogram = macd - signal;

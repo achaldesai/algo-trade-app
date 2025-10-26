@@ -32,6 +32,8 @@ export class AuthService {
 
       if (tokenData) {
         // Inject token into environment for broker to use
+        // Note: This mutation is intentional - the Zerodha broker reads from process.env
+        // This pattern allows hot-swapping tokens without restarting the server
         process.env.ZERODHA_ACCESS_TOKEN = tokenData.accessToken;
         this.tokenData = tokenData;
 

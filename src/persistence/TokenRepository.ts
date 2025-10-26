@@ -61,6 +61,7 @@ const isAngelOneTokenData = (
 
 export class LmdbTokenRepository implements TokenRepository {
   private db: Database<StoredTokenRecord> | null = null;
+  private initPromise: Promise<Database<StoredTokenRecord>> | null = null;
 
   private readonly ZERODHA_KEY = "auth:zerodha";
   private readonly ANGELONE_KEY = "auth:angelone";
@@ -69,20 +70,38 @@ export class LmdbTokenRepository implements TokenRepository {
 
   /**
    * Initialize the LMDB database
+   * Uses a promise to prevent race conditions on concurrent initialization
    */
   private async ensureDb(): Promise<Database<StoredTokenRecord>> {
+    // If already initialized, return existing instance
     if (this.db) {
       return this.db;
     }
 
-    const dbPath = path.join(this.storePath, "tokens");
+    // If initialization is in progress, wait for it
+    if (this.initPromise) {
+      return this.initPromise;
+    }
 
-    this.db = open({
-      path: dbPath,
-      compression: true,
-    });
+    // Start initialization
+    this.initPromise = (async () => {
+      const dbPath = path.join(this.storePath, "tokens");
 
-    return this.db;
+      this.db = open({
+        path: dbPath,
+        compression: true,
+      });
+
+      logger.debug({ dbPath }, "Token repository database initialized");
+      return this.db;
+    })();
+
+    try {
+      return await this.initPromise;
+    } finally {
+      // Clear the promise after initialization completes (success or failure)
+      this.initPromise = null;
+    }
   }
 
   /**

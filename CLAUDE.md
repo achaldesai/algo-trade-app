@@ -60,6 +60,7 @@ Key environment variables:
 - `DRY_RUN`: Set to `true` to test strategies without executing real trades (default `false`)
 - `MAX_POSITION_SIZE`: Maximum position value in currency units (default 100000)
 - `ENABLE_NOTIFICATIONS`: Enable desktop notifications for trades (default `false`)
+- `ADMIN_API_KEY`: **REQUIRED for production** - Secure API key for admin endpoints (default: "")
 
 **Note**: Angel One SmartAPI provides **FREE** market data and historical data APIs. See `docs/ANGEL_ONE_SETUP.md` for setup instructions.
 
@@ -75,28 +76,35 @@ The application includes automatic backup functionality for LMDB databases:
 
 ### Manual Backup Management
 
-Admin API endpoints for backup operations:
+Admin API endpoints for backup operations (require `X-Admin-API-Key` header):
 
 ```bash
+# Set your admin API key as a header
+API_KEY="your_admin_api_key"
+
 # Create manual backup
-POST /api/admin/backup
+curl -X POST -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/admin/backup
 
 # List all backups
-GET /api/admin/backups
+curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/admin/backups
 
 # Restore from backup
-POST /api/admin/restore
-Body: { "backupPath": "/path/to/backup" }
+curl -X POST -H "X-Admin-API-Key: $API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"backupPath": "/path/to/backup"}' \
+     http://localhost:3000/api/admin/restore
 
 # Export database to JSON
-GET /api/admin/export
+curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/admin/export
 
 # Get database statistics
-GET /api/admin/db-stats
+curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/admin/db-stats
 
 # Health check
-GET /api/admin/health
+curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/admin/health
 ```
+
+**Security Note**: All admin endpoints require the `X-Admin-API-Key` header with a valid API key. Without `ADMIN_API_KEY` configured in your environment, these endpoints will return `503 Service Unavailable`.
 
 ### Backup Contents
 Each backup is a timestamped directory containing:
