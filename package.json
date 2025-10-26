@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint --fix . --ext .ts",
     "test": "node --import tsx scripts/run-tests.ts",
     "once": "node --import tsx scripts/run-once.ts"
   },

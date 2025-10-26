@@ -47,7 +47,7 @@ export class TokenRefreshService {
     const targetHourUTC = this.REFRESH_HOUR_IST - 5; // 4 - 5 = -1 (previous day 23:00)
     const targetMinuteUTC = this.REFRESH_MINUTE_IST - 30; // 30 - 30 = 0
 
-    let target = new Date(now);
+    const target = new Date(now);
     target.setUTCHours(targetHourUTC < 0 ? 24 + targetHourUTC : targetHourUTC);
     target.setUTCMinutes(targetMinuteUTC < 0 ? 60 + targetMinuteUTC : targetMinuteUTC);
     target.setUTCSeconds(0);
