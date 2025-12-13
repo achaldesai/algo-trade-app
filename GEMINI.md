@@ -11,6 +11,16 @@ This file provides guidance to Gemini when working with code in this repository.
 - **Linting**: `npm run lint` - Run ESLint v9 with TypeScript plugin
 - **Run-once workflows**: `npm run once -- --strategy vwap` - Execute strategy once and exit
 
+## Strict Startup Validation
+
+The server enforces strict validation on startup and **will exit with an error** if:
+
+- **Broker not authenticated** (for `BROKER_PROVIDER=angelone` or `zerodha`): The broker must be connected before server starts. Authenticate first via API.
+- **Angel One tokens missing/expired** (for `DATA_PROVIDER=angelone`): Valid tokens must exist. Run `/api/auth/angelone/login` first.
+- **Paper broker exemption**: `BROKER_PROVIDER=paper` skips all validation and always starts.
+
+This prevents running in a degraded state with memory leaks from endless reconnection attempts.
+
 ## Architecture Overview
 
 This is an algorithmic trading backend with a clean separation of concerns:
@@ -254,7 +264,7 @@ curl http://localhost:3000/api/pnl/positions
 
 ### Rate Limiting
 Global rate limiting is applied to all API endpoints to prevent abuse:
-- **Limit**: 100 requests per 15-minute window per IP (Global)
+- **Limit**: 1000 requests per 15-minute window per IP (Global - increased to accommodate dashboard polling)
 - **Admin Limit**: 10 requests per 1-minute window per IP (Strict limit for `/api/admin` routes)
 - **Headers**: Standard `RateLimit-*` headers are included in responses
 

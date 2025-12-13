@@ -61,6 +61,43 @@ const start = async () => {
     const authService = AuthService.getInstance();
     await authService.initialize();
 
+    // ===== STRICT STARTUP VALIDATION =====
+    // Validate broker authentication (skip for paper broker)
+    if (env.brokerProvider !== "paper") {
+      const { resolveBrokerClient } = await import("./container");
+      const broker = resolveBrokerClient();
+
+      if (!broker.isConnected()) {
+        logger.error({
+          brokerProvider: env.brokerProvider
+        }, "FATAL: Broker not authenticated. Run authentication first.");
+        process.exit(1);
+      }
+      logger.info({ broker: broker.name }, "Broker authentication verified");
+    }
+
+    // For ticker (DATA_PROVIDER=angelone), validate Angel One tokens exist
+    // NOTE: This is a WARNING, not fatal, so users can authenticate via the running server
+    let tickerTokensValid = false;
+    if (env.dataProvider === "angelone") {
+      const { loadAngelToken } = await import("./routes/auth");
+      const angelTokens = await loadAngelToken();
+
+      if (!angelTokens) {
+        logger.warn("Angel One tokens not found. Ticker will not start. Authenticate via /api/auth/angelone/login");
+      } else {
+        // Check token expiry
+        const expiresAt = new Date(angelTokens.expiresAt);
+        if (expiresAt < new Date()) {
+          logger.warn({ expiresAt }, "Angel One tokens expired. Ticker will not start. Re-authenticate via /api/auth/angelone/login");
+        } else {
+          tickerTokensValid = true;
+          logger.info("Angel One token validation passed");
+        }
+      }
+    }
+    // ===== END STRICT STARTUP VALIDATION =====
+
     // Load Angel One instrument master if using angelone broker or data provider
     if (env.brokerProvider === "angelone" || env.dataProvider === "angelone") {
       try {
@@ -74,15 +111,17 @@ const start = async () => {
     }
 
     // Connect ticker from container (if configured via DATA_PROVIDER=angelone)
+    // Only connect if tokens were validated successfully
     const { resolveTickerClient } = await import("./container");
     const tickerClient = resolveTickerClient();
-    if (tickerClient) {
+    if (tickerClient && tickerTokensValid) {
       // Connect ticker (will load tokens internally)
-      // We don't await this to avoid blocking server startup if connection fails
       tickerClient.connect().catch(err => {
         logger.error({ err }, "Failed to connect ticker on startup");
       });
       logger.info("Ticker service initialized");
+    } else if (tickerClient && !tickerTokensValid) {
+      logger.info("Ticker service not started - authenticate first");
     }
 
     // Start backup scheduler

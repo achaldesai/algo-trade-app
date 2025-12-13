@@ -25,10 +25,12 @@ export class AngelOneTickerService implements TickerClient {
   private heartbeatInterval?: NodeJS.Timeout;
   private _connected = false;
   private currentTokens?: { clientId: string; jwtToken: string; feedToken: string };
+  private reconnectAttempts = 0;
 
   private readonly WS_URL = "wss://smartapisocket.angelone.in/smart-stream";
   private readonly HEARTBEAT_INTERVAL = 10000; // 10 seconds
   private readonly RECONNECT_DELAY = 5000; // 5 seconds
+  private readonly MAX_RECONNECT_ATTEMPTS = 10; // Stop retrying after 10 failures
 
   constructor(marketDataService: MarketDataService) {
     this.marketDataService = marketDataService;
@@ -56,7 +58,20 @@ export class AngelOneTickerService implements TickerClient {
         feedToken: tokenData.feedToken,
       };
 
-      this.ws = new WebSocket(this.WS_URL);
+      // Get API key from env
+      const apiKey = process.env.ANGEL_ONE_API_KEY || "";
+
+      // Angel One SmartAPI WebSocket requires headers during handshake
+      const wsOptions = {
+        headers: {
+          "Authorization": `Bearer ${tokenData.jwtToken}`,
+          "x-api-key": apiKey,
+          "x-client-code": tokenData.clientId,
+          "x-feed-token": tokenData.feedToken,
+        }
+      };
+
+      this.ws = new WebSocket(this.WS_URL, wsOptions);
 
       this.ws.on("open", () => this.onOpen());
       this.ws.on("message", (data) => this.onMessage(data));
@@ -212,6 +227,9 @@ export class AngelOneTickerService implements TickerClient {
     // (we'll assume success for now, proper error handling would check response)
     this._connected = true;
 
+    // Reset retry counter on successful connection
+    this.reconnectAttempts = 0;
+
     // Resubscribe to all previous subscriptions
     if (this.subscriptions.size > 0) {
       this.sendSubscription(Array.from(this.subscriptions.values()), "subscribe");
@@ -306,15 +324,36 @@ export class AngelOneTickerService implements TickerClient {
       return;
     }
 
-    logger.info({ delay: this.RECONNECT_DELAY }, "Scheduling WebSocket reconnect");
+    // Check if max retries exceeded
+    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
+      logger.error(
+        { attempts: this.reconnectAttempts },
+        "Max reconnection attempts reached. Stopping ticker reconnection. Check credentials and restart server."
+      );
+      return;
+    }
+
+    this.reconnectAttempts++;
+
+    // Exponential backoff: 5s, 10s, 20s, 40s... (capped at 5 minutes)
+    const delay = Math.min(
+      this.RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1),
+      5 * 60 * 1000
+    );
+
+    logger.info(
+      { delay, attempt: this.reconnectAttempts, maxAttempts: this.MAX_RECONNECT_ATTEMPTS },
+      "Scheduling WebSocket reconnect"
+    );
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
       this.connect().catch((error) => {
         logger.error({ err: error }, "Reconnection attempt failed");
-        // Will automatically schedule another reconnect via onClose
+        // Schedule next attempt with backoff (onClose will also call this)
+        this.scheduleReconnect();
       });
-    }, this.RECONNECT_DELAY);
+    }, delay);
   }
 }
 

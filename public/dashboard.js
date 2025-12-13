@@ -44,8 +44,33 @@ function setAdminKey(key) {
     } else {
         sessionStorage.removeItem('adminApiKey');
     }
-    // Trigger immediate health check to update UI
+    // Trigger immediate updates to refresh UI with authenticated data
     updateSystemHealth();
+    loadSettings();
+    updateLoopStatus();
+}
+
+/**
+ * Fetch wrapper that automatically includes admin auth headers for protected endpoints.
+ * @param {string} url - The URL to fetch
+ * @param {object} options - Fetch options (method, body, etc.)
+ * @param {boolean} requiresAuth - Whether this endpoint requires admin auth (default: false)
+ * @returns {Promise<Response>} - The fetch response
+ */
+async function apiFetch(url, options = {}, requiresAuth = false) {
+    const headers = { ...options.headers };
+
+    // Auto-add admin key for authenticated endpoints
+    if (requiresAuth) {
+        headers['X-Admin-API-Key'] = getAdminKey();
+    }
+
+    // Auto-add Content-Type for POST/PUT with body
+    if (options.body && typeof options.body === 'string' && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    return fetch(url, { ...options, headers });
 }
 
 // Make the "Auth Required" badge clickable to prompt for key if missing
@@ -99,9 +124,7 @@ async function updateStatus() {
 // System Health Monitoring
 async function updateSystemHealth() {
     try {
-        const res = await fetch('/api/admin/health', {
-            headers: { 'X-Admin-API-Key': getAdminKey() }
-        });
+        const res = await apiFetch('/api/admin/health', {}, true);
 
         if (!res.ok) {
             // No admin key or unauthorized - show basic status
@@ -279,10 +302,8 @@ updateSystemHealth();
 async function updateDailyPnL() {
     try {
         const [pnlRes, stopLossRes] = await Promise.all([
-            fetch('/api/pnl/positions'),
-            fetch('/api/stop-loss', {
-                headers: { 'X-Admin-API-Key': getAdminKey() } // Stop-loss endpoints usually require admin key
-            })
+            apiFetch('/api/pnl/positions'),
+            apiFetch('/api/stop-loss', {}, true)
         ]);
 
         const pnlData = await pnlRes.json();
@@ -387,7 +408,13 @@ function updatePositionsTable(positions, stopLosses) {
 // Settings Logic
 async function loadSettings() {
     try {
-        const res = await fetch('/api/settings');
+        const res = await apiFetch('/api/settings', {}, true);
+
+        if (!res.ok) {
+            console.warn('Failed to load settings (auth required):', res.status);
+            return;
+        }
+
         const settings = await res.json();
 
         document.getElementById('maxDailyLoss').value = settings.maxDailyLoss;
@@ -404,17 +431,22 @@ document.getElementById('settings-form').addEventListener('submit', async (e) =>
     e.preventDefault();
 
     const formData = new FormData(e.target);
-    const data = Object.fromEntries(formData.entries());
+    const rawData = Object.fromEntries(formData.entries());
+
+    // Convert string values to numbers for the API
+    const data = {
+        maxDailyLoss: Number(rawData.maxDailyLoss),
+        maxDailyLossPercent: Number(rawData.maxDailyLossPercent),
+        stopLossPercent: Number(rawData.stopLossPercent),
+        maxOpenPositions: Number(rawData.maxOpenPositions),
+        maxPositionSize: Number(rawData.maxPositionSize)
+    };
 
     try {
-        const res = await fetch('/api/settings', {
+        const res = await apiFetch('/api/settings', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Admin-API-Key': getAdminKey()
-            },
             body: JSON.stringify(data)
-        });
+        }, true);
 
         if (res.ok) {
             alert('Settings saved successfully');
@@ -432,10 +464,7 @@ document.getElementById('reset-settings-btn').addEventListener('click', async ()
     if (!confirm('Reset all risk settings to defaults?')) return;
 
     try {
-        await fetch('/api/settings/reset', {
-            method: 'POST',
-            headers: { 'X-Admin-API-Key': getAdminKey() }
-        });
+        await apiFetch('/api/settings/reset', { method: 'POST' }, true);
         loadSettings();
         alert('Settings reset to defaults');
     } catch (_error) {
@@ -453,9 +482,7 @@ const panicBtn = document.getElementById('panic-sell-btn');
 async function updateLoopStatus() {
     try {
         // Check status (authenticated if key present)
-        const res = await fetch('/api/control/status', {
-            headers: { 'X-Admin-API-Key': getAdminKey() }
-        });
+        const res = await apiFetch('/api/control/status', {}, true);
         if (!res.ok) return; // Silent fail if auth required and missing
 
         const data = await res.json();
@@ -477,10 +504,18 @@ toggleBtn.addEventListener('click', async () => {
     const endpoint = isRunning ? '/api/control/stop' : '/api/control/start';
 
     try {
-        await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'X-Admin-API-Key': getAdminKey() }
-        });
+        const res = await apiFetch(endpoint, { method: 'POST' }, true);
+
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 401 || res.status === 503) {
+                alert('Authentication required. Click on the health status to enter your Admin API Key.');
+            } else {
+                alert(`Failed to toggle trading: ${data.message || res.statusText}`);
+            }
+            return;
+        }
+
         await updateLoopStatus();
     } catch (_error) {
         alert('Failed to toggle trading loop');
@@ -496,14 +531,10 @@ panicBtn.addEventListener('click', async () => {
     }
 
     try {
-        const res = await fetch('/api/control/panic-sell', {
+        const res = await apiFetch('/api/control/panic-sell', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Admin-API-Key': getAdminKey()
-            },
             body: JSON.stringify({ confirmToken: confirmation })
-        });
+        }, true);
 
         const data = await res.json();
 
