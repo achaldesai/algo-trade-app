@@ -14,11 +14,17 @@ interface StoredAuditEntry {
 }
 
 /**
- * LMDB-backed audit log repository
- * Uses timestamp-based keys for efficient time-range queries
+ * LMDB-backed audit log repository.
+ * Uses timestamp-based keys for efficient time-range queries.
+ * 
+ * @performance Current implementation scans all logs for filtering (O(N)).
+ * Queries are limited to prevent excessive memory usage. For high-volume
+ * production use (>10k logs/day), consider:
+ * - Adding secondary indices for eventType/symbol
+ * - Using a dedicated time-series database
+ * - Implementing date-based partitioning
  */
 // TODO: Add secondary indices for performance (Issue #9)
-// Current implementation scans all logs for filtering which is O(N)
 export class LmdbAuditLogRepository implements AuditLogRepository {
     private db: RootDatabase;
     private logs: Database<StoredAuditEntry, string>;

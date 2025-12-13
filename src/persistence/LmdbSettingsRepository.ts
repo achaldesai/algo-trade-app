@@ -55,8 +55,8 @@ export class LmdbSettingsRepository extends EventEmitter implements SettingsRepo
 
     async saveRiskLimits(limits: RiskLimits): Promise<void> {
         if (!this.db) await this.initialize();
-
-        await this.db!.put("riskLimits", limits);
+        if (!this.db) throw new Error("Failed to initialize settings database");
+        await this.db.put("riskLimits", limits);
         this.cache = { ...limits };
         this.emit("updated", this.cache);
     }

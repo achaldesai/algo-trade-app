@@ -35,6 +35,7 @@ export class StopLossMonitor extends EventEmitter {
     private readonly repository: StopLossRepository;
     private readonly riskManager: RiskManager;
     private readonly processingSymbols = new Set<string>();
+    private readonly symbolQueues = new Map<string, Promise<void>>();
 
     private isMonitoring = false;
     private static instance: StopLossMonitor | null = null;
@@ -53,29 +54,28 @@ export class StopLossMonitor extends EventEmitter {
 
     /**
      * Handle trade execution - auto-create or update stop-losses
+     * Uses promise-chaining queue per symbol to ensure trades are processed
+     * in order without dropping any updates.
      */
     private handleTradeExecuted = async (trade: Trade): Promise<void> => {
-        // Prevent race conditions during position updates
-        if (this.processingSymbols.has(trade.symbol)) {
-            logger.warn({ symbol: trade.symbol }, "Race condition detected: skipping trade update while processing symbol");
-            // Skipping update to prevent race condition corruption
-        }
-
-        // Prevent concurrent processing for this symbol
-        this.processingSymbols.add(trade.symbol);
-
-        try {
-            if (trade.side === "BUY") {
-                await this.onPositionOpened(trade);
-            } else {
-                await this.onPositionReduced(trade);
-            }
-        } catch (error) {
-            logger.error({ err: error, trade }, "Failed to handle trade for stop-loss");
-        } finally {
-            this.processingSymbols.delete(trade.symbol);
-        }
+        const existing = this.symbolQueues.get(trade.symbol) ?? Promise.resolve();
+        const next = existing.then(() => this.processTradeUpdate(trade)).catch(err => {
+            logger.error({ err, trade }, "Failed to process trade for stop-loss");
+        });
+        this.symbolQueues.set(trade.symbol, next);
+        await next;
     };
+
+    /**
+     * Process a single trade update (called within queue)
+     */
+    private async processTradeUpdate(trade: Trade): Promise<void> {
+        if (trade.side === "BUY") {
+            await this.onPositionOpened(trade);
+        } else {
+            await this.onPositionReduced(trade);
+        }
+    }
 
     static getInstance(options?: StopLossMonitorOptions): StopLossMonitor {
         if (!StopLossMonitor.instance) {

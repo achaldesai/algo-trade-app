@@ -66,8 +66,7 @@ router.post("/stop", (req, res) => {
 
 router.post("/panic-sell", async (req, res, next) => {
     try {
-        const { confirmToken } = req.body;
-        if (confirmToken !== "PANIC-CONFIRM") {
+        if (!req.body || req.body.confirmToken !== "PANIC-CONFIRM") {
             res.status(400).json({ success: false, message: "Invalid confirmation token. Type 'PANIC-CONFIRM' to execute." });
             return;
         }

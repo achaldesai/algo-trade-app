@@ -30,7 +30,9 @@ export class AuditLogService {
     // Retry queue for failed logs
     private logQueue: AuditLogEntry[] = [];
     private isFlushing = false;
+    private retryScheduled = false;
     private readonly MAX_QUEUE_SIZE = 1000;
+    private static readonly RETRY_DELAY_MS = 1000;
 
     constructor(options: AuditLogServiceOptions) {
         this.repository = options.repository;
@@ -289,11 +291,16 @@ export class AuditLogService {
                     await this.repository.append(entry);
                     this.logQueue.shift(); // Remove on success
                 } catch (err) {
-                    logger.warn({ err }, "Retry failed for audit log, waiting before next attempt");
-                    // Wait 1 second before retrying head of queue
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    // Break loop to release lock and try again later (or keep trying? Let's break to avoid blocking loop too long)
-                    break;
+                    logger.warn({ err }, "Retry failed for audit log, scheduling retry");
+                    // Schedule retry if not already scheduled
+                    if (!this.retryScheduled) {
+                        this.retryScheduled = true;
+                        setTimeout(() => {
+                            this.retryScheduled = false;
+                            void this.flushLogs();
+                        }, AuditLogService.RETRY_DELAY_MS);
+                    }
+                    break; // Exit current flush, retry is scheduled
                 }
             }
         } finally {

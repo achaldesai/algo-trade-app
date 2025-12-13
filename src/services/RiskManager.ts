@@ -145,6 +145,7 @@ export class RiskManager extends EventEmitter {
         this.limits.circuitBroken = true;
         this.settingsRepo.saveRiskLimits(this.limits).catch(err => {
             logger.error({ err }, "CRITICAL: Failed to persist circuit breaker state");
+            this.emit("critical_error", { type: "persistence_failure", error: err });
         });
 
         logger.error({ reason }, "CIRCUIT BREAKER TRIGGERED - TRADING HALTED");
