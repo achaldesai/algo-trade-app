@@ -266,7 +266,13 @@
           "name": "Start Trading Loop",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/control/start",
               "host": [
@@ -285,7 +291,13 @@
           "name": "Stop Trading Loop",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/control/stop",
               "host": [
@@ -304,7 +316,13 @@
           "name": "Panic Sell",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/control/panic-sell",
               "host": [
@@ -766,7 +784,13 @@
           "name": "List All Stop-Losses",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/stop-loss",
               "host": [
@@ -784,7 +808,13 @@
           "name": "Get Stop-Loss for Symbol",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/stop-loss/RELIANCE",
               "host": [
@@ -804,6 +834,11 @@
           "request": {
             "method": "PUT",
             "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -833,6 +868,11 @@
             "method": "PUT",
             "header": [
               {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              },
+              {
                 "key": "Content-Type",
                 "value": "application/json"
               }
@@ -859,7 +899,13 @@
           "name": "Delete Stop-Loss",
           "request": {
             "method": "DELETE",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/stop-loss/RELIANCE",
               "host": [
@@ -878,7 +924,13 @@
           "name": "Start Stop-Loss Monitor",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/stop-loss/start",
               "host": [
@@ -897,7 +949,13 @@
           "name": "Stop Stop-Loss Monitor",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/stop-loss/stop",
               "host": [
@@ -983,7 +1041,13 @@
           "name": "Get Settings",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/settings",
               "host": [
@@ -1002,6 +1066,11 @@
           "request": {
             "method": "POST",
             "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -1028,7 +1097,13 @@
           "name": "Reset Settings to Defaults",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/settings/reset",
               "host": [
@@ -1115,7 +1190,13 @@
           "name": "Query Audit Logs",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/audit-logs?limit=50&eventType=TRADE_EXECUTED",
               "host": [
@@ -1175,7 +1256,13 @@
           "name": "Get Today's Audit Logs",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/audit-logs/today",
               "host": [
@@ -1194,7 +1281,13 @@
           "name": "Get Audit Log Stats",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/audit-logs/stats",
               "host": [
@@ -1213,7 +1306,13 @@
           "name": "Get Audit Logs for Symbol",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/audit-logs/symbol/RELIANCE",
               "host": [
@@ -1234,6 +1333,11 @@
           "request": {
             "method": "POST",
             "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"

@@ -3,8 +3,13 @@ import { resolveSettingsRepository } from "../container";
 import { HttpError } from "../utils/HttpError";
 import logger from "../utils/logger";
 import type { RiskLimits } from "../services/RiskManager";
+import { adminAuthMiddleware } from "../middleware/adminAuth";
+import { riskLimitsSchema } from "../schemas/settings";
 
 const router = Router();
+
+// Apply authentication middleware to all settings routes
+router.use(adminAuthMiddleware);
 
 // GET /api/settings - Get current risk limits
 router.get("/", async (_req, res, next) => {
@@ -24,20 +29,23 @@ router.post("/", async (req, res, next) => {
         const currentLimits = repo.getRiskLimits();
 
         // Validate and merge settings
-        // Basic validation: ensure numbers are positive where appropriate
-        const updates = req.body as Partial<RiskLimits>;
+        const validationResult = riskLimitsSchema.safeParse(req.body);
+
+        if (!validationResult.success) {
+            throw new HttpError(400, validationResult.error.errors.map(e => e.message).join(", "));
+        }
+
+        const updates = validationResult.data;
 
         const newLimits: RiskLimits = {
             ...currentLimits,
-            maxDailyLoss: Number(updates.maxDailyLoss ?? currentLimits.maxDailyLoss),
-            maxDailyLossPercent: Number(updates.maxDailyLossPercent ?? currentLimits.maxDailyLossPercent),
-            maxPositionSize: Number(updates.maxPositionSize ?? currentLimits.maxPositionSize),
-            maxOpenPositions: Number(updates.maxOpenPositions ?? currentLimits.maxOpenPositions),
-            stopLossPercent: Number(updates.stopLossPercent ?? currentLimits.stopLossPercent)
+            maxDailyLoss: updates.maxDailyLoss ?? currentLimits.maxDailyLoss,
+            maxDailyLossPercent: updates.maxDailyLossPercent ?? currentLimits.maxDailyLossPercent,
+            maxPositionSize: updates.maxPositionSize ?? currentLimits.maxPositionSize,
+            maxOpenPositions: updates.maxOpenPositions ?? currentLimits.maxOpenPositions,
+            stopLossPercent: updates.stopLossPercent ?? currentLimits.stopLossPercent
         };
 
-        if (newLimits.maxDailyLoss < 0) throw new HttpError(400, "Max daily loss must be positive");
-        if (newLimits.maxPositionSize <= 0) throw new HttpError(400, "Max position size must be positive");
 
         await repo.saveRiskLimits(newLimits);
 

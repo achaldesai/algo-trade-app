@@ -3,8 +3,12 @@ import { TradingLoopService } from "../services/TradingLoopService";
 import { resolveTradingEngine, resolveStopLossMonitor } from "../container";
 import logger from "../utils/logger";
 import { HttpError } from "../utils/HttpError";
+import { adminAuthMiddleware } from "../middleware/adminAuth";
 
 const router = Router();
+
+// Apply authentication middleware to all control routes
+router.use(adminAuthMiddleware);
 
 router.get("/status", (req, res) => {
     try {

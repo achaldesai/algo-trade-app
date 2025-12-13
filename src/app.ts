@@ -15,10 +15,22 @@ import pnlRouter from "./routes/pnl";
 import auditLogsRouter from "./routes/auditLogs";
 import notificationsRouter from "./routes/notifications";
 
+import { rateLimit } from "express-rate-limit";
+
 const app = express();
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
 
 app.use(express.json());
 app.use(express.static("public"));
+
+// Apply rate limiting to all requests
+app.use("/api", limiter);
 
 // Prevent 404 logs for favicon
 app.get("/favicon.ico", (_req, res) => res.status(204).end());

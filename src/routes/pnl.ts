@@ -8,8 +8,23 @@ const router = Router();
  * GET /api/pnl/daily
  * Get today's P&L summary
  */
+const CACHE_TTL_MS = 5000;
+let dailyPnLCache: {
+    data: any;
+    timestamp: number;
+} | null = null;
+
+/**
+ * GET /api/pnl/daily
+ * Get today's P&L summary
+ */
 router.get("/daily", async (_req, res, next) => {
     try {
+        // Check cache
+        if (dailyPnLCache && (Date.now() - dailyPnLCache.timestamp < CACHE_TTL_MS)) {
+            return res.json(dailyPnLCache.data);
+        }
+
         const portfolioService = resolvePortfolioService();
         const marketDataService = resolveMarketDataService();
         const riskManager = resolveRiskManager();
@@ -65,7 +80,7 @@ router.get("/daily", async (_req, res, next) => {
 
         const totalPnL = dailyRealizedPnL + totalUnrealizedPnL;
 
-        res.json({
+        const responseData = {
             success: true,
             data: {
                 date: today.toISOString().split('T')[0],
@@ -88,7 +103,15 @@ router.get("/daily", async (_req, res, next) => {
                 })),
                 generatedAt: new Date().toISOString(),
             },
-        });
+        };
+
+        // Update cache
+        dailyPnLCache = {
+            data: responseData,
+            timestamp: Date.now()
+        };
+
+        return res.json(responseData);
     } catch (error) {
         next(error);
     }

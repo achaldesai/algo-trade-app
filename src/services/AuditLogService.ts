@@ -249,7 +249,15 @@ export class AuditLogService {
             await this.repository.append(fullEntry);
             logger.debug({ eventType: entry.eventType, symbol: entry.symbol }, "Audit log entry created");
         } catch (error) {
-            logger.error({ err: error, entry }, "Failed to write audit log entry");
+            logger.warn({ err: error, entry }, "Failed to write audit log entry, retrying once...");
+            try {
+                // Simple retry after 100ms
+                await new Promise(resolve => setTimeout(resolve, 100));
+                await this.repository.append(fullEntry);
+                logger.info({ eventType: entry.eventType }, "Audit log entry written on retry");
+            } catch (retryError) {
+                logger.error({ err: retryError, originalError: error, entry }, "CRITICAL: Failed to write audit log entry after retry");
+            }
         }
     }
 

@@ -194,20 +194,22 @@ The application includes a real-time trading loop that evaluates strategies on e
 
 ### Control API Endpoints
 
-Control the trading loop and execute emergency actions:
+Control the trading loop and execute emergency actions (require `X-Admin-API-Key` header):
 
 ```bash
+API_KEY="your_admin_api_key"
+
 # Check trading loop status
-curl http://localhost:3000/api/control/status
+curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/control/status
 
 # Start the trading loop
-curl -X POST http://localhost:3000/api/control/start
+curl -X POST -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/control/start
 
 # Stop the trading loop
-curl -X POST http://localhost:3000/api/control/stop
+curl -X POST -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/control/stop
 
 # Emergency: Sell all positions immediately
-curl -X POST http://localhost:3000/api/control/panic-sell
+curl -X POST -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/control/panic-sell
 ```
 
 **Panic Sell**: Stops the trading loop and liquidates all open positions. Use in emergencies only.
@@ -242,6 +244,16 @@ curl http://localhost:3000/api/pnl/positions
 - Positions table with entry price, current price, P&L %, and stop-loss levels
 - Auto-refreshes every 2 seconds
 
+## Performance & Optimization
+
+### Rate Limiting
+Global rate limiting is applied to all API endpoints to prevent abuse:
+- **Limit**: 100 requests per 15-minute window per IP
+- **Headers**: Standard `RateLimit-*` headers are included in responses
+
+### Caching
+- **P&L Caching**: `/api/pnl/daily` is cached in-memory for 5 seconds to reduce computation load during frequent polling.
+
 ## Safety Features
 
 ### Dry-Run Mode
@@ -274,6 +286,11 @@ All orders are validated before execution:
 - Quantity must be greater than zero
 - Position size must not exceed limits
 
+### Circuit Breaker
+- **Trigger**: Automatic trading halt if daily loss limit is exceeded
+- **Persistence**: Circuit breaker state is persisted to database and survives server restarts
+- **Reset**: Can be manually reset via API or automatically on daily reset
+
 ### Stop-Loss Automation
 
 Automatic stop-loss protection for all positions:
@@ -286,29 +303,35 @@ Automatic stop-loss protection for all positions:
 
 **Stop-Loss API Endpoints:**
 
+All stop-loss endpoints require `X-Admin-API-Key` header.
+
 ```bash
+API_KEY="your_admin_api_key"
+
 # List all active stop-losses
-curl http://localhost:3000/api/stop-loss
+curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/stop-loss
 
 # Get stop-loss for a specific symbol
-curl http://localhost:3000/api/stop-loss/RELIANCE
+curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/stop-loss/RELIANCE
 
 # Update/create stop-loss manually
-curl -X PUT -H "Content-Type: application/json" \
+curl -X PUT -H "X-Admin-API-Key: $API_KEY" \
+     -H "Content-Type: application/json" \
      -d '{"stopLossPrice": 95.50, "type": "FIXED"}' \
      http://localhost:3000/api/stop-loss/RELIANCE
 
 # Create trailing stop-loss
-curl -X PUT -H "Content-Type: application/json" \
+curl -X PUT -H "X-Admin-API-Key: $API_KEY" \
+     -H "Content-Type: application/json" \
      -d '{"trailingPercent": 5, "type": "TRAILING", "entryPrice": 100, "quantity": 10}' \
      http://localhost:3000/api/stop-loss/TCS
 
 # Remove stop-loss
-curl -X DELETE http://localhost:3000/api/stop-loss/RELIANCE
+curl -X DELETE -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/stop-loss/RELIANCE
 
 # Start/stop stop-loss monitor
-curl -X POST http://localhost:3000/api/stop-loss/start
-curl -X POST http://localhost:3000/api/stop-loss/stop
+curl -X POST -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/stop-loss/start
+curl -X POST -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/stop-loss/stop
 ```
 
 **How It Works:**
@@ -337,21 +360,26 @@ The application includes comprehensive audit logging for all important events:
 
 ### Audit API Endpoints
 
+Audit log endpoints require `X-Admin-API-Key` header.
+
 ```bash
+API_KEY="your_admin_api_key"
+
 # Query audit logs with optional filters
-curl "http://localhost:3000/api/audit-logs?limit=50&eventType=TRADE_EXECUTED"
+curl -H "X-Admin-API-Key: $API_KEY" "http://localhost:3000/api/audit-logs?limit=50&eventType=TRADE_EXECUTED"
 
 # Get today's audit logs
-curl http://localhost:3000/api/audit-logs/today
+curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/audit-logs/today
 
 # Get audit log statistics by event type
-curl http://localhost:3000/api/audit-logs/stats
+curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/audit-logs/stats
 
 # Get audit logs for a specific symbol
-curl http://localhost:3000/api/audit-logs/symbol/RELIANCE
+curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/audit-logs/symbol/RELIANCE
 
 # Clean up old audit logs (admin operation)
-curl -X POST -H "Content-Type: application/json" \
+curl -X POST -H "X-Admin-API-Key: $API_KEY" \
+     -H "Content-Type: application/json" \
      -d '{"retentionDays": 30}' \
      http://localhost:3000/api/audit-logs/cleanup
 ```
@@ -565,6 +593,8 @@ if (indicators?.rsi && indicators.rsi < 30) {
 - Mock broker calls using deterministic fixtures from `src/data/`
 - Test runner is in `scripts/run-tests.ts`
 - Includes tests for dry-run mode, position limits, and technical indicators
+- **Service Tests**: Dedicated unit tests for `TradingLoopService`, `ReconciliationService`, and `RiskManager`
+- **Utility Tests**: `RingBuffer` verified with comprehensive test suite
 
 ## Key Extension Points
 

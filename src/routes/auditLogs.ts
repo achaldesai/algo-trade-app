@@ -1,8 +1,12 @@
 import { Router } from "express";
 import { resolveAuditLogService } from "../container";
 import type { AuditEventType, AuditLogQuery } from "../persistence/AuditLogRepository";
+import { adminAuthMiddleware } from "../middleware/adminAuth";
 
 const router = Router();
+
+// Apply authentication middleware to all audit log routes
+router.use(adminAuthMiddleware);
 
 /**
  * GET /api/audit-logs

@@ -63,6 +63,10 @@ export class TradingEngine extends EventEmitter {
     this.riskManager = options.riskManager;
   }
 
+  getActiveBroker(): BrokerClient {
+    return this.activeBroker;
+  }
+
   registerStrategy(strategy: BaseStrategy): void {
     this.strategies.set(strategy.id, strategy);
   }
@@ -220,8 +224,9 @@ export class TradingEngine extends EventEmitter {
         // Validation (Risk Checks)
         const portfolioSnapshot = await this.portfolioService.getSnapshot();
         const unrealizedPnL = portfolioSnapshot.positions.reduce((sum, p) => sum + p.unrealizedPnl, 0);
+        const openPositionsCount = portfolioSnapshot.positions.filter(p => p.netQuantity !== 0).length;
 
-        const riskResult = this.riskManager.checkOrderAllowed(order, unrealizedPnL);
+        const riskResult = this.riskManager.checkOrderAllowed(order, unrealizedPnL, openPositionsCount);
         if (!riskResult.allowed) {
           throw new Error(`Risk check failed: ${riskResult.reason}`);
         }

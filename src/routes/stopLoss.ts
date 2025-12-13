@@ -1,8 +1,12 @@
 import { Router } from "express";
 import { resolveStopLossMonitor } from "../container";
 import type { StopLossConfig } from "../persistence/StopLossRepository";
+import { adminAuthMiddleware } from "../middleware/adminAuth";
 
 const router = Router();
+
+// Apply authentication middleware to all stop-loss routes
+router.use(adminAuthMiddleware);
 
 /**
  * GET /api/stop-loss

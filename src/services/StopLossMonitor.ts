@@ -34,6 +34,7 @@ export class StopLossMonitor extends EventEmitter {
     private readonly tradingEngine: TradingEngine;
     private readonly repository: StopLossRepository;
     private readonly riskManager: RiskManager;
+    private readonly processingSymbols = new Set<string>();
 
     private isMonitoring = false;
     private static instance: StopLossMonitor | null = null;
@@ -315,6 +316,13 @@ export class StopLossMonitor extends EventEmitter {
             tag: `STOP-LOSS-${Date.now()}`,
         };
 
+        // Check if already processing this symbol to avoid double execution
+        if (this.processingSymbols.has(config.symbol)) {
+            logger.warn({ symbol: config.symbol }, "Already processing stop-loss for symbol, skipping");
+            return;
+        }
+        this.processingSymbols.add(config.symbol);
+
         try {
             // Execute via TradingEngine (bypasses normal risk checks for emergency exit)
             const signal = {
@@ -324,10 +332,7 @@ export class StopLossMonitor extends EventEmitter {
             };
 
             const result = await this.tradingEngine.executeSignal(
-                // We need to access the broker - use the active broker from trading engine
-                // This is a bit of a hack, but executeSignal handles broker selection
-                // @ts-expect-error - accessing private member for emergency stop-loss
-                this.tradingEngine.activeBroker,
+                this.tradingEngine.getActiveBroker(),
                 signal
             );
 
@@ -360,6 +365,8 @@ export class StopLossMonitor extends EventEmitter {
         } catch (error) {
             logger.error({ err: error, symbol: config.symbol }, "Failed to execute stop-loss order");
             this.emit("stop-loss-error", { ...event, error });
+        } finally {
+            this.processingSymbols.delete(config.symbol);
         }
     }
 

@@ -10,6 +10,7 @@ export interface RiskLimits {
     maxPositionSize: number;
     maxOpenPositions: number;
     stopLossPercent: number;
+    circuitBroken?: boolean;
 }
 
 export interface RiskCheckResult {
@@ -21,8 +22,8 @@ export class RiskManager extends EventEmitter {
     private dailyRealizedPnL = 0;
     private dailyUnrealizedPnL = 0;
     private circuitBroken = false;
-    private openPositionsCount = 0;
     private executionCount = 0;
+    private processingLock = false; // Simple mutex for state updates
 
     // Cache limits in memory
     private limits: RiskLimits;
@@ -30,15 +31,20 @@ export class RiskManager extends EventEmitter {
     constructor(private readonly settingsRepo: SettingsRepository) {
         super();
         this.limits = this.settingsRepo.getRiskLimits();
+        this.circuitBroken = !!this.limits.circuitBroken;
 
         // Listen for setting changes
         this.settingsRepo.on('updated', (newLimits: RiskLimits) => {
             this.limits = newLimits;
+            // Update local state if config changed externally
+            if (newLimits.circuitBroken !== undefined) {
+                this.circuitBroken = newLimits.circuitBroken;
+            }
             logger.info({ newLimits }, "Risk limits updated in RiskManager");
         });
     }
 
-    public checkOrderAllowed(order: BrokerOrderRequest, currentUnrealizedPnL: number): RiskCheckResult {
+    public checkOrderAllowed(order: BrokerOrderRequest, currentUnrealizedPnL: number, openPositionsCount: number): RiskCheckResult {
         // 0. Validate basic order parameters first
         if (order.quantity <= 0) {
             return { allowed: false, reason: `Invalid quantity: ${order.quantity} (must be > 0)` };
@@ -61,13 +67,10 @@ export class RiskManager extends EventEmitter {
         }
 
         // 3. Check Max Open Positions (only for new entry orders)
-        if (order.quantity > 0 && this.openPositionsCount >= this.limits.maxOpenPositions) {
-            // Only block if it's opening a new position (simplified check, assumes BUY is open)
-            // Improve logic: need to know if it's closing or opening. 
-            // For now, let's assume TradingEngine handles position sizing, here we check global counts
-            // Actually TradingEngine should check existing position.
-            // We'll rely on TradingEngine for "is this a new position?" logic generally, 
-            // but here we enforce hard limit if it IS a new position.
+        // If it's a BUY order (assuming long-only for now or that BUY opens positions)
+        // And we're currently at or above the limit
+        if (order.quantity > 0 && order.side === "BUY" && openPositionsCount >= this.limits.maxOpenPositions) {
+            return { allowed: false, reason: `Max open positions limit reached: ${openPositionsCount} >= ${this.limits.maxOpenPositions}` };
         }
 
         // 4. Check Position Size
@@ -88,12 +91,22 @@ export class RiskManager extends EventEmitter {
 
     // Update PnL from PortfolioService
     public updatePnL(realized: number, unrealized: number) {
-        this.dailyRealizedPnL = realized;
-        this.dailyUnrealizedPnL = unrealized;
+        if (this.processingLock) {
+            logger.warn("RiskManager locked, skipping PnL update");
+            return;
+        }
 
-        const total = realized + unrealized;
-        if (total <= -this.limits.maxDailyLoss && !this.circuitBroken) {
-            this.triggerCircuitBreaker(`Daily loss limit hit via PnL update: ${total}`);
+        this.processingLock = true;
+        try {
+            this.dailyRealizedPnL = realized;
+            this.dailyUnrealizedPnL = unrealized;
+
+            const total = realized + unrealized;
+            if (total <= -this.limits.maxDailyLoss && !this.circuitBroken) {
+                this.triggerCircuitBreaker(`Daily loss limit hit via PnL update: ${total}`);
+            }
+        } finally {
+            this.processingLock = false;
         }
     }
 
@@ -106,11 +119,26 @@ export class RiskManager extends EventEmitter {
         this.dailyUnrealizedPnL = 0;
         this.circuitBroken = false;
         this.executionCount = 0;
+        this.processingLock = false;
+
+        // Persist reset state
+        this.limits.circuitBroken = false;
+        this.settingsRepo.saveRiskLimits(this.limits).catch(err => {
+            logger.error({ err }, "Failed to persist circuit breaker reset");
+        });
+
         logger.info("Daily risk counters reset");
     }
 
     private triggerCircuitBreaker(reason: string) {
         this.circuitBroken = true;
+
+        // Persist broken state
+        this.limits.circuitBroken = true;
+        this.settingsRepo.saveRiskLimits(this.limits).catch(err => {
+            logger.error({ err }, "Failed to persist circuit breaker state");
+        });
+
         logger.error({ reason }, "CIRCUIT BREAKER TRIGGERED - TRADING HALTED");
         this.emit("circuit_break", reason);
     }
