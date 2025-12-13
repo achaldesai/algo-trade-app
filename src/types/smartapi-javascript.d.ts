@@ -1,170 +1,126 @@
-/**
- * Type declarations for smartapi-javascript
- * Angel One SmartAPI SDK for Node.js
- */
-
 declare module "smartapi-javascript" {
-  export interface SmartAPIConfig {
+  interface SmartAPIConfig {
     api_key: string;
+    access_token?: string;
+    refresh_token?: string;
+    feed_token?: string;
   }
 
-  export interface SessionResponse {
+  interface SmartAPIResponse<T = unknown> {
     status: boolean;
+    data?: T;
     message?: string;
-    data?: {
-      jwtToken: string;
-      refreshToken: string;
-      feedToken: string;
-    };
   }
 
-  export interface TokenRefreshResponse {
-    status: boolean;
-    message?: string;
-    data?: {
-      jwtToken: string;
-      refreshToken: string;
-      feedToken: string;
-    };
-  }
+  type AngelOneTransactionType = "BUY" | "SELL";
+  type AngelOneOrderType =
+    | "MARKET"
+    | "LIMIT"
+    | "STOPLOSS_LIMIT"
+    | "STOPLOSS_MARKET";
 
-  export interface CandleDataParams {
-    exchange: string;
-    symboltoken: string;
-    interval: string;
-    fromdate: string;
-    todate: string;
-  }
-
-  export type SmartApiCandleTuple = [
-    string | number,
-    string | number,
-    string | number,
-    string | number,
-    string | number,
-    string | number
-  ];
-
-  export interface CandleDataResponse {
-    status: boolean;
-    message?: string;
-    data?: SmartApiCandleTuple[];
-  }
-
-  export interface OrderParams {
+  interface OrderParams {
     variety: string;
     tradingsymbol: string;
     symboltoken: string;
-    transactiontype: string;
+    transactiontype: AngelOneTransactionType;
     exchange: string;
-    ordertype: string;
+    ordertype: AngelOneOrderType;
     producttype: string;
     duration: string;
     price: string;
+    triggerprice?: string;
     quantity: string;
+    disclosedquantity?: string;
     tag?: string;
   }
 
-  export interface OrderResponse {
-    status: boolean;
-    message?: string;
-    data?: {
-      orderid: string;
-    };
-  }
-
-  export interface CancelOrderParams {
-    variety: string;
-    orderid: string;
-  }
-
-  export interface QuoteParams {
-    mode: string;
-    exchangeTokens: Record<string, string[]>;
-  }
-
-  export interface AngelOneQuoteDepthLevel {
-    price?: number;
-    quantity?: number;
-    [key: string]: unknown;
-  }
-
-  export interface AngelOneQuoteDepth {
-    buy?: AngelOneQuoteDepthLevel[];
-    sell?: AngelOneQuoteDepthLevel[];
-  }
-
-  export interface AngelOneQuoteDetails {
-    exchange: string;
-    symboltoken: string;
-    ltp?: number;
-    depth?: AngelOneQuoteDepth;
-    [key: string]: unknown;
-  }
-
-  export interface QuoteResponse {
-    status: boolean;
-    message?: string;
-    data?: {
-      fetched: AngelOneQuoteDetails[];
-    };
-  }
-
-  export interface AngelOnePosition {
+  interface AngelOnePosition {
     netqty: string;
-    tradingsymbol: string;
-    symboltoken?: string;
     netprice?: string;
     avgnetprice?: string;
-    [key: string]: unknown;
+    tradingsymbol: string;
+    symboltoken?: string;
   }
 
-  export interface PositionResponse {
-    status: boolean;
-    message?: string;
-    data?: AngelOnePosition[];
-  }
-
-  export interface AngelOneOrderBookEntry {
+  interface AngelOneOrderBookEntry {
     orderid: string;
+    status?: string;
     filledshares?: string;
     quantity?: string;
     averageprice?: string;
     updatetime?: string;
-    [key: string]: unknown;
   }
 
-  export interface OrderBookResponse {
-    status: boolean;
-    message?: string;
-    data?: AngelOneOrderBookEntry[];
+  interface AngelOneQuoteDepthEntry {
+    price?: number;
+    quantity?: number;
+    orders?: number;
   }
 
-  export class SmartAPI {
+  interface AngelOneQuote {
+    ltp: number;
+    depth?: {
+      buy?: AngelOneQuoteDepthEntry[];
+      sell?: AngelOneQuoteDepthEntry[];
+    };
+  }
+
+  interface SessionTokens {
+    jwtToken: string;
+    feedToken?: string;
+    refreshToken?: string;
+  }
+
+  type SmartApiCandleTuple = [string, number, number, number, number, number];
+
+  class SmartAPI {
     constructor(config: SmartAPIConfig);
 
     generateSession(
       clientId: string,
       password: string,
       totp?: string
-    ): Promise<SessionResponse>;
+    ): Promise<SmartAPIResponse<SessionTokens>>;
 
     setAccessToken(token: string): void;
 
-    getCandleData(params: CandleDataParams): Promise<CandleDataResponse>;
+    logOut(): Promise<SmartAPIResponse>;
 
-    placeOrder(params: OrderParams): Promise<OrderResponse>;
+    getPosition(): Promise<SmartAPIResponse<AngelOnePosition[]>>;
 
-    cancelOrder(params: CancelOrderParams): Promise<OrderResponse>;
+    getQuote(params: {
+      mode: string;
+      exchangeTokens: Record<string, string[]>;
+    }): Promise<SmartAPIResponse<{ fetched: AngelOneQuote[] }>>;
 
-    getQuote(params: QuoteParams): Promise<QuoteResponse>;
+    placeOrder(params: OrderParams): Promise<SmartAPIResponse<{ orderid: string }>>;
 
-    getPosition(): Promise<PositionResponse>;
+    cancelOrder(params: {
+      variety: string;
+      orderid: string;
+    }): Promise<SmartAPIResponse>;
 
-    getOrderBook(): Promise<OrderBookResponse>;
+    getOrderBook(): Promise<SmartAPIResponse<AngelOneOrderBookEntry[]>>;
 
-    generateToken(refreshToken: string): Promise<TokenRefreshResponse>;
+    getCandleData(params: {
+      exchange: string;
+      symboltoken: string;
+      interval: string;
+      fromdate: string;
+      todate: string;
+    }): Promise<SmartAPIResponse<SmartApiCandleTuple[]>>;
 
-    logOut(): Promise<{ status: boolean; message?: string }>;
+    generateToken(refreshToken: string): Promise<SmartAPIResponse<SessionTokens>>;
   }
+
+  export {
+    SmartAPI,
+    AngelOneOrderBookEntry,
+    AngelOnePosition,
+    OrderParams,
+    SmartApiCandleTuple,
+  };
+
+  export default SmartAPI;
 }

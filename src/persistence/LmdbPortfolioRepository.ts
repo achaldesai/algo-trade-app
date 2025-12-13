@@ -190,6 +190,7 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
 
     const directory = path.dirname(this.storePath);
     await fs.mkdir(directory, { recursive: true });
+    await fs.mkdir(this.storePath, { recursive: true });
 
     const root = open<unknown>({
       path: this.storePath,

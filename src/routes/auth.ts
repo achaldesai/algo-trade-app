@@ -310,11 +310,17 @@ router.post("/angelone/login", async (req: Request, res: Response) => {
     const now = new Date();
     const expiryDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
 
+    const { jwtToken, refreshToken, feedToken } = response.data;
+
+    if (!jwtToken || !refreshToken || !feedToken) {
+      throw new HttpError(502, "Angel One session response missing required tokens");
+    }
+
     // Save token to persistent storage
     const tokenData: AngelOneTokenData = {
-      jwtToken: response.data.jwtToken,
-      refreshToken: response.data.refreshToken,
-      feedToken: response.data.feedToken,
+      jwtToken,
+      refreshToken,
+      feedToken,
       clientId: env.angelOneClientId,
       expiresAt: expiryDate.toISOString(),
     };
@@ -335,8 +341,8 @@ router.post("/angelone/login", async (req: Request, res: Response) => {
       data: {
         clientId: env.angelOneClientId,
         expiresAt: expiryDate.toISOString(),
-        jwtToken: response.data.jwtToken,
-        feedToken: response.data.feedToken,
+        jwtToken,
+        feedToken,
       },
     });
   } catch (error) {
@@ -439,11 +445,17 @@ router.post("/angelone/refresh", async (req: Request, res: Response) => {
       throw new HttpError(400, response.message || "Token refresh failed");
     }
 
+    const { jwtToken, refreshToken, feedToken } = response.data;
+
+    if (!jwtToken || !refreshToken || !feedToken) {
+      throw new HttpError(502, "Angel One refresh response missing required tokens");
+    }
+
     // Update token data with new tokens (keeping same expiry)
     const updatedTokenData: AngelOneTokenData = {
-      jwtToken: response.data.jwtToken,
-      refreshToken: response.data.refreshToken,
-      feedToken: response.data.feedToken,
+      jwtToken,
+      refreshToken,
+      feedToken,
       clientId: tokenData.clientId,
       expiresAt: tokenData.expiresAt, // Same expiry as original
     };
@@ -464,8 +476,8 @@ router.post("/angelone/refresh", async (req: Request, res: Response) => {
       data: {
         clientId: tokenData.clientId,
         expiresAt: tokenData.expiresAt,
-        jwtToken: response.data.jwtToken,
-        feedToken: response.data.feedToken,
+        jwtToken,
+        feedToken,
       },
       note: "Refreshed token maintains the same expiry time as the original token",
     });

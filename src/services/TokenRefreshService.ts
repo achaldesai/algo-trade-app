@@ -92,27 +92,33 @@ export class TokenRefreshService {
    * Perform full re-authentication with TOTP
    */
   private async performReauthentication(): Promise<void> {
-    if (!env.angelOneApiKey || !env.angelOneClientId || !env.angelOnePassword) {
+    // Read from process.env to support testing overrides
+    const apiKey = process.env.ANGEL_ONE_API_KEY || env.angelOneApiKey;
+    const clientId = process.env.ANGEL_ONE_CLIENT_ID || env.angelOneClientId;
+    const password = process.env.ANGEL_ONE_PASSWORD || env.angelOnePassword;
+    const totpSecret = process.env.ANGEL_ONE_TOTP_SECRET || env.angelOneTotpSecret;
+
+    if (!apiKey || !clientId || !password) {
       throw new Error("Angel One credentials not configured");
     }
 
-    if (!env.angelOneTotpSecret) {
+    if (!totpSecret) {
       throw new Error("Angel One TOTP secret not configured. Cannot perform automatic re-authentication.");
     }
 
     if (!this.smartApi) {
-      this.smartApi = new SmartAPI({ api_key: env.angelOneApiKey });
+      this.smartApi = new SmartAPI({ api_key: apiKey });
     }
 
     // Generate TOTP
-    const totp = authenticator.generate(env.angelOneTotpSecret);
+    const totp = authenticator.generate(totpSecret);
 
-    logger.info({ clientId: env.angelOneClientId }, "Performing automatic Angel One re-authentication");
+    logger.info({ clientId }, "Performing automatic Angel One re-authentication");
 
     // Generate new session
     const response = await this.smartApi.generateSession(
-      env.angelOneClientId,
-      env.angelOnePassword,
+      clientId,
+      password,
       totp
     );
 
@@ -124,12 +130,18 @@ export class TokenRefreshService {
     const now = new Date();
     const expiryDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
+    const { jwtToken, refreshToken, feedToken } = response.data;
+
+    if (!jwtToken || !refreshToken || !feedToken) {
+      throw new Error("Angel One session response missing required tokens");
+    }
+
     // Save new tokens
     const tokenData: AngelOneTokenData = {
-      jwtToken: response.data.jwtToken,
-      refreshToken: response.data.refreshToken,
-      feedToken: response.data.feedToken,
-      clientId: env.angelOneClientId,
+      jwtToken,
+      refreshToken,
+      feedToken,
+      clientId: clientId,
       expiresAt: expiryDate.toISOString(),
     };
 
@@ -137,7 +149,7 @@ export class TokenRefreshService {
 
     logger.info(
       {
-        clientId: env.angelOneClientId,
+        clientId: clientId,
         expiresAt: expiryDate.toISOString(),
       },
       "Angel One automatic re-authentication successful"
@@ -177,11 +189,17 @@ export class TokenRefreshService {
       throw new Error(response.message || "Token refresh failed");
     }
 
+    const { jwtToken, refreshToken, feedToken } = response.data;
+
+    if (!jwtToken || !refreshToken || !feedToken) {
+      throw new Error("Angel One refresh response missing required tokens");
+    }
+
     // Update tokens (same expiry)
     const updatedTokenData: AngelOneTokenData = {
-      jwtToken: response.data.jwtToken,
-      refreshToken: response.data.refreshToken,
-      feedToken: response.data.feedToken,
+      jwtToken,
+      refreshToken,
+      feedToken,
       clientId: tokenData.clientId,
       expiresAt: tokenData.expiresAt,
     };
@@ -197,10 +215,11 @@ export class TokenRefreshService {
   public start(): void {
     // Read from process.env directly to support testing
     const brokerProvider = (process.env.BROKER_PROVIDER ?? "paper").toLowerCase();
+    const dataProvider = (process.env.DATA_PROVIDER ?? brokerProvider).toLowerCase();
     const totpSecret = process.env.ANGEL_ONE_TOTP_SECRET ?? "";
 
-    if (brokerProvider !== "angelone") {
-      logger.debug("Angel One broker not enabled, skipping token refresh scheduler");
+    if (brokerProvider !== "angelone" && dataProvider !== "angelone") {
+      logger.debug("Angel One broker/data not enabled, skipping token refresh scheduler");
       return;
     }
 
@@ -215,69 +234,90 @@ export class TokenRefreshService {
     // Stop existing timer if any
     this.stop();
 
-    const scheduleNext = () => {
-      const delay = this.calculateNextRefreshDelay();
+    this.scheduleDailyRefresh();
+  }
 
-      this.refreshTimer = setTimeout(async () => {
-        try {
-          await this.performReauthentication();
-          // Reset retry count on success
-          this.retryCount = 0;
-        } catch (error) {
-          logger.error(
-            { err: error, retryCount: this.retryCount },
-            "Automatic token re-authentication failed"
-          );
+  /**
+   * Schedule the next daily refresh at 4:30 AM IST
+   */
+  private scheduleDailyRefresh(): void {
+    const delay = this.calculateNextRefreshDelay();
 
-          // Apply exponential backoff for retries
-          if (this.retryCount < this.MAX_RETRIES) {
-            this.retryCount++;
-            const backoffDelay = this.calculateBackoffDelay();
+    logger.info(
+      {
+        nextRefreshAt: new Date(Date.now() + delay).toISOString(),
+      },
+      "Angel One automatic token refresh scheduled"
+    );
 
-            logger.warn(
-              {
-                retryCount: this.retryCount,
-                maxRetries: this.MAX_RETRIES,
-                nextRetryIn: `${Math.round(backoffDelay / 60000)} minutes`,
-              },
-              "Scheduling retry with exponential backoff"
-            );
+    this.refreshTimer = setTimeout(async () => {
+      await this.attemptRefresh();
+    }, delay);
+  }
 
-            this.refreshTimer = setTimeout(async () => {
-              // Retry the authentication
-              try {
-                await this.performReauthentication();
-                this.retryCount = 0; // Reset on success
-                scheduleNext(); // Schedule normal daily refresh
-              } catch (retryError) {
-                logger.error({ err: retryError }, "Retry failed, continuing with backoff");
-                scheduleNext(); // This will apply backoff again if needed
-              }
-            }, backoffDelay);
+  /**
+   * Attempt refresh and handle retries
+   */
+  private async attemptRefresh(): Promise<void> {
+    try {
+      await this.performReauthentication();
+      // Success
+      this.retryCount = 0;
+      this.scheduleDailyRefresh();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      const isFatal =
+        errorMessage.includes("invalid") ||
+        errorMessage.includes("credentials") ||
+        errorMessage.includes("totp") ||
+        errorMessage.includes("unauthorized");
 
-            return; // Don't schedule the normal refresh yet
-          } else {
-            logger.error(
-              { maxRetries: this.MAX_RETRIES },
-              "Max retries reached for token refresh. Resetting retry count and scheduling next daily attempt."
-            );
-            this.retryCount = 0; // Reset for next daily attempt
-          }
-        }
+      if (isFatal) {
+        logger.fatal(
+          { err: error },
+          "Fatal authentication error encountered. Aborting automatic token refresh retries."
+        );
+        // Do not schedule retry or daily refresh. The service effectively stops until restarted.
+        return;
+      }
 
-        // Schedule next refresh
-        scheduleNext();
-      }, delay);
-
-      logger.info(
-        {
-          nextRefreshAt: new Date(Date.now() + delay).toISOString(),
-        },
-        "Angel One automatic token refresh scheduled"
+      logger.error(
+        { err: error, retryCount: this.retryCount },
+        "Automatic token re-authentication failed"
       );
-    };
 
-    scheduleNext();
+      if (this.retryCount < this.MAX_RETRIES) {
+        this.scheduleRetry();
+      } else {
+        logger.error(
+          { maxRetries: this.MAX_RETRIES },
+          "Max retries reached for token refresh. Resetting retry count and scheduling next daily attempt."
+        );
+        this.retryCount = 0;
+        this.scheduleDailyRefresh();
+      }
+    }
+  }
+
+  /**
+   * Schedule a retry with exponential backoff
+   */
+  private scheduleRetry(): void {
+    this.retryCount++;
+    const backoffDelay = this.calculateBackoffDelay();
+
+    logger.warn(
+      {
+        retryCount: this.retryCount,
+        maxRetries: this.MAX_RETRIES,
+        nextRetryIn: `${Math.round(backoffDelay / 60000)} minutes`,
+      },
+      "Scheduling retry with exponential backoff"
+    );
+
+    this.refreshTimer = setTimeout(async () => {
+      await this.attemptRefresh();
+    }, backoffDelay);
   }
 
   /**

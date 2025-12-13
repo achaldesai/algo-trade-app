@@ -1,5 +1,7 @@
+import { EventEmitter } from "events";
 import type BrokerClient from "../brokers/BrokerClient";
 import PaperBroker from "../brokers/PaperBroker";
+import type { RiskManager } from "./RiskManager";
 import type MarketDataService from "./MarketDataService";
 import PortfolioService from "./PortfolioService";
 import type {
@@ -23,6 +25,7 @@ export interface TradingEngineOptions {
   fallbackBroker?: BrokerClient;
   portfolioService: PortfolioService;
   marketData: MarketDataService;
+  riskManager: RiskManager;
 }
 
 export interface StrategyEvaluationResult {
@@ -35,7 +38,7 @@ export interface StrategyEvaluationResult {
   errors: StrategyEvaluationError[];
 }
 
-export class TradingEngine {
+export class TradingEngine extends EventEmitter {
   private readonly strategies = new Map<string, BaseStrategy>();
 
   private readonly primaryBroker: BrokerClient;
@@ -48,12 +51,20 @@ export class TradingEngine {
 
   private readonly marketData: MarketDataService;
 
+  private readonly riskManager: RiskManager;
+
   constructor(options: TradingEngineOptions) {
+    super();
     this.primaryBroker = options.broker;
     this.fallbackBroker = options.fallbackBroker ?? new PaperBroker();
     this.activeBroker = this.primaryBroker;
     this.portfolioService = options.portfolioService;
     this.marketData = options.marketData;
+    this.riskManager = options.riskManager;
+  }
+
+  getActiveBroker(): BrokerClient {
+    return this.activeBroker;
   }
 
   registerStrategy(strategy: BaseStrategy): void {
@@ -210,10 +221,18 @@ export class TradingEngine {
     // Normal execution
     for (const order of signal.requestedOrders) {
       try {
-        // Validate order before execution
-        this.validateOrder(order);
+        // Validation (Risk Checks)
+        const portfolioSnapshot = await this.portfolioService.getSnapshot();
+        const unrealizedPnL = portfolioSnapshot.positions.reduce((sum, p) => sum + p.unrealizedPnl, 0);
+        const openPositionsCount = portfolioSnapshot.positions.filter(p => p.netQuantity !== 0).length;
+
+        const riskResult = this.riskManager.checkOrderAllowed(order, unrealizedPnL, openPositionsCount);
+        if (!riskResult.allowed) {
+          throw new Error(`Risk check failed: ${riskResult.reason}`);
+        }
 
         const execution = await broker.placeOrder(order);
+        this.riskManager.recordExecution(execution);
         executions.push(execution);
 
         if (execution.filledQuantity > 0 && execution.status !== "REJECTED") {
@@ -226,6 +245,9 @@ export class TradingEngine {
             executedAt: execution.executedAt,
           };
           await this.portfolioService.recordExternalTrade(trade);
+
+          // Emit trade event for stop-loss monitor integration
+          this.emit("trade-executed", trade);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Order execution failed";
@@ -240,20 +262,18 @@ export class TradingEngine {
   /**
    * Validates an order before execution
    * Checks position size limits and capital availability
+   * @deprecated logic moved to RiskManager
    */
   private validateOrder(order: BrokerOrderRequest): void {
-    // Validate price exists and is positive
-    if (!order.price || order.price <= 0) {
+    // Legacy local validation kept as backup or removed? 
+    // We can defer to RiskManager completely. 
+    // RiskManager handles maxPositionSize now.
+    // Capital availability/price checks might still be useful here or moved to RiskManager?
+    // For now, let's just minimal checks.
+
+    // Validate price exists and is positive for LIMIT orders
+    if (order.type === 'LIMIT' && (!order.price || order.price <= 0)) {
       throw new Error(`Invalid price: ${order.price} (must be > 0)`);
-    }
-
-    const positionValue = order.quantity * order.price;
-
-    // Check max position size
-    if (positionValue > env.maxPositionSize) {
-      throw new Error(
-        `Order exceeds max position size: ${positionValue.toFixed(2)} > ${env.maxPositionSize}`
-      );
     }
 
     // Validate quantity is positive
@@ -267,6 +287,61 @@ export class TradingEngine {
       return { message: error.message, stack: error.stack };
     }
     return error;
+  }
+
+  async sellAllPositions(): Promise<{ executions: BrokerOrderExecution[]; failures: BrokerOrderFailure[] }> {
+    const executions: BrokerOrderExecution[] = [];
+    const failures: BrokerOrderFailure[] = [];
+
+    try {
+      // 1. Get all open positions from broker
+      // Note: We use the broker's position data as the source of truth for liquidation
+      await this.connect();
+      const positions = await this.activeBroker.getPositions();
+
+      for (const position of positions) {
+        if (position.quantity === 0) continue;
+
+        // Determine side to close
+        const side = position.quantity > 0 ? "SELL" : "BUY";
+        const quantity = Math.abs(position.quantity);
+
+        const order: BrokerOrderRequest = {
+          symbol: position.symbol,
+          side,
+          quantity,
+          type: "MARKET",
+          tag: `PANIC-SELL-${Date.now()}`,
+          price: 0, // Market order
+        };
+
+        try {
+          const execution = await this.activeBroker.placeOrder(order);
+          executions.push(execution);
+
+          if (execution.filledQuantity > 0) {
+            const trade: Trade = {
+              id: execution.id,
+              symbol: execution.request.symbol,
+              side: execution.request.side,
+              quantity: execution.filledQuantity,
+              price: execution.averagePrice,
+              executedAt: execution.executedAt,
+            };
+            await this.portfolioService.recordExternalTrade(trade);
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Panic sell failed";
+          failures.push({ request: order, error: message, details: this.serializeError(error) });
+          logger.error({ err: error, symbol: position.symbol }, "Failed to close position during panic sell");
+        }
+      }
+    } catch (error) {
+      logger.error({ err: error }, "Failed to fetch positions for panic sell");
+      throw error;
+    }
+
+    return { executions, failures };
   }
 }
 

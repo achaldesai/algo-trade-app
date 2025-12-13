@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { getPortfolioRepository } from "../persistence";
+import { resolveHealthService } from "../container";
 import logger from "../utils/logger";
 import { HttpError } from "../utils/HttpError";
 import env from "../config/env";
@@ -214,26 +215,17 @@ router.get("/export", async (req: Request, res: Response) => {
 
 /**
  * GET /admin/health
- * Get overall system health status
+ * Get overall system health status with component-level details
  */
 router.get("/health", async (req: Request, res: Response) => {
   try {
-    const repo = await getPortfolioRepository();
-    const stocks = await repo.listStocks();
-    const trades = await repo.listTrades();
+    const healthService = resolveHealthService();
+    const health = await healthService.getHealth();
 
-    res.json({
-      status: "healthy",
-      timestamp: new Date().toISOString(),
-      backend: env.portfolioBackend,
-      broker: env.brokerProvider,
-      port: env.port,
-      dataPath: env.portfolioStorePath,
-      counts: {
-        stocks: stocks.length,
-        trades: trades.length,
-      },
-    });
+    const statusCode = health.status === "healthy" ? 200 :
+      health.status === "degraded" ? 200 : 503;
+
+    res.status(statusCode).json(health);
   } catch (error) {
     logger.error({ err: error }, "Health check failed");
 

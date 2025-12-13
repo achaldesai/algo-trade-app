@@ -12,6 +12,7 @@ import MarketDataService from "./MarketDataService";
 import type PortfolioService from "./PortfolioService";
 import TradingEngine from "./TradingEngine";
 import BaseStrategy, { type StrategyContext } from "../strategies/BaseStrategy";
+import { resolveRiskManager } from "../container";
 
 class FailingBroker implements BrokerClient {
   public readonly name = "failing";
@@ -189,12 +190,14 @@ describe("TradingEngine broker fallback", () => {
     const fallbackBroker = new RecordingBroker();
     const { service: portfolioService, recorded } = createPortfolioServiceStub();
     const marketData = new MarketDataService();
+    const riskManager = resolveRiskManager();
 
     const engine = new TradingEngine({
       broker: failingBroker,
       fallbackBroker,
       portfolioService,
       marketData,
+      riskManager,
     });
 
     const strategy = new TestStrategy(fallbackBroker);
@@ -219,12 +222,14 @@ describe("TradingEngine broker fallback", () => {
     const fallbackBroker = new AlwaysFailingBroker();
     const { service: portfolioService } = createPortfolioServiceStub();
     const marketData = new MarketDataService();
+    const riskManager = resolveRiskManager();
 
     const engine = new TradingEngine({
       broker: failingBroker,
       fallbackBroker,
       portfolioService,
       marketData,
+      riskManager,
     });
 
     engine.registerStrategy(new GuardStrategy());

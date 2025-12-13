@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import type { BrokerOrderRequest } from "../types";
 import ZerodhaBroker, { type ZerodhaBrokerConfig } from "./ZerodhaBroker";
+import fixtures from "../data/fixtures.json";
 import type { Connect, Trade as KiteTrade } from "kiteconnect/types/connect";
 
 const baseConfig: ZerodhaBrokerConfig = {
@@ -55,45 +56,35 @@ describe("ZerodhaBroker fallback behaviour", () => {
 describe("ZerodhaBroker kiteconnect integration", () => {
   const now = new Date("2024-01-01T00:00:00.000Z");
 
-const trade: KiteTrade = {
-  trade_id: "trade-1",
-  order_id: "order-1",
-  exchange_order_id: "ex-1",
-  tradingsymbol: "AAPL",
-  exchange: "NSE",
-  instrument_token: 123,
-  transaction_type: "BUY",
-  product: "CNC",
-  average_price: 101.25,
-  filled: 5,
-  quantity: 5,
-  fill_timestamp: now,
-  order_timestamp: now,
-  exchange_timestamp: now,
-};
+  const trade: KiteTrade = {
+    ...fixtures.kiteTrade,
+    fill_timestamp: now,
+    order_timestamp: now,
+    exchange_timestamp: now,
+  } as unknown as KiteTrade;
 
-type QuoteStubEntry = {
-  instrument_token: number;
-  last_price: number;
-  volume: number;
-  average_price: number;
-  buy_quantity: number;
-  sell_quantity: number;
-  last_quantity: number;
-  ohlc: { open: number; high: number; low: number; close: number };
-  net_change: number;
-  lower_circuit_limit: number;
-  upper_circuit_limit: number;
-  oi: number;
-  oi_day_high: number;
-  oi_day_low: number;
-  depth: {
-    buy: Array<{ price: number; orders: number; quantity: number }>;
-    sell: Array<{ price: number; orders: number; quantity: number }>;
+  type QuoteStubEntry = {
+    instrument_token: number;
+    last_price: number;
+    volume: number;
+    average_price: number;
+    buy_quantity: number;
+    sell_quantity: number;
+    last_quantity: number;
+    ohlc: { open: number; high: number; low: number; close: number };
+    net_change: number;
+    lower_circuit_limit: number;
+    upper_circuit_limit: number;
+    oi: number;
+    oi_day_high: number;
+    oi_day_low: number;
+    depth: {
+      buy: Array<{ price: number; orders: number; quantity: number }>;
+      sell: Array<{ price: number; orders: number; quantity: number }>;
+    };
   };
-};
 
-const buildKiteStub = () => {
+  const buildKiteStub = () => {
     const stats = {
       setAccessToken: 0,
       placeOrder: 0,
@@ -128,28 +119,7 @@ const buildKiteStub = () => {
       },
       getQuote: async () => {
         stats.getQuote += 1;
-        return {
-          "NSE:AAPL": {
-            instrument_token: 123,
-            last_price: 202,
-            volume: 100,
-            average_price: 201,
-            buy_quantity: 200,
-            sell_quantity: 150,
-            last_quantity: 10,
-            ohlc: { open: 200, high: 205, low: 195, close: 198 },
-            net_change: 2,
-            lower_circuit_limit: 180,
-            upper_circuit_limit: 220,
-            oi: 0,
-            oi_day_high: 0,
-            oi_day_low: 0,
-            depth: {
-              buy: [{ price: 201, orders: 4, quantity: 12 }],
-              sell: [{ price: 203, orders: 3, quantity: 8 }],
-            },
-          },
-        } satisfies Record<string, QuoteStubEntry>;
+        return fixtures.kiteQuote as unknown as Record<string, QuoteStubEntry>;
       },
     } as unknown as Connect;
 

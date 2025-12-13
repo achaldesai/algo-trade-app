@@ -38,7 +38,7 @@ interface PositionState {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class PortfolioService {
-  constructor(private readonly repository: PortfolioRepository) {}
+  constructor(private readonly repository: PortfolioRepository) { }
 
   public async addStock(input: CreateStockInput): Promise<Stock> {
     const symbol = input.symbol.trim().toUpperCase();
@@ -235,6 +235,90 @@ export class PortfolioService {
     }
 
     return latest;
+  }
+
+  /**
+   * Calculate realized P&L for a specific time period.
+   * If fromDate is provided, only includes P&L from trades executed on or after that date.
+   * Requires processing full trade history to determine accurate cost basis.
+   */
+  public async getRealizedPnl(fromDate?: Date): Promise<number> {
+    const trades = await this.listTrades(); // Already sorted descending, need ascending for replay
+    // Sort ascending for chronological processing
+    const chronologicalTrades = [...trades].sort((a, b) => a.executedAt.getTime() - b.executedAt.getTime());
+
+    const states = new Map<string, PositionState>();
+    let totalRealizedPnl = 0;
+
+    for (const trade of chronologicalTrades) {
+      const state = states.get(trade.symbol) ?? { netQuantity: 0, totalCost: 0, realizedPnl: 0 };
+      let tradeRealizedPnl = 0;
+
+      if (trade.side === "BUY") {
+        let remainingQuantity = trade.quantity;
+
+        const openShortQuantity = Math.max(-state.netQuantity, 0);
+        if (openShortQuantity > 0) {
+          // Covering short position
+          const closingQuantity = Math.min(openShortQuantity, remainingQuantity);
+          if (closingQuantity > 0) {
+            const entryAverage = state.netQuantity !== 0 ? state.totalCost / state.netQuantity : 0;
+            // Short P&L: (Entry Price - Exit Price) * Quantity
+            const pnl = closingQuantity * (entryAverage - trade.price);
+            state.realizedPnl += pnl;
+            tradeRealizedPnl += pnl;
+
+            state.netQuantity += closingQuantity;
+            state.totalCost += entryAverage * closingQuantity; // reducing the negative cost basis
+            remainingQuantity -= closingQuantity;
+
+            if (state.netQuantity === 0) {
+              state.totalCost = 0;
+            }
+          }
+        }
+
+        if (remainingQuantity > 0) {
+          // Opening/Adding long
+          state.totalCost += trade.price * remainingQuantity;
+          state.netQuantity += remainingQuantity;
+        }
+      } else {
+        // SELL
+        const closingQty = Math.min(Math.max(state.netQuantity, 0), trade.quantity);
+        const avgCost = state.netQuantity > 0 ? state.totalCost / state.netQuantity : 0;
+
+        if (closingQty > 0) {
+          // Closing long P&L: (Exit Price - Entry Price) * Quantity
+          const pnl = closingQty * (trade.price - avgCost);
+          state.realizedPnl += pnl;
+          tradeRealizedPnl += pnl;
+
+          state.totalCost -= closingQty * avgCost;
+          state.netQuantity -= closingQty;
+        }
+
+        // Remaining sells become short positions
+        const residualQty = trade.quantity - closingQty;
+        if (residualQty > 0) {
+          state.netQuantity -= residualQty;
+          state.totalCost -= residualQty * trade.price;
+        }
+      }
+
+      if (state.netQuantity === 0) {
+        state.totalCost = 0;
+      }
+
+      states.set(trade.symbol, state);
+
+      // Accumulate if within date range
+      if (!fromDate || trade.executedAt >= fromDate) {
+        totalRealizedPnl += tradeRealizedPnl;
+      }
+    }
+
+    return Number(totalRealizedPnl.toFixed(2));
   }
 }
 

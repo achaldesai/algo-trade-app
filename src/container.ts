@@ -3,7 +3,7 @@ import type BrokerClient from "./brokers/BrokerClient";
 import ZerodhaBroker from "./brokers/ZerodhaBroker";
 import AngelOneBroker from "./brokers/AngelOneBroker";
 import env from "./config/env";
-import { getPortfolioRepository } from "./persistence";
+import { getPortfolioRepository, getSettingsRepository, getStopLossRepository, getAuditLogRepository } from "./persistence";
 import MarketDataService from "./services/MarketDataService";
 import PortfolioService from "./services/PortfolioService";
 import TradingEngine from "./services/TradingEngine";
@@ -12,6 +12,19 @@ import PortfolioRebalancer from "./services/PortfolioRebalancer";
 import ExecutionPlanner from "./services/ExecutionPlanner";
 import AngelOneHistoricalProvider from "./providers/AngelOneHistoricalProvider";
 import VWAPStrategy from "./strategies/VWAPStrategy";
+import type { TickerClient } from "./services/TickerClient";
+import AngelOneTickerService from "./services/AngelOneTickerService";
+import ReconciliationService from "./services/ReconciliationService";
+import { RiskManager } from "./services/RiskManager";
+import { StopLossMonitor } from "./services/StopLossMonitor";
+import { AuditLogService } from "./services/AuditLogService";
+import { HealthService } from "./services/HealthService";
+import { NotificationService } from "./services/NotificationService";
+import { TunnelService } from "./services/TunnelService";
+import { DiscordBotService } from "./services/DiscordBotService";
+import type { SettingsRepository } from "./persistence/SettingsRepository";
+import type { StopLossRepository } from "./persistence/StopLossRepository";
+import type { AuditLogRepository } from "./persistence/AuditLogRepository";
 
 export interface AppContainer {
   portfolioService: PortfolioService;
@@ -21,6 +34,18 @@ export interface AppContainer {
   executionPlanner: ExecutionPlanner;
   brokerClient: BrokerClient;
   tradingEngine: TradingEngine;
+  tickerClient: TickerClient | null;
+  reconciliationService: ReconciliationService;
+  settingsRepository: SettingsRepository;
+  stopLossRepository: StopLossRepository;
+  auditLogRepository: AuditLogRepository;
+  riskManager: RiskManager;
+  stopLossMonitor: StopLossMonitor;
+  auditLogService: AuditLogService;
+  healthService: HealthService;
+  notificationService: NotificationService;
+  tunnelService: TunnelService;
+  discordBotService: DiscordBotService;
 }
 
 const buildBroker = (): BrokerClient => {
@@ -64,20 +89,91 @@ const buildHistoricalDataService = (): HistoricalDataService => {
   return new HistoricalDataService();
 };
 
+/**
+ * Build ticker service based on DATA_PROVIDER config
+ * Uses Angel One's free WebSocket ticker for real-time market data
+ */
+const buildTicker = (marketData: MarketDataService): TickerClient | null => {
+  // Use Angel One ticker if data provider is set to angelone
+  if (env.dataProvider === "angelone" && env.angelOneApiKey) {
+    return new AngelOneTickerService(marketData);
+  }
+  return null;
+};
+
 export const createContainer = (): AppContainer => {
   const portfolioService = new PortfolioService(getPortfolioRepository());
+  const settingsRepository = getSettingsRepository();
+  const stopLossRepository = getStopLossRepository();
   const marketDataService = new MarketDataService();
   const historicalDataService = buildHistoricalDataService();
   const portfolioRebalancer = new PortfolioRebalancer();
   const executionPlanner = new ExecutionPlanner();
   const brokerClient = buildBroker();
+  const riskManager = new RiskManager(settingsRepository);
   const tradingEngine = new TradingEngine({
     broker: brokerClient,
     marketData: marketDataService,
     portfolioService,
+    riskManager,
   });
 
   tradingEngine.registerStrategy(new VWAPStrategy());
+
+  // Build ticker for real-time market data (uses DATA_PROVIDER config)
+  const tickerClient = buildTicker(marketDataService);
+
+  // Build reconciliation service for syncing with broker
+  const reconciliationService = new ReconciliationService(brokerClient, portfolioService);
+
+  // Build stop-loss monitor
+  const stopLossMonitor = new StopLossMonitor({
+    marketDataService,
+    tradingEngine,
+    stopLossRepository,
+    riskManager,
+  });
+
+  // Build audit log service
+  const auditLogRepository = getAuditLogRepository();
+  const auditLogService = new AuditLogService({
+    repository: auditLogRepository,
+    tradingEngine,
+    stopLossMonitor,
+    settingsRepository,
+  });
+
+  // Build health service
+  const healthService = new HealthService({
+    brokerClient,
+    tickerClient: tickerClient || undefined,
+    marketDataService,
+    stopLossMonitor,
+  });
+
+  // Build notification service (only if webhook configured)
+  const notificationService = new NotificationService({
+    discordWebhookUrl: env.discordWebhookUrl,
+    webhookUrl: env.webhookUrl,
+    tradingEngine,
+    stopLossMonitor,
+  });
+
+  // Wire RiskManager critical errors to notifications
+  riskManager.on("critical_error", (event: { type: string; error: Error }) => {
+    void notificationService.notifyCriticalError(
+      event.type,
+      event.error?.message || "Unknown error"
+    );
+  });
+
+  // Build remote access services
+  const tunnelService = new TunnelService();
+
+  const discordBotService = new DiscordBotService({
+    token: env.discordBotToken,
+    tunnelService,
+  });
 
   return {
     portfolioService,
@@ -87,6 +183,18 @@ export const createContainer = (): AppContainer => {
     executionPlanner,
     brokerClient,
     tradingEngine,
+    tickerClient,
+    reconciliationService,
+    settingsRepository,
+    stopLossRepository,
+    auditLogRepository,
+    riskManager,
+    stopLossMonitor,
+    auditLogService,
+    healthService,
+    notificationService,
+    tunnelService,
+    discordBotService,
   };
 };
 
@@ -105,6 +213,11 @@ export const resetContainer = (): AppContainer => {
   return activeContainer;
 };
 
+// For testing purposes
+export const setContainer = (container: AppContainer): void => {
+  activeContainer = container;
+};
+
 export const resolvePortfolioService = (): PortfolioService => getContainer().portfolioService;
 
 export const resolveMarketDataService = (): MarketDataService => getContainer().marketDataService;
@@ -118,3 +231,25 @@ export const resolveExecutionPlanner = (): ExecutionPlanner => getContainer().ex
 export const resolveBrokerClient = (): BrokerClient => getContainer().brokerClient;
 
 export const resolveTradingEngine = (): TradingEngine => getContainer().tradingEngine;
+
+export const resolveTickerClient = (): TickerClient | null => getContainer().tickerClient;
+
+export const resolveReconciliationService = (): ReconciliationService => getContainer().reconciliationService;
+
+export const resolveSettingsRepository = (): SettingsRepository => getContainer().settingsRepository;
+
+export const resolveStopLossRepository = (): StopLossRepository => getContainer().stopLossRepository;
+
+export const resolveAuditLogRepository = (): AuditLogRepository => getContainer().auditLogRepository;
+
+export const resolveRiskManager = (): RiskManager => getContainer().riskManager;
+
+export const resolveStopLossMonitor = (): StopLossMonitor => getContainer().stopLossMonitor;
+
+export const resolveAuditLogService = (): AuditLogService => getContainer().auditLogService;
+
+export const resolveHealthService = (): HealthService => getContainer().healthService;
+
+export const resolveNotificationService = (): NotificationService => getContainer().notificationService;
+
+export const resolveDiscordBotService = (): DiscordBotService => getContainer().discordBotService;

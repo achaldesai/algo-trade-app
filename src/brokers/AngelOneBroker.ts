@@ -115,8 +115,8 @@ export class AngelOneBroker implements BrokerClient {
 
         if (response.status && Array.isArray(response.data)) {
           return response.data
-            .filter((pos) => pos.netqty && pos.netqty !== "0")
-            .map((pos) => this.toDomainTrade(pos));
+            .filter((pos: AngelOnePosition) => pos.netqty && pos.netqty !== "0")
+            .map((pos: AngelOnePosition) => this.toDomainTrade(pos));
         }
       } catch (error) {
         logger.warn(

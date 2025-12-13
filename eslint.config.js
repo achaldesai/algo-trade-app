@@ -1,6 +1,8 @@
 const js = require("@eslint/js");
 const tseslint = require("typescript-eslint");
 
+const globals = require("globals");
+
 module.exports = tseslint.config(
   {
     ignores: ["dist", "node_modules", "eslint.config.js"],
@@ -8,7 +10,7 @@ module.exports = tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["**/*.ts"],
+    files: ["**/*.ts", "public/**/*.js"],
     rules: {
       "no-unused-vars": "off",
       "@typescript-eslint/no-misused-promises": "off",
@@ -20,6 +22,15 @@ module.exports = tseslint.config(
           caughtErrorsIgnorePattern: "^_",
         },
       ],
+    },
+  },
+  {
+    files: ["public/**/*.js"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        LightweightCharts: "readonly",
+      },
     },
   }
 );

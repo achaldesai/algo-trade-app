@@ -6,7 +6,7 @@ dist
 .DS_Store
 
 # Runtime data
-data/
+/data/
 backups/
 
 # Logs
