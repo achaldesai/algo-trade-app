@@ -118,7 +118,8 @@ export class HealthService {
                     : `Disconnected (${broker.name})`,
                 lastUpdated: new Date(),
             };
-        } catch (_error) {
+        } catch (error) {
+            logger.error({ err: error }, "Failed to check broker status");
             return {
                 name: "broker",
                 status: "unhealthy",
@@ -162,7 +163,8 @@ export class HealthService {
                 message: isConnected ? `Connected${ageMessage}` : "Disconnected",
                 lastUpdated: new Date(),
             };
-        } catch (_error) {
+        } catch (error) {
+            logger.error({ err: error }, "Failed to check ticker status");
             return {
                 name: "ticker",
                 status: "unhealthy",

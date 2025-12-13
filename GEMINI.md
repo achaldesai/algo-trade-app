@@ -299,10 +299,15 @@ All orders are validated before execution:
 ### Panic Sell
 - **Endpoint**: `POST /api/control/panic-sell`
 - **Confirmation**: Requires `confirmToken: "PANIC-CONFIRM"` in request body to prevent accidental execution.
+- **Safety**: Bypasses circuit breakers and stops all trading loops/monitors immediately.
 
 ### Stop-Loss Automation
 
 Automatic stop-loss protection for all positions:
+
+**Reliability Enhancements:**
+- **Race Condition Fix**: Implements symbol-level locking to prevent concurrent updates during high-frequency ticks.
+- **Async Safety**: All async operations are wrapped to prevent unhandled promise rejections.
 
 **Automatic Stop-Loss Creation:**
 
@@ -503,6 +508,7 @@ curl -X POST http://localhost:3000/api/notifications/test
 The dashboard shows notification status under Settings:
 - **Status indicator**: Configured/Not Configured
 - **Test button**: Send a test notification to verify setup
+- **Security**: Admin API Key is stored in `sessionStorage` (not `localStorage`) to prevent XSS. Users must re-authenticate per session.
 
 ## Remote Access (Discord Bot)
 
@@ -604,6 +610,13 @@ if (indicators?.rsi && indicators.rsi < 30) {
 - Includes tests for dry-run mode, position limits, and technical indicators
 - **Service Tests**: Dedicated unit tests for `TradingLoopService`, `ReconciliationService`, and `RiskManager`
 - **Utility Tests**: `RingBuffer` verified with comprehensive test suite
+
+## Code Quality & Architecture
+
+### Refactoring Highlights
+- **P&L Centralization**: Realized P&L logic is centralized in `PortfolioService` to ensure consistency between API and internal calculations.
+- **Error Handling**: Strict `try-catch` blocks in repositories (LMDB) and services prevent swallowed exceptions.
+- **Async Safety**: "Fire-and-forget" event handlers in `AuditLogService` are wrapped in safeguards.
 
 ## Key Extension Points
 

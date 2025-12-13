@@ -25,8 +25,9 @@ router.get("/status", (req, res) => {
                 activeCount: stopLossStatus.activeStopLosses,
             },
         });
-    } catch (_error) {
-        // If service not initialized yet
+    } catch (error) {
+        // If service not initialized yet, just log debug
+        logger.debug({ err: error }, "Status check failed (services might not be ready)");
         res.json({ running: false, mode: "parallel", evaluating: false, stopLoss: { monitoring: false, activeCount: 0 } });
     }
 });
@@ -80,8 +81,9 @@ router.post("/panic-sell", async (req, res, next) => {
 
             const stopLossMonitor = resolveStopLossMonitor();
             stopLossMonitor.stop();
-        } catch (_e) {
-            // Ignore if services not init
+        } catch (error) {
+            // Ignore if services not init but log it
+            logger.debug({ err: error }, "Failed to stop services during panic sell (possibly not running)");
         }
 
         const engine = resolveTradingEngine();

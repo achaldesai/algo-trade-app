@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { resolvePortfolioService, resolveMarketDataService, resolveRiskManager } from "../container";
-import type { Trade } from "../types";
+
 
 const router = Router();
 
@@ -46,7 +46,7 @@ router.get("/daily", async (_req, res, next) => {
         });
 
         // Calculate daily realized P&L from today's trades
-        const dailyRealizedPnL = calculateDailyRealizedPnL(todaysTrades, allTrades);
+        const dailyRealizedPnL = await portfolioService.getRealizedPnl(today);
 
         // Get current positions for unrealized P&L
         const snapshot = await portfolioService.getSnapshot();
@@ -233,82 +233,6 @@ router.get("/positions", async (_req, res, next) => {
     }
 });
 
-/**
- * Calculate realized P&L from today's closing trades
- */
-function calculateDailyRealizedPnL(todaysTrades: Trade[], allTrades: Trade[]): number {
-    // Build position state from all trades BEFORE today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
 
-    const positionStates = new Map<string, { avgCost: number; quantity: number }>();
-
-    // Process all historical trades to get opening positions
-    for (const trade of allTrades) {
-        if (new Date(trade.executedAt) >= today) continue;
-
-        const state = positionStates.get(trade.symbol) ?? { avgCost: 0, quantity: 0 };
-
-        if (trade.side === "BUY") {
-            if (state.quantity >= 0) {
-                // Adding to long position
-                const newCost = (state.avgCost * state.quantity) + (trade.price * trade.quantity);
-                state.quantity += trade.quantity;
-                state.avgCost = state.quantity > 0 ? newCost / state.quantity : 0;
-            } else {
-                // Covering short
-                state.quantity += trade.quantity;
-                if (state.quantity >= 0) {
-                    state.avgCost = trade.price; // Reset if we flip to long
-                }
-            }
-        } else {
-            if (state.quantity > 0) {
-                // Closing long
-                state.quantity -= trade.quantity;
-            } else {
-                // Adding to short
-                const newCost = (state.avgCost * Math.abs(state.quantity)) + (trade.price * trade.quantity);
-                state.quantity -= trade.quantity;
-                state.avgCost = state.quantity !== 0 ? newCost / Math.abs(state.quantity) : 0;
-            }
-        }
-
-        positionStates.set(trade.symbol, state);
-    }
-
-    // Now calculate realized P&L from today's trades
-    let dailyRealizedPnL = 0;
-
-    for (const trade of todaysTrades) {
-        const state = positionStates.get(trade.symbol) ?? { avgCost: 0, quantity: 0 };
-
-        if (trade.side === "SELL" && state.quantity > 0) {
-            // Closing long position
-            const closingQty = Math.min(state.quantity, trade.quantity);
-            dailyRealizedPnL += closingQty * (trade.price - state.avgCost);
-            state.quantity -= closingQty;
-        } else if (trade.side === "BUY" && state.quantity < 0) {
-            // Covering short position
-            const coveringQty = Math.min(Math.abs(state.quantity), trade.quantity);
-            dailyRealizedPnL += coveringQty * (state.avgCost - trade.price);
-            state.quantity += coveringQty;
-        } else if (trade.side === "BUY") {
-            // Opening or adding to long
-            const newCost = (state.avgCost * state.quantity) + (trade.price * trade.quantity);
-            state.quantity += trade.quantity;
-            state.avgCost = state.quantity > 0 ? newCost / state.quantity : 0;
-        } else {
-            // Opening or adding to short
-            const newCost = (state.avgCost * Math.abs(state.quantity)) + (trade.price * trade.quantity);
-            state.quantity -= trade.quantity;
-            state.avgCost = state.quantity !== 0 ? newCost / Math.abs(state.quantity) : 0;
-        }
-
-        positionStates.set(trade.symbol, state);
-    }
-
-    return dailyRealizedPnL;
-}
 
 export default router;

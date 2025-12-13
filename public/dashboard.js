@@ -26,6 +26,44 @@ window.addEventListener('resize', () => {
     chart.applyOptions({ width: chartContainer.clientWidth });
 });
 
+// Constants
+const POLL_INTERVAL_MARKET = 1000;
+const POLL_INTERVAL_PNL = 2000;
+const POLL_INTERVAL_LOOP = 2000;
+const POLL_INTERVAL_STATUS = 5000;
+const POLL_INTERVAL_STRATEGY = 10000;
+
+// Auth Helper
+function getAdminKey() {
+    return sessionStorage.getItem('adminApiKey') || '';
+}
+
+function setAdminKey(key) {
+    if (key) {
+        sessionStorage.setItem('adminApiKey', key);
+    } else {
+        sessionStorage.removeItem('adminApiKey');
+    }
+    // Trigger immediate health check to update UI
+    updateSystemHealth();
+}
+
+// Make the "Auth Required" badge clickable to prompt for key if missing
+document.addEventListener('DOMContentLoaded', () => {
+    const healthStatusEntry = document.getElementById('health-status');
+    if (healthStatusEntry) {
+        healthStatusEntry.style.cursor = 'pointer';
+        healthStatusEntry.title = 'Click to login/update Admin Key';
+        healthStatusEntry.addEventListener('click', () => {
+            const currentKey = getAdminKey();
+            const newKey = prompt('Enter Admin API Key:', currentKey);
+            if (newKey !== null) {
+                setAdminKey(newKey);
+            }
+        });
+    }
+});
+
 // Polling Functions
 async function updateStatus() {
     try {
@@ -62,7 +100,7 @@ async function updateStatus() {
 async function updateSystemHealth() {
     try {
         const res = await fetch('/api/admin/health', {
-            headers: { 'X-Admin-API-Key': localStorage.getItem('adminApiKey') || '' }
+            headers: { 'X-Admin-API-Key': getAdminKey() }
         });
 
         if (!res.ok) {
@@ -70,7 +108,7 @@ async function updateSystemHealth() {
             const dot = document.getElementById('health-dot');
             const status = document.getElementById('health-status');
             dot.className = 'health-dot pending';
-            status.textContent = 'Auth Required';
+            status.textContent = 'Auth Required (Click)';
             return;
         }
 
@@ -220,14 +258,13 @@ if (reconSyncBtn) {
 }
 
 // Start Polling
-setInterval(updateStatus, 5000);
-setInterval(updateStrategies, 10000);
-setInterval(updateMarketData, 1000); // Aggressive polling for demo
-setInterval(updateMarketData, 1000); // Aggressive polling for demo
-setInterval(updateLoopStatus, 2000); // Poll loop status
-setInterval(updateReconciliationStatus, 5000); // Poll reconciliation
-setInterval(updateDailyPnL, 2000); // Poll P&L
-setInterval(updateSystemHealth, 5000); // Poll system health
+setInterval(updateStatus, POLL_INTERVAL_STATUS);
+setInterval(updateStrategies, POLL_INTERVAL_STRATEGY);
+setInterval(updateMarketData, POLL_INTERVAL_MARKET);
+setInterval(updateLoopStatus, POLL_INTERVAL_LOOP);
+setInterval(updateReconciliationStatus, POLL_INTERVAL_STATUS);
+setInterval(updateDailyPnL, POLL_INTERVAL_PNL);
+setInterval(updateSystemHealth, POLL_INTERVAL_STATUS);
 
 // Initial call
 updateStatus();
@@ -243,18 +280,22 @@ async function updateDailyPnL() {
     try {
         const [pnlRes, stopLossRes] = await Promise.all([
             fetch('/api/pnl/positions'),
-            fetch('/api/stop-loss')
+            fetch('/api/stop-loss', {
+                headers: { 'X-Admin-API-Key': getAdminKey() } // Stop-loss endpoints usually require admin key
+            })
         ]);
 
         const pnlData = await pnlRes.json();
-        const stopLossData = await stopLossRes.json();
+        // Stop loss fetch might fail if unauthorized, handle gracefully
+        let stopLosses = new Map();
 
-        // Build stop-loss lookup
-        const stopLosses = new Map();
-        if (stopLossData.success && stopLossData.data.stopLosses) {
-            stopLossData.data.stopLosses.forEach(sl => {
-                stopLosses.set(sl.symbol, sl);
-            });
+        if (stopLossRes.ok) {
+            const stopLossData = await stopLossRes.json();
+            if (stopLossData.success && stopLossData.data.stopLosses) {
+                stopLossData.data.stopLosses.forEach(sl => {
+                    stopLosses.set(sl.symbol, sl);
+                });
+            }
         }
 
         // Fetch daily summary for realized P&L
@@ -368,7 +409,10 @@ document.getElementById('settings-form').addEventListener('submit', async (e) =>
     try {
         const res = await fetch('/api/settings', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Admin-API-Key': getAdminKey()
+            },
             body: JSON.stringify(data)
         });
 
@@ -388,7 +432,10 @@ document.getElementById('reset-settings-btn').addEventListener('click', async ()
     if (!confirm('Reset all risk settings to defaults?')) return;
 
     try {
-        await fetch('/api/settings/reset', { method: 'POST' });
+        await fetch('/api/settings/reset', {
+            method: 'POST',
+            headers: { 'X-Admin-API-Key': getAdminKey() }
+        });
         loadSettings();
         alert('Settings reset to defaults');
     } catch (_error) {
@@ -405,7 +452,12 @@ const panicBtn = document.getElementById('panic-sell-btn');
 
 async function updateLoopStatus() {
     try {
-        const res = await fetch('/api/control/status');
+        // Check status (authenticated if key present)
+        const res = await fetch('/api/control/status', {
+            headers: { 'X-Admin-API-Key': getAdminKey() }
+        });
+        if (!res.ok) return; // Silent fail if auth required and missing
+
         const data = await res.json();
 
         if (data.running) {
@@ -425,7 +477,10 @@ toggleBtn.addEventListener('click', async () => {
     const endpoint = isRunning ? '/api/control/stop' : '/api/control/start';
 
     try {
-        await fetch(endpoint, { method: 'POST' });
+        await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'X-Admin-API-Key': getAdminKey() }
+        });
         await updateLoopStatus();
     } catch (_error) {
         alert('Failed to toggle trading loop');
@@ -443,7 +498,10 @@ panicBtn.addEventListener('click', async () => {
     try {
         const res = await fetch('/api/control/panic-sell', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Admin-API-Key': getAdminKey()
+            },
             body: JSON.stringify({ confirmToken: confirmation })
         });
 
@@ -520,10 +578,5 @@ if (testNotificationBtn) {
 }
 
 // Initial notification status check
-// Initial notification status check
 updateNotificationStatus();
 
-// Security Warning
-if (localStorage.getItem('adminApiKey')) {
-    console.warn("%c⚠️ SECURITY WARNING: Admin API Key is stored in localStorage. This is vulnerable to XSS. Use only in trusted dev environments.", "color: red; font-size: 14px; font-weight: bold;");
-}

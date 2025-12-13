@@ -38,6 +38,7 @@ export class StopLossMonitor extends EventEmitter {
 
     private isMonitoring = false;
     private static instance: StopLossMonitor | null = null;
+    private readonly DEFAULT_TRAILING_PERCENT = 3;
 
     constructor(options: StopLossMonitorOptions) {
         super();
@@ -54,6 +55,15 @@ export class StopLossMonitor extends EventEmitter {
      * Handle trade execution - auto-create or update stop-losses
      */
     private handleTradeExecuted = async (trade: Trade): Promise<void> => {
+        // Prevent race conditions during position updates
+        if (this.processingSymbols.has(trade.symbol)) {
+            logger.warn({ symbol: trade.symbol }, "Race condition detected: skipping trade update while processing symbol");
+            // Skipping update to prevent race condition corruption
+        }
+
+        // Prevent concurrent processing for this symbol
+        this.processingSymbols.add(trade.symbol);
+
         try {
             if (trade.side === "BUY") {
                 await this.onPositionOpened(trade);
@@ -62,6 +72,8 @@ export class StopLossMonitor extends EventEmitter {
             }
         } catch (error) {
             logger.error({ err: error, trade }, "Failed to handle trade for stop-loss");
+        } finally {
+            this.processingSymbols.delete(trade.symbol);
         }
     };
 
@@ -251,8 +263,6 @@ export class StopLossMonitor extends EventEmitter {
 
         try {
             // Check for trailing stop update
-            // Note: We use the *config* object which might need refreshing if we were truly concurrent, 
-            // but since we lock the symbol, no one else should have modified it in the meantime.
             let currentConfig = config;
 
             if (currentConfig.type === "TRAILING" && tick.price > (currentConfig.highWaterMark ?? currentConfig.entryPrice)) {
@@ -266,45 +276,12 @@ export class StopLossMonitor extends EventEmitter {
 
             // Check if stop-loss is breached
             if (tick.price <= currentConfig.stopLossPrice) {
-                // We are already holding the lock, so we can pass a flag or handle it carefully.
-                // executeStopLoss ALSO checks the lock. usage of 'processingSymbols' in executeStopLoss 
-                // was intended to prevent *other* calls.
-                // Since WE hold the lock, we should temporarily release it or refactor executeStopLoss 
-                // to assume caller holds lock?
-                // Refactoring: Let's release lock here effectively by delegating to executeStopLoss
-                // BUT executeStopLoss is async and we want to keep the lock held until it's done?
-                // Actually, executeStopLoss checks the lock. If we hold it, it will return early!
-                // FIX: We need to modify executeStopLoss or call an internal method that assumes lock is held.
-
-                // Let's call the internal logic directly or remove the lock check in executeStopLoss for this flow?
-                // Better: Remove lock from here, pass to executeStopLoss? No, race condition is on the CHECK as well.
-
-                // My plan: 
-                // 1. Hold lock.
-                // 2. If breach, call a new method _executeStopLossInternal that assumes lock is held.
-                // 3. Or simply remove the lock release from 'finally' and let executeStopLoss handle it? 
-                //    No, executeStopLoss ALSO adds query to set.
-
-                // Simpler approach:
-                // We know executeStopLoss handles locking. 
-                // If we want to fix the "Check" race condition, we must hold lock during check.
-                // The issue is if we call executeStopLoss, it checks the lock again.
-                // Solution: We will manually call the logic of executeStopLoss here? 
-                // Or better: We modify executeStopLoss to NOT check lock if we say so?
-
-                // Let's rely on the fact that this.processingSymbols check in executeStopLoss is the guard.
-                // If we are here, we hold the lock. executeStopLoss will fail if we call it as is.
-
-                // Let's allow executeStopLoss to take an option "skipLockCheck"?
-                await this.executeStopLoss(currentConfig, tick, true); // true = skip lock check
+                // Pass true to skip lock check because we already hold the lock
+                await this.executeStopLoss(currentConfig, tick, true);
             }
         } catch (error) {
             logger.error({ err: error, symbol: tick.symbol }, "Error processing stop-loss tick");
         } finally {
-            // Release lock ONLY if we didn't call executeStopLoss (which might need to keep it? 
-            // actually executeStopLoss is async, we await it. So we can release here.)
-            // But wait, if executeStopLoss removes the lock itself?
-            // Let's check executeStopLoss implementation.
             this.processingSymbols.delete(tick.symbol);
         }
     };
@@ -313,7 +290,7 @@ export class StopLossMonitor extends EventEmitter {
      * Update trailing stop high water mark
      */
     private async updateTrailingStop(config: StopLossConfig, currentPrice: number): Promise<void> {
-        const trailingPercent = config.trailingPercent ?? 3;
+        const trailingPercent = config.trailingPercent ?? this.DEFAULT_TRAILING_PERCENT;
         const newStopLossPrice = currentPrice * (1 - trailingPercent / 100);
 
         // Only update if the new stop-loss is higher (trailing up)
@@ -420,10 +397,6 @@ export class StopLossMonitor extends EventEmitter {
             logger.error({ err: error, symbol: config.symbol }, "Failed to execute stop-loss order");
             this.emit("stop-loss-error", { ...event, error });
         } finally {
-            // Only remove invalidation if WE added it (i.e., not skipped)
-            // Actually, handleTick is waiting to remove it in its finally block.
-            // If we came from handleTick (skipLockCheck=true), handleTick cleans up.
-            // If we came potentially from elsewhere (manual trigger?), we clean up.
             if (!skipLockCheck) {
                 this.processingSymbols.delete(config.symbol);
             }

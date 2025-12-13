@@ -38,26 +38,35 @@ export class AuditLogService {
         // Subscribe to TradingEngine events
         if (options.tradingEngine) {
             options.tradingEngine.on("trade-executed", (trade: Trade) => {
-                void this.logTradeExecuted(trade);
+                this.safeLog(() => this.logTradeExecuted(trade));
             });
         }
 
         // Subscribe to StopLossMonitor events
         if (options.stopLossMonitor) {
             options.stopLossMonitor.on("stop-loss-triggered", (event: { config: { symbol: string; stopLossPrice: number }; triggerPrice: number }) => {
-                void this.logStopLossTriggered(event);
+                this.safeLog(() => this.logStopLossTriggered(event));
             });
             options.stopLossMonitor.on("stop-loss-executed", (event: { config: { symbol: string }; execution: unknown }) => {
-                void this.logStopLossExecuted(event);
+                this.safeLog(() => this.logStopLossExecuted(event));
             });
         }
 
         // Subscribe to Settings changes
         if (options.settingsRepository) {
             options.settingsRepository.on("updated", (limits: RiskLimits) => {
-                void this.logSettingsChanged(limits);
+                this.safeLog(() => this.logSettingsChanged(limits));
             });
         }
+    }
+
+    /**
+     * Safely execute async logging methods to prevent unhandled promise rejections
+     */
+    private safeLog(fn: () => Promise<void>): void {
+        fn().catch(err => {
+            logger.error({ err }, "Failed to process async audit log event");
+        });
     }
 
     static getInstance(options?: AuditLogServiceOptions): AuditLogService {

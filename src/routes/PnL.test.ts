@@ -44,6 +44,7 @@ const mockPortfolioService = {
     listTrades: mock.fn(async () => mockTrades),
     getSnapshot: mock.fn(async () => mockSnapshot),
     getTradeSummaries: mock.fn(async () => mockSnapshot.positions),
+    getRealizedPnl: mock.fn(async () => 50),
 };
 
 const mockMarketDataService = {
