@@ -19,6 +19,8 @@ class MockCache implements HistoricalDataCache {
   }
 }
 
+import fixtures from "../data/fixtures.json";
+
 class MockProvider implements HistoricalDataProvider {
   private callCount = 0;
 
@@ -26,12 +28,8 @@ class MockProvider implements HistoricalDataProvider {
     this.callCount++;
 
     const mockCandle: HistoricalCandle = {
+      ...fixtures.sampleCandle,
       symbol: request.symbol,
-      open: 100,
-      high: 105,
-      low: 95,
-      close: 102,
-      volume: 50000,
       timestamp: request.fromDate,
     };
 
