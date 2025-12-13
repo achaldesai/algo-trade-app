@@ -3,6 +3,7 @@
 This guide explains how to set up Zerodha authentication for your algorithmic trading application.
 
 ## Table of Contents
+
 1. [Prerequisites](#prerequisites)
 2. [Environment Configuration](#environment-configuration)
 3. [Authentication Flow](#authentication-flow)
@@ -55,6 +56,7 @@ MAX_POSITION_SIZE=100000
 ```
 
 **Important Notes:**
+
 - Replace `your_actual_api_key_here` and `your_actual_api_secret_here` with your actual credentials
 - Do NOT commit `.env` file to git (it's already in `.gitignore`)
 - The access token will be automatically saved after login
@@ -85,7 +87,7 @@ Zerodha uses **OAuth2** authentication with the following flow:
        └─────► Save token & use for API calls
 ```
 
-### Step-by-Step Process:
+### Step-by-Step Process
 
 1. **Get Login URL**: Call `GET /api/auth/zerodha/login`
 2. **User Logs In**: Open the returned URL in a browser
@@ -99,11 +101,13 @@ Zerodha uses **OAuth2** authentication with the following flow:
 ## API Endpoints
 
 ### 1. Get Login URL
+
 ```http
 GET /api/auth/zerodha/login
 ```
 
 **Response:**
+
 ```json
 {
   "loginUrl": "https://kite.zerodha.com/connect/login?api_key=your_key&v=3",
@@ -120,6 +124,7 @@ GET /api/auth/zerodha/login
 ---
 
 ### 2. Complete Authentication
+
 ```http
 POST /api/auth/zerodha/callback
 Content-Type: application/json
@@ -130,6 +135,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -145,17 +151,20 @@ Content-Type: application/json
 ```
 
 **Token Expiry:**
+
 - Zerodha access tokens expire at **6:00 AM IST** every day
 - You need to re-authenticate daily
 
 ---
 
 ### 3. Check Authentication Status
+
 ```http
 GET /api/auth/zerodha/status
 ```
 
 **Response (authenticated):**
+
 ```json
 {
   "authenticated": true,
@@ -167,6 +176,7 @@ GET /api/auth/zerodha/status
 ```
 
 **Response (not authenticated):**
+
 ```json
 {
   "authenticated": false,
@@ -177,11 +187,13 @@ GET /api/auth/zerodha/status
 ---
 
 ### 4. Get Current Token
+
 ```http
 GET /api/auth/zerodha/token
 ```
 
 **Response:**
+
 ```json
 {
   "accessToken": "your_access_token_here",
@@ -193,11 +205,13 @@ GET /api/auth/zerodha/token
 ---
 
 ### 5. Logout
+
 ```http
 POST /api/auth/zerodha/logout
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -212,11 +226,13 @@ POST /api/auth/zerodha/logout
 ### Using curl
 
 #### 1. Get Login URL
+
 ```bash
 curl http://localhost:3000/api/auth/zerodha/login
 ```
 
 #### 2. Complete Login (after getting request_token from browser)
+
 ```bash
 curl -X POST http://localhost:3000/api/auth/zerodha/callback \
   -H "Content-Type: application/json" \
@@ -224,6 +240,7 @@ curl -X POST http://localhost:3000/api/auth/zerodha/callback \
 ```
 
 #### 3. Check Status
+
 ```bash
 curl http://localhost:3000/api/auth/zerodha/status
 ```
@@ -323,23 +340,27 @@ ZERODHA_ACCESS_TOKEN=your_valid_access_token_here
 #### 1. "Zerodha API key not configured"
 
 **Solution:**
+
 - Ensure `ZERODHA_API_KEY` is set in `.env`
 - Restart the server after updating `.env`
 
 #### 2. "Invalid or expired request token"
 
 **Causes:**
+
 - Request token was used more than once
 - Request token expired (valid for ~5 minutes)
 - Wrong API secret
 
 **Solution:**
+
 - Get a fresh login URL and request token
 - Verify `ZERODHA_API_SECRET` is correct
 
 #### 3. "Token expired" errors during trading
 
 **Solution:**
+
 - Zerodha tokens expire at 6 AM IST daily
 - Re-authenticate using the login flow
 - Consider implementing automatic re-authentication (see Advanced section)
@@ -347,6 +368,7 @@ ZERODHA_ACCESS_TOKEN=your_valid_access_token_here
 #### 4. Server starts but broker doesn't connect
 
 **Check:**
+
 ```bash
 # View server logs
 tail -f logs/app.log
@@ -386,15 +408,6 @@ async function authenticateDaily() {
 authenticateDaily();
 ```
 
-### Option 2: Desktop Notification on Expiry
-
-The application can notify you when the token is about to expire:
-
-```bash
-# Enable notifications in .env
-ENABLE_NOTIFICATIONS=true
-```
-
 ---
 
 ## Security Best Practices
@@ -404,6 +417,7 @@ ENABLE_NOTIFICATIONS=true
    - Token file `data/zerodha-token.json` should also be excluded
 
 2. **Secure your `.env` file**:
+
    ```bash
    chmod 600 .env
    ```
@@ -435,8 +449,8 @@ After authentication is set up:
 
 ## Support
 
-- **Zerodha API Documentation**: https://kite.trade/docs/connect/v3/
-- **KiteConnect SDK**: https://github.com/zerodhatech/kiteconnectjs
+- **Zerodha API Documentation**: <https://kite.trade/docs/connect/v3/>
+- **KiteConnect SDK**: <https://github.com/zerodhatech/kiteconnectjs>
 - **Application Issues**: Check `docs/TROUBLESHOOTING.md`
 
 ---

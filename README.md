@@ -107,11 +107,24 @@ The service now ships with a broker abstraction and a basic VWAP-driven strategy
 - **VWAP mean reversion strategy** – demonstrates how to translate market data deviations into actionable orders.
 - **Automatic Token Management** – `TokenRefreshService` handles daily re-authentication for Angel One (eliminates manual token renewal), recalculates the next 04:30 IST window purely in UTC, and triggers a full re-auth when no persisted token is found.
 
+### Decoupled Data & Broker Configuration
+
+You can use **different providers** for market data and trading:
+
+```bash
+# Use Angel One's FREE market data with any broker
+DATA_PROVIDER=angelone     # FREE real-time WebSocket ticks
+BROKER_PROVIDER=zerodha    # Trade via Zerodha
+```
+
+This saves ₹500/month on Zerodha's market data API fees while still executing trades through Zerodha.
+
 ### Environment Flags
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `BROKER_PROVIDER` | `paper` or `zerodha`. | `paper` |
+| `DATA_PROVIDER` | Market data source: `angelone` (free) or `paper`. | Same as `BROKER_PROVIDER` |
+| `BROKER_PROVIDER` | Trading broker: `paper`, `zerodha`, or `angelone`. | `paper` |
 | `BROKER_BASE_URL` | REST endpoint for the live broker. | _(empty)_ |
 | `BROKER_API_KEY` | API token supplied by the broker. | _(empty)_ |
 | `PORTFOLIO_BACKEND` | `lmdb` (default) or `file` for JSON storage. | `lmdb` |

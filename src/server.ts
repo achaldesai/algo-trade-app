@@ -3,7 +3,7 @@ import app from "./app";
 import env from "./config/env";
 import validateEnvironment from "./config/validateEnv";
 import logger from "./utils/logger";
-import { ensurePortfolioStore, getPortfolioRepository } from "./persistence";
+import { ensurePortfolioStore, ensureSettingsStore, ensureStopLossStore, ensureAuditLogStore, getPortfolioRepository } from "./persistence";
 import { AuthService } from "./services/AuthService";
 import { getInstrumentMasterService } from "./services/InstrumentMasterService";
 import { TokenMigrationService } from "./services/TokenMigrationService";
@@ -24,7 +24,7 @@ const scheduleBackups = async () => {
 
   const performBackup = async () => {
     try {
-      const repo = await getPortfolioRepository();
+      const repo = getPortfolioRepository();
 
       // Only LMDB repository has backup functionality
       if ('createBackup' in repo && typeof repo.createBackup === 'function') {
@@ -49,6 +49,9 @@ const start = async () => {
   try {
     await validateEnvironment(env);
     await ensurePortfolioStore();
+    await ensureSettingsStore();
+    await ensureStopLossStore();
+    await ensureAuditLogStore();
 
     // Migrate tokens from file-based storage to LMDB (one-time operation)
     const migrationService = new TokenMigrationService();
@@ -58,8 +61,8 @@ const start = async () => {
     const authService = AuthService.getInstance();
     await authService.initialize();
 
-    // Load Angel One instrument master if using angelone broker
-    if (env.brokerProvider === "angelone") {
+    // Load Angel One instrument master if using angelone broker or data provider
+    if (env.brokerProvider === "angelone" || env.dataProvider === "angelone") {
       try {
         logger.info("Loading Angel One instrument master...");
         const instrumentService = getInstrumentMasterService();
@@ -70,12 +73,56 @@ const start = async () => {
       }
     }
 
+    // Connect ticker from container (if configured via DATA_PROVIDER=angelone)
+    const { resolveTickerClient } = await import("./container");
+    const tickerClient = resolveTickerClient();
+    if (tickerClient) {
+      // Connect ticker (will load tokens internally)
+      // We don't await this to avoid blocking server startup if connection fails
+      tickerClient.connect().catch(err => {
+        logger.error({ err }, "Failed to connect ticker on startup");
+      });
+      logger.info("Ticker service initialized");
+    }
+
     // Start backup scheduler
     await scheduleBackups();
 
     // Start automatic token refresh scheduler (Angel One only)
     const tokenRefreshService = TokenRefreshService.getInstance();
     tokenRefreshService.start();
+
+    // Reconcile positions with broker on startup (critical for consistency)
+    const { resolveReconciliationService } = await import("./container");
+    const reconciliationService = resolveReconciliationService();
+    try {
+      const result = await reconciliationService.reconcileOnStartup();
+      if (result.hasDiscrepancies) {
+        logger.warn(
+          { discrepancies: result.discrepancies.length, synced: result.syncedSymbols.length },
+          "Position discrepancies found - check dashboard for details"
+        );
+      } else {
+        logger.info("Position reconciliation complete - no discrepancies");
+      }
+    } catch (err) {
+      logger.error({ err }, "Position reconciliation failed on startup");
+    }
+
+    // Initialize Trading Loop Service (but don't start it yet)
+    const { resolveMarketDataService, resolveTradingEngine, resolveStopLossMonitor } = await import("./container");
+    const { TradingLoopService } = await import("./services/TradingLoopService");
+    TradingLoopService.getInstance(resolveMarketDataService(), resolveTradingEngine());
+    logger.info("Trading loop service initialized");
+
+    // Initialize Stop-Loss Monitor (starts automatically with trading loop)
+    const stopLossMonitor = resolveStopLossMonitor();
+    logger.info({ activeStopLosses: stopLossMonitor.getAll().length }, "Stop-loss monitor initialized");
+
+    // Start Discord Bot for remote access
+    const { resolveDiscordBotService } = await import("./container");
+    const discordBotService = resolveDiscordBotService();
+    void discordBotService.start();
 
     server.listen(env.port, () => {
       logger.info({ port: env.port }, "HTTP server is listening");

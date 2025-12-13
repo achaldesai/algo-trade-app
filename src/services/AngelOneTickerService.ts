@@ -1,19 +1,8 @@
 import WebSocket from "ws";
 import type { MarketDataService } from "./MarketDataService";
+import type { TickerClient, TickerSubscription } from "./TickerClient";
 import logger from "../utils/logger";
-
-export interface AngelOneTickerConfig {
-  apiKey: string;
-  clientId: string;
-  jwtToken: string;
-  feedToken: string;
-}
-
-export interface TickerSubscription {
-  exchange: string;
-  symbolToken: string;
-  symbol: string;
-}
+import { loadAngelToken } from "../routes/auth";
 
 interface AngelOneTickMessage {
   exchange: string;
@@ -28,21 +17,20 @@ interface AngelOneTickMessage {
  * Angel One WebSocket ticker service for live market data
  * Subscribes to real-time price updates and feeds them to MarketDataService
  */
-export class AngelOneTickerService {
+export class AngelOneTickerService implements TickerClient {
   private ws?: WebSocket;
-  private config: AngelOneTickerConfig;
   private marketDataService: MarketDataService;
   private subscriptions: Map<string, TickerSubscription> = new Map();
   private reconnectTimer?: NodeJS.Timeout;
   private heartbeatInterval?: NodeJS.Timeout;
-  private isConnected = false;
+  private _connected = false;
+  private currentTokens?: { clientId: string; jwtToken: string; feedToken: string };
 
   private readonly WS_URL = "wss://smartapisocket.angelone.in/smart-stream";
   private readonly HEARTBEAT_INTERVAL = 10000; // 10 seconds
   private readonly RECONNECT_DELAY = 5000; // 5 seconds
 
-  constructor(config: AngelOneTickerConfig, marketDataService: MarketDataService) {
-    this.config = config;
+  constructor(marketDataService: MarketDataService) {
     this.marketDataService = marketDataService;
   }
 
@@ -50,12 +38,24 @@ export class AngelOneTickerService {
    * Connect to Angel One WebSocket and authenticate
    */
   async connect(): Promise<void> {
-    if (this.isConnected) {
+    if (this._connected) {
       logger.info("Angel One ticker already connected");
       return;
     }
 
     try {
+      // Load latest tokens
+      const tokenData = await loadAngelToken();
+      if (!tokenData) {
+        throw new Error("No Angel One tokens found. Cannot connect ticker.");
+      }
+
+      this.currentTokens = {
+        clientId: tokenData.clientId,
+        jwtToken: tokenData.jwtToken,
+        feedToken: tokenData.feedToken,
+      };
+
       this.ws = new WebSocket(this.WS_URL);
 
       this.ws.on("open", () => this.onOpen());
@@ -87,7 +87,7 @@ export class AngelOneTickerService {
       this.ws = undefined;
     }
 
-    this.isConnected = false;
+    this._connected = false;
     this.subscriptions.clear();
     logger.info("Angel One ticker disconnected");
   }
@@ -99,7 +99,7 @@ export class AngelOneTickerService {
     const key = `${subscription.exchange}:${subscription.symbolToken}`;
     this.subscriptions.set(key, subscription);
 
-    if (this.isConnected && this.ws) {
+    if (this._connected && this.ws) {
       this.sendSubscription([subscription], "subscribe");
     }
   }
@@ -114,7 +114,7 @@ export class AngelOneTickerService {
     if (subscription) {
       this.subscriptions.delete(key);
 
-      if (this.isConnected && this.ws) {
+      if (this._connected && this.ws) {
         this.sendSubscription([subscription], "unsubscribe");
       }
     }
@@ -122,9 +122,10 @@ export class AngelOneTickerService {
 
   /**
    * Check if ticker is connected
+   * Implements TickerClient.isConnected()
    */
-  connected(): boolean {
-    return this.isConnected;
+  isConnected(): boolean {
+    return this._connected;
   }
 
   /**
@@ -180,7 +181,7 @@ export class AngelOneTickerService {
   private onClose(): void {
     logger.warn("Angel One WebSocket connection closed");
 
-    this.isConnected = false;
+    this._connected = false;
 
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
@@ -194,22 +195,22 @@ export class AngelOneTickerService {
    * Authenticate with Angel One WebSocket
    */
   private authenticate(): void {
-    if (!this.ws) {
+    if (!this.ws || !this.currentTokens) {
       return;
     }
 
     const authMessage = {
       action: "authenticate",
-      clientId: this.config.clientId,
-      jwtToken: this.config.jwtToken,
-      feedToken: this.config.feedToken,
+      clientId: this.currentTokens.clientId,
+      jwtToken: this.currentTokens.jwtToken,
+      feedToken: this.currentTokens.feedToken,
     };
 
     this.ws.send(JSON.stringify(authMessage));
 
     // Set connected flag after sending auth
     // (we'll assume success for now, proper error handling would check response)
-    this.isConnected = true;
+    this._connected = true;
 
     // Resubscribe to all previous subscriptions
     if (this.subscriptions.size > 0) {
@@ -226,7 +227,7 @@ export class AngelOneTickerService {
     subscriptions: TickerSubscription[],
     action: "subscribe" | "unsubscribe"
   ): void {
-    if (!this.ws || !this.isConnected) {
+    if (!this.ws || !this._connected) {
       logger.warn("Cannot send subscription: WebSocket not connected");
       return;
     }
@@ -283,7 +284,7 @@ export class AngelOneTickerService {
    */
   private startHeartbeat(): void {
     this.heartbeatInterval = setInterval(() => {
-      if (this.ws && this.isConnected) {
+      if (this.ws && this._connected) {
         try {
           this.ws.send(
             JSON.stringify({

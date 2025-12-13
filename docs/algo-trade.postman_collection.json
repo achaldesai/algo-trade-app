@@ -15,8 +15,12 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/health",
-              "host": ["{{baseUrl}}"],
-              "path": ["health"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
             },
             "description": "Basic health check endpoint"
           }
@@ -27,77 +31,292 @@
       "name": "Authentication",
       "item": [
         {
-          "name": "Get Zerodha Login URL",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/auth/zerodha/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "zerodha", "login"]
-            },
-            "description": "Get the Zerodha OAuth2 login URL. Open this URL in browser to login."
-          }
-        },
-        {
-          "name": "Complete Zerodha Login",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
+          "name": "Zerodha",
+          "item": [
+            {
+              "name": "Get Zerodha Login URL",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/zerodha/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "zerodha",
+                    "login"
+                  ]
+                },
+                "description": "Get the Zerodha OAuth2 login URL. Open this URL in browser to login."
               }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"requestToken\": \"your_request_token_from_redirect\"\n}"
             },
-            "url": {
-              "raw": "{{baseUrl}}/api/auth/zerodha/callback",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "zerodha", "callback"]
+            {
+              "name": "Complete Zerodha Login",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"requestToken\": \"your_request_token_from_redirect\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/zerodha/callback",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "zerodha",
+                    "callback"
+                  ]
+                },
+                "description": "Exchange the request token (from redirect URL) for an access token. The access token is automatically saved."
+              }
             },
-            "description": "Exchange the request token (from redirect URL) for an access token. The access token is automatically saved."
-          }
+            {
+              "name": "Check Zerodha Auth Status",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/zerodha/status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "zerodha",
+                    "status"
+                  ]
+                },
+                "description": "Check if Zerodha authentication is active and token validity"
+              }
+            },
+            {
+              "name": "Get Zerodha Token",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/zerodha/token",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "zerodha",
+                    "token"
+                  ]
+                },
+                "description": "Get the currently saved access token (for debugging or manual use)"
+              }
+            },
+            {
+              "name": "Zerodha Logout",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/zerodha/logout",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "zerodha",
+                    "logout"
+                  ]
+                },
+                "description": "Clear the saved access token and logout"
+              }
+            }
+          ]
         },
         {
-          "name": "Check Auth Status",
+          "name": "Angel One",
+          "item": [
+            {
+              "name": "Angel One Login",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"totp\": \"123456\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/angelone/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "angelone",
+                    "login"
+                  ]
+                },
+                "description": "Authenticate with Angel One SmartAPI. TOTP is optional if ANGEL_ONE_TOTP_SECRET is configured in .env (auto-generated). Otherwise, provide the 6-digit TOTP from your authenticator app."
+              }
+            },
+            {
+              "name": "Check Angel One Auth Status",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/angelone/status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "angelone",
+                    "status"
+                  ]
+                },
+                "description": "Check if Angel One authentication is active and token validity"
+              }
+            },
+            {
+              "name": "Refresh Angel One Token",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/angelone/refresh",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "angelone",
+                    "refresh"
+                  ]
+                },
+                "description": "Refresh Angel One JWT token using refresh token. Note: Refreshed tokens maintain the same expiry time as the original token. For a fresh session after expiry, use login instead."
+              }
+            },
+            {
+              "name": "Angel One Logout",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/auth/angelone/logout",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "auth",
+                    "angelone",
+                    "logout"
+                  ]
+                },
+                "description": "Clear stored Angel One tokens and logout"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Control",
+      "item": [
+        {
+          "name": "Get Trading Loop Status",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/auth/zerodha/status",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "zerodha", "status"]
+              "raw": "{{baseUrl}}/api/control/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "status"
+              ]
             },
-            "description": "Check if Zerodha authentication is active and token validity"
+            "description": "Check if the trading loop is currently running"
           }
         },
         {
-          "name": "Get Current Token",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/auth/zerodha/token",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "zerodha", "token"]
-            },
-            "description": "Get the currently saved access token (for debugging or manual use)"
-          }
-        },
-        {
-          "name": "Logout",
+          "name": "Start Trading Loop",
           "request": {
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/api/auth/zerodha/logout",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "zerodha", "logout"]
+              "raw": "{{baseUrl}}/api/control/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "start"
+              ]
             },
-            "description": "Clear the saved access token and logout"
+            "description": "Start the trading loop to begin evaluating strategies on market ticks"
+          }
+        },
+        {
+          "name": "Stop Trading Loop",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/stop",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "stop"
+              ]
+            },
+            "description": "Stop the trading loop"
+          }
+        },
+        {
+          "name": "Panic Sell",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/control/panic-sell",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "control",
+                "panic-sell"
+              ]
+            },
+            "description": "⚠️ EMERGENCY: Stop the trading loop and immediately sell all open positions. Use only in emergencies."
           }
         }
       ]
@@ -109,24 +328,48 @@
           "name": "Get Admin Health",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/admin/health",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "health"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "health"
+              ]
             },
-            "description": "Get detailed system health status including database backend, broker provider, and data counts"
+            "description": "Get comprehensive system health with component-level status (broker, ticker, database, tradingLoop, stopLoss). Returns overall status (healthy/degraded/unhealthy), uptime in seconds, and memory usage. Response includes detailed component checks with individual messages."
           }
         },
         {
           "name": "Get Database Stats",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/admin/db-stats",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "db-stats"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "db-stats"
+              ]
             },
             "description": "Get database statistics (size, record counts, backend type)"
           }
@@ -135,11 +378,23 @@
           "name": "Create Backup",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/admin/backup",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "backup"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "backup"
+              ]
             },
             "description": "Manually trigger a database backup (LMDB only)"
           }
@@ -148,11 +403,23 @@
           "name": "List Backups",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/admin/backups",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "backups"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "backups"
+              ]
             },
             "description": "List all available database backups (LMDB only)"
           }
@@ -162,6 +429,11 @@
           "request": {
             "method": "POST",
             "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              },
               {
                 "key": "Content-Type",
                 "value": "application/json"
@@ -173,8 +445,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/admin/restore",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "restore"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "restore"
+              ]
             },
             "description": "Restore database from a backup path (LMDB only)"
           }
@@ -183,11 +461,23 @@
           "name": "Export Database",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Admin-API-Key",
+                "value": "{{adminApiKey}}",
+                "description": "Admin API key for authentication"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/admin/export",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "export"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "export"
+              ]
             },
             "description": "Export entire database to JSON format for inspection"
           }
@@ -204,8 +494,13 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/stocks",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "stocks"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stocks"
+              ]
             },
             "description": "Retrieve all stocks in the portfolio"
           }
@@ -226,8 +521,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/stocks",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "stocks"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stocks"
+              ]
             },
             "description": "Add a new stock to the portfolio. Requires symbol (ticker) and name."
           }
@@ -244,8 +544,13 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/trades",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "trades"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "trades"
+              ]
             },
             "description": "Retrieve all executed trades"
           }
@@ -266,8 +571,13 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/trades",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "trades"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "trades"
+              ]
             },
             "description": "Record a new trade execution. Fields: symbol, side (BUY/SELL), quantity, price, executedAt (optional ISO datetime), notes (optional)"
           }
@@ -279,8 +589,14 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/trades/summary",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "trades", "summary"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "trades",
+                "summary"
+              ]
             },
             "description": "Get aggregated trade summaries by symbol with total quantities, average prices, and realized P&L"
           }
@@ -292,8 +608,14 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/trades/portfolio",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "trades", "portfolio"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "trades",
+                "portfolio"
+              ]
             },
             "description": "Get complete portfolio snapshot with both realized and unrealized P&L for all positions. Includes current mark-to-market values based on latest trade prices."
           }
@@ -310,8 +632,13 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/market-data?symbol=AAPL",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "market-data"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "market-data"
+              ],
               "query": [
                 {
                   "key": "symbol",
@@ -338,8 +665,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/market-data/ticks",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "market-data", "ticks"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "market-data",
+                "ticks"
+              ]
             },
             "description": "Add a single market tick with price, volume, and timestamp. Used by market data feeds."
           }
@@ -360,8 +693,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/market-data/batch",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "market-data", "batch"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "market-data",
+                "batch"
+              ]
             },
             "description": "Add multiple market ticks in a single request for efficient bulk updates"
           }
@@ -378,8 +717,13 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/strategies",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "strategies"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "strategies"
+              ]
             },
             "description": "List all available trading strategies with their IDs and descriptions"
           }
@@ -400,10 +744,517 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/strategies/{{strategyId}}/evaluate",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "strategies", "{{strategyId}}", "evaluate"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "strategies",
+                "{{strategyId}}",
+                "evaluate"
+              ]
             },
             "description": "Evaluate a specific strategy with market tick data. Returns buy/sell signals. Use 'vwap' as strategyId for VWAP strategy."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stop-Loss",
+      "item": [
+        {
+          "name": "List All Stop-Losses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stop-loss",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stop-loss"
+              ]
+            },
+            "description": "Get all active stop-losses with monitoring status"
+          }
+        },
+        {
+          "name": "Get Stop-Loss for Symbol",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stop-loss/RELIANCE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stop-loss",
+                "RELIANCE"
+              ]
+            },
+            "description": "Get stop-loss configuration for a specific symbol"
+          }
+        },
+        {
+          "name": "Create/Update Stop-Loss",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entryPrice\": 100,\n  \"quantity\": 10,\n  \"stopLossPrice\": 95,\n  \"type\": \"FIXED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/stop-loss/RELIANCE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stop-loss",
+                "RELIANCE"
+              ]
+            },
+            "description": "Create or update stop-loss for a symbol. Type can be FIXED or TRAILING. For trailing stops, include trailingPercent instead of stopLossPrice."
+          }
+        },
+        {
+          "name": "Create Trailing Stop-Loss",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entryPrice\": 100,\n  \"quantity\": 10,\n  \"type\": \"TRAILING\",\n  \"trailingPercent\": 5\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/stop-loss/TCS",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stop-loss",
+                "TCS"
+              ]
+            },
+            "description": "Create a trailing stop-loss that moves up as price increases. trailingPercent defines the distance from high water mark."
+          }
+        },
+        {
+          "name": "Delete Stop-Loss",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stop-loss/RELIANCE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stop-loss",
+                "RELIANCE"
+              ]
+            },
+            "description": "Remove stop-loss for a symbol"
+          }
+        },
+        {
+          "name": "Start Stop-Loss Monitor",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stop-loss/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stop-loss",
+                "start"
+              ]
+            },
+            "description": "Start the stop-loss monitor (usually starts with trading loop)"
+          }
+        },
+        {
+          "name": "Stop Stop-Loss Monitor",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/stop-loss/stop",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stop-loss",
+                "stop"
+              ]
+            },
+            "description": "Stop the stop-loss monitor"
+          }
+        }
+      ]
+    },
+    {
+      "name": "P&L",
+      "item": [
+        {
+          "name": "Get Daily P&L",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pnl/daily",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "pnl",
+                "daily"
+              ]
+            },
+            "description": "Get today's P&L summary including realized P&L, unrealized P&L, trades executed today, and current positions"
+          }
+        },
+        {
+          "name": "Get Overall P&L Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pnl/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "pnl",
+                "summary"
+              ]
+            },
+            "description": "Get all-time P&L summary with total realized and unrealized P&L across all positions"
+          }
+        },
+        {
+          "name": "Get Positions with Live Prices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pnl/positions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "pnl",
+                "positions"
+              ]
+            },
+            "description": "Get all open positions with live market prices, unrealized P&L, P&L percentage, and market value"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "item": [
+        {
+          "name": "Get Settings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "settings"
+              ]
+            },
+            "description": "Get current risk management settings"
+          }
+        },
+        {
+          "name": "Update Settings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"maxDailyLoss\": 5000,\n  \"maxDailyLossPercent\": 2,\n  \"stopLossPercent\": 3,\n  \"maxOpenPositions\": 5,\n  \"maxPositionSize\": 100000\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "settings"
+              ]
+            },
+            "description": "Update risk management settings"
+          }
+        },
+        {
+          "name": "Reset Settings to Defaults",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/settings/reset",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "reset"
+              ]
+            },
+            "description": "Reset all risk management settings to default values"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reconciliation",
+      "item": [
+        {
+          "name": "Get Reconciliation Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reconciliation/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reconciliation",
+                "status"
+              ]
+            },
+            "description": "Check if there are any discrepancies between local and broker positions"
+          }
+        },
+        {
+          "name": "Run Reconciliation",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reconciliation/run",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reconciliation",
+                "run"
+              ]
+            },
+            "description": "Trigger a manual reconciliation check against the broker"
+          }
+        },
+        {
+          "name": "Sync Symbol from Broker",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reconciliation/sync/RELIANCE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reconciliation",
+                "sync",
+                "RELIANCE"
+              ]
+            },
+            "description": "Sync a specific symbol's position from broker to local database"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit Logs",
+      "item": [
+        {
+          "name": "Query Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/audit-logs?limit=50&eventType=TRADE_EXECUTED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "audit-logs"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "Max entries (default 100, max 500)"
+                },
+                {
+                  "key": "eventType",
+                  "value": "TRADE_EXECUTED",
+                  "description": "Comma-separated event types (TRADE_EXECUTED, STOP_LOSS_TRIGGERED, etc.)"
+                },
+                {
+                  "key": "from",
+                  "value": "",
+                  "description": "Start date (ISO format)",
+                  "disabled": true
+                },
+                {
+                  "key": "to",
+                  "value": "",
+                  "description": "End date (ISO format)",
+                  "disabled": true
+                },
+                {
+                  "key": "symbol",
+                  "value": "",
+                  "description": "Filter by symbol",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "Filter by category (trade, risk, strategy, system)",
+                  "disabled": true
+                },
+                {
+                  "key": "severity",
+                  "value": "",
+                  "description": "Filter by severity (info, warn, error)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Query audit logs with optional filters. Supports pagination with limit/offset and filtering by eventType, symbol, category, severity, and date range."
+          }
+        },
+        {
+          "name": "Get Today's Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/audit-logs/today",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "audit-logs",
+                "today"
+              ]
+            },
+            "description": "Get all audit log entries from today"
+          }
+        },
+        {
+          "name": "Get Audit Log Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/audit-logs/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "audit-logs",
+                "stats"
+              ]
+            },
+            "description": "Get audit log statistics grouped by event type with total count"
+          }
+        },
+        {
+          "name": "Get Audit Logs for Symbol",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/audit-logs/symbol/RELIANCE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "audit-logs",
+                "symbol",
+                "RELIANCE"
+              ]
+            },
+            "description": "Get all audit log entries for a specific symbol"
+          }
+        },
+        {
+          "name": "Cleanup Old Audit Logs",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"retentionDays\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/audit-logs/cleanup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "audit-logs",
+                "cleanup"
+              ]
+            },
+            "description": "Delete audit log entries older than the specified retention days (default 30)"
           }
         }
       ]
@@ -419,6 +1270,11 @@
       "key": "strategyId",
       "value": "vwap",
       "description": "Strategy identifier (e.g., vwap, macd, rsi)"
+    },
+    {
+      "key": "adminApiKey",
+      "value": "your_admin_api_key_here",
+      "description": "Admin API key for authenticated admin endpoints. Set this to match your ADMIN_API_KEY environment variable."
     }
   ]
 }

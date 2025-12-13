@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import TradingEngine from "./TradingEngine";
-import { resolvePortfolioService, resolveMarketDataService } from "../container";
+import { resolvePortfolioService, resolveMarketDataService, resolveRiskManager } from "../container";
 import PaperBroker from "../brokers/PaperBroker";
 import type { BrokerOrderRequest, StrategySignal } from "../types";
 import env from "../config/env";
@@ -21,12 +21,14 @@ describe("TradingEngine - Dry Run Mode", () => {
 
     const portfolioService = resolvePortfolioService();
     const marketData = resolveMarketDataService();
+    const riskManager = resolveRiskManager();
     broker = new PaperBroker();
 
     engine = new TradingEngine({
       broker,
       portfolioService,
       marketData,
+      riskManager,
     });
   });
 

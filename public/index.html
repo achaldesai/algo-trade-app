@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Algo Trade Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Algo Trade Dashboard</h1>
+            <div class="status-bar">
+                <div class="status-item health-indicator">
+                    <span id="health-dot" class="health-dot pending"></span>
+                    <span id="health-status" class="status-value pending">Checking...</span>
+                    <span id="health-uptime" class="health-uptime"></span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Data Provider (Angel One):</span>
+                    <span id="angel-status" class="status-value pending">Checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Execution (Zerodha):</span>
+                    <span id="zerodha-status" class="status-value pending">Checking...</span>
+                </div>
+                <div class="status-item">
+                    <span id="market-status" class="status-value">CLOSED</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Positions:</span>
+                    <span id="recon-status" class="status-value pending">Checking...</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <!-- P&L Summary Section -->
+            <section class="pnl-section">
+                <div class="pnl-header">
+                    <h2>📊 Daily P&L</h2>
+                    <span id="pnl-date" class="pnl-date"></span>
+                </div>
+                <div class="pnl-cards">
+                    <div class="pnl-card">
+                        <span class="pnl-label">Realized P&L</span>
+                        <span id="realized-pnl" class="pnl-value neutral">₹0.00</span>
+                    </div>
+                    <div class="pnl-card">
+                        <span class="pnl-label">Unrealized P&L</span>
+                        <span id="unrealized-pnl" class="pnl-value neutral">₹0.00</span>
+                    </div>
+                    <div class="pnl-card pnl-total">
+                        <span class="pnl-label">Total P&L</span>
+                        <span id="total-pnl" class="pnl-value neutral">₹0.00</span>
+                    </div>
+                    <div class="pnl-card pnl-trades">
+                        <span class="pnl-label">Trades Today</span>
+                        <span id="trade-count" class="pnl-value neutral">0</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Positions Table Section -->
+            <section class="positions-section">
+                <div class="positions-header">
+                    <h2>📈 Open Positions</h2>
+                    <span id="positions-count" class="positions-count">0 positions</span>
+                </div>
+                <div id="positions-table-container" class="positions-table-container">
+                    <table id="positions-table" class="positions-table">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Qty</th>
+                                <th>Entry</th>
+                                <th>Current</th>
+                                <th>P&L</th>
+                                <th>P&L %</th>
+                                <th>Stop-Loss</th>
+                            </tr>
+                        </thead>
+                        <tbody id="positions-tbody">
+                            <tr>
+                                <td colspan="7" class="empty-state">No open positions</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="chart-section">
+                <div class="chart-header">
+                    <h2>Live Market Data</h2>
+                    <div class="controls">
+                        <button id="toggle-loop-btn" class="btn btn-primary">START TRADING</button>
+                        <button id="panic-sell-btn" class="btn btn-danger">⚠️ PANIC SELL ALL</button>
+                    </div>
+                </div>
+                <div id="chart-container"></div>
+            </section>
+
+            <section id="recon-section" class="recon-section hidden">
+                <div class="recon-header">
+                    <h2>⚠️ Position Discrepancies Detected</h2>
+                    <button id="recon-sync-btn" class="btn btn-warning">Sync All From Broker</button>
+                </div>
+                <div id="recon-list" class="recon-list"></div>
+            </section>
+
+            <div class="grid-layout">
+                <section class="strategies-section">
+                    <h2>Active Strategies</h2>
+                    <div id="strategies-list" class="card-list">
+                        <!-- Strategies will be populated here -->
+                    </div>
+                </section>
+
+                <section class="logs-section">
+                    <h2>System Logs</h2>
+                    <div id="logs-container" class="logs-box">
+                        <div class="log-entry">Waiting for logs...</div>
+                    </div>
+                </section>
+            </div>
+            <section class="settings-section">
+                <h2>Risk Management Settings</h2>
+                <form id="settings-form" class="settings-form">
+                    <div class="form-group">
+                        <label for="maxDailyLoss">Max Daily Loss (₹)</label>
+                        <input type="number" id="maxDailyLoss" name="maxDailyLoss" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="maxDailyLossPercent">Max Daily Loss (%)</label>
+                        <input type="number" id="maxDailyLossPercent" name="maxDailyLossPercent" step="0.1" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="stopLossPercent">Stop Loss per Trade (%)</label>
+                        <input type="number" id="stopLossPercent" name="stopLossPercent" step="0.1" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="maxOpenPositions">Max Open Positions</label>
+                        <input type="number" id="maxOpenPositions" name="maxOpenPositions" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="maxPositionSize">Max Position Size (₹)</label>
+                        <input type="number" id="maxPositionSize" name="maxPositionSize" required>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Save Settings</button>
+                        <button type="button" id="reset-settings-btn" class="btn btn-danger">Reset to Defaults</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="settings-section">
+                <h2>🔔 Notifications</h2>
+                <div class="notification-settings">
+                    <div class="notification-status">
+                        <span class="label">Status:</span>
+                        <span id="notification-status" class="status-value pending">Checking...</span>
+                    </div>
+                    <p class="notification-help">
+                        Configure via environment variables: <code>DISCORD_WEBHOOK_URL</code> or
+                        <code>WEBHOOK_URL</code>
+                    </p>
+                    <div class="form-actions">
+                        <button type="button" id="test-notification-btn" class="btn btn-primary" disabled>🧪 Send Test
+                            Notification</button>
+                    </div>
+                    <div id="notification-result" class="notification-result hidden"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="dashboard.js"></script>
+</body>
+
+</html>
