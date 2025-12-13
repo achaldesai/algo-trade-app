@@ -85,6 +85,13 @@ export const env = {
   discordBotToken: process.env.DISCORD_BOT_TOKEN ?? "",
 
   adminApiKey: process.env.ADMIN_API_KEY ?? "",
+
+  // Audit Log Settings
+  auditMaxQueueSize: parseNumberWithFallback(process.env.AUDIT_MAX_QUEUE_SIZE, 1000),
+  auditRetryDelayMs: parseNumberWithFallback(process.env.AUDIT_RETRY_DELAY_MS, 1000),
+
+  // Stop-Loss Defaults
+  defaultTrailingStopPercent: parseNumberWithFallback(process.env.DEFAULT_TRAILING_STOP_PERCENT, 3),
 };
 
 export type EnvConfig = typeof env;

@@ -159,6 +159,14 @@ export const createContainer = (): AppContainer => {
     stopLossMonitor,
   });
 
+  // Wire RiskManager critical errors to notifications
+  riskManager.on("critical_error", (event: { type: string; error: Error }) => {
+    void notificationService.notifyCriticalError(
+      event.type,
+      event.error?.message || "Unknown error"
+    );
+  });
+
   // Build remote access services
   const tunnelService = new TunnelService();
 

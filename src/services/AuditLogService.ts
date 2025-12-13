@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import type { AuditLogEntry, AuditLogQuery, AuditLogRepository, AuditEventType } from "../persistence/AuditLogRepository";
+import env from "../config/env";
 import type TradingEngine from "./TradingEngine";
 import type { StopLossMonitor } from "./StopLossMonitor";
 import type { SettingsRepository } from "../persistence/SettingsRepository";
@@ -31,8 +32,8 @@ export class AuditLogService {
     private logQueue: AuditLogEntry[] = [];
     private isFlushing = false;
     private retryScheduled = false;
-    private readonly MAX_QUEUE_SIZE = 1000;
-    private static readonly RETRY_DELAY_MS = 1000;
+    private readonly MAX_QUEUE_SIZE = env.auditMaxQueueSize;
+    private readonly RETRY_DELAY_MS = env.auditRetryDelayMs;
 
     constructor(options: AuditLogServiceOptions) {
         this.repository = options.repository;
@@ -298,7 +299,7 @@ export class AuditLogService {
                         setTimeout(() => {
                             this.retryScheduled = false;
                             void this.flushLogs();
-                        }, AuditLogService.RETRY_DELAY_MS);
+                        }, this.RETRY_DELAY_MS);
                     }
                     break; // Exit current flush, retry is scheduled
                 }

@@ -5,6 +5,7 @@ import type TradingEngine from "./TradingEngine";
 import type { StopLossConfig, StopLossRepository } from "../persistence/StopLossRepository";
 import type { RiskManager } from "./RiskManager";
 import logger from "../utils/logger";
+import env from "../config/env";
 
 export interface StopLossMonitorOptions {
     marketDataService: MarketDataService;
@@ -39,7 +40,7 @@ export class StopLossMonitor extends EventEmitter {
 
     private isMonitoring = false;
     private static instance: StopLossMonitor | null = null;
-    private readonly DEFAULT_TRAILING_PERCENT = 3;
+    private readonly DEFAULT_TRAILING_PERCENT = env.defaultTrailingStopPercent;
 
     constructor(options: StopLossMonitorOptions) {
         super();

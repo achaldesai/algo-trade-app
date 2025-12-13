@@ -66,6 +66,9 @@ Key environment variables:
 - `DISCORD_WEBHOOK_URL`: Discord webhook URL for notifications (optional)
 - `WEBHOOK_URL`: Generic webhook URL for notifications (optional)
 - `NOTIFICATIONS_ENABLED`: Set to `false` to disable notifications (default `true`)
+- `AUDIT_MAX_QUEUE_SIZE`: Max entries in audit log retry queue (default 1000)
+- `AUDIT_RETRY_DELAY_MS`: Delay between audit log retry attempts in ms (default 1000)
+- `DEFAULT_TRAILING_STOP_PERCENT`: Default trailing stop-loss percentage (default 3)
 
 **Note**: Angel One SmartAPI provides **FREE** market data and historical data APIs. See `docs/ANGEL_ONE_SETUP.md` for setup instructions.
 
