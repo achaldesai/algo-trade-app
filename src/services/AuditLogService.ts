@@ -248,7 +248,7 @@ export class AuditLogService {
             id: randomUUID(),
             timestamp: new Date(),
             ...entry,
-            details: this.redactSensitiveData(entry.details),
+            details: this.redactSensitiveData(entry.details) as Record<string, unknown> | undefined,
         };
 
         try {
@@ -324,7 +324,7 @@ export class AuditLogService {
     /**
      * Redact sensitive fields from any object
      */
-    private redactSensitiveData(data: unknown): any {
+    private redactSensitiveData(data: unknown): unknown {
         if (!data) return data;
 
         // Handle arrays
@@ -334,11 +334,11 @@ export class AuditLogService {
 
         // Handle objects
         if (typeof data === "object") {
-            const redacted: Record<string, any> = {};
+            const redacted: Record<string, unknown> = {};
             // Common sensitive keys
             const sensitiveKeys = ["password", "secret", "token", "apikey", "auth", "credential", "access_token"];
 
-            for (const [key, value] of Object.entries(data as Record<string, any>)) {
+            for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
                 if (sensitiveKeys.some(s => key.toLowerCase().includes(s))) {
                     redacted[key] = "***REDACTED***";
                 } else {

@@ -20,7 +20,7 @@ import { setContainer, AppContainer } from "../container";
 // Let's set process.env.ADMIN_API_KEY = "test-key" and send header.
 
 import env from "../config/env";
-// @ts-ignore
+
 env.adminApiKey = "test-key";
 
 // Mock dependencies
@@ -48,7 +48,7 @@ const mockContainer = {
 } as unknown as AppContainer;
 
 // Mock TradingLoopService static getInstance
-TradingLoopService.getInstance = mock.fn(() => mockLoopService as any);
+TradingLoopService.getInstance = mock.fn(() => mockLoopService as unknown as TradingLoopService);
 
 describe("Control Routes", () => {
     beforeEach(() => {

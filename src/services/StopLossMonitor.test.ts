@@ -389,8 +389,8 @@ describe("StopLossMonitor", () => {
             const tick2 = { symbol: "WIPRO", price: 379, volume: 100, timestamp: new Date() };
 
             // Emit concurrently without awaiting individually
-            const p1 = (monitor as any).handleTick(tick1);
-            const p2 = (monitor as any).handleTick(tick2);
+            const p1 = (monitor as unknown as { handleTick: (t: MarketTick) => Promise<void> }).handleTick(tick1);
+            const p2 = (monitor as unknown as { handleTick: (t: MarketTick) => Promise<void> }).handleTick(tick2);
 
             await Promise.all([p1, p2]);
 
@@ -435,7 +435,7 @@ describe("StopLossMonitor", () => {
             // Trails HWM to 550. New New SL = 550 - 10% = 495.
             // This tick itself (550) is > 495, so no breach.
 
-            await (monitor as any).handleTick({ symbol: "SBI", price: 550, volume: 10, timestamp: new Date() });
+            await (monitor as unknown as { handleTick: (t: MarketTick) => Promise<void> }).handleTick({ symbol: "SBI", price: 550, volume: 10, timestamp: new Date() });
 
             const sl = monitor.get("SBI");
             assert.strictEqual(sl?.stopLossPrice, 495);
@@ -446,7 +446,7 @@ describe("StopLossMonitor", () => {
             // So we just verify the Update logic works.
 
             // However, let's verify that lock is released properly so subsequent tick works.
-            await (monitor as any).handleTick({ symbol: "SBI", price: 400, volume: 10, timestamp: new Date() });
+            await (monitor as unknown as { handleTick: (t: MarketTick) => Promise<void> }).handleTick({ symbol: "SBI", price: 400, volume: 10, timestamp: new Date() });
 
             await new Promise(resolve => setTimeout(resolve, 50));
             assert.strictEqual(monitor.get("SBI"), undefined, "Should be sold");
