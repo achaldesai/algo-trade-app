@@ -342,7 +342,7 @@
                 "panic-sell"
               ]
             },
-            "description": "⚠️ EMERGENCY: Stop the trading loop and immediately sell all open positions. Use only in emergencies."
+            "description": "⚠️ EMERGENCY: Stop the trading loop and immediately sell all open positions. Returns 503 if broker is unavailable. Use only in emergencies."
           }
         }
       ]

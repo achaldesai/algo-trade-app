@@ -35,8 +35,8 @@ export class StopLossMonitor extends EventEmitter {
     private readonly tradingEngine: TradingEngine;
     private readonly repository: StopLossRepository;
     private readonly riskManager: RiskManager;
-    private readonly processingSymbols = new Set<string>();
     private readonly symbolQueues = new Map<string, Promise<void>>();
+    private readonly tickQueues = new Map<string, Promise<void>>();
 
     private isMonitoring = false;
     private static instance: StopLossMonitor | null = null;
@@ -258,42 +258,52 @@ export class StopLossMonitor extends EventEmitter {
 
     /**
      * Handle incoming market tick
+     * Uses promise-queue pattern to process ticks in order without dropping any.
      */
     private handleTick = async (tick: MarketTick): Promise<void> => {
-        // Prevent concurrent processing for the same symbol (race condition fix)
-        if (this.processingSymbols.has(tick.symbol)) {
-            return;
-        }
+        const existing = this.tickQueues.get(tick.symbol) ?? Promise.resolve();
+        const next = existing
+            .then(() => this.processTickForSymbol(tick))
+            .catch(err => {
+                logger.error({ err, symbol: tick.symbol }, "Error processing stop-loss tick");
+            })
+            .finally(() => {
+                // Clean up if this is still the current promise (prevents memory leak)
+                if (this.tickQueues.get(tick.symbol) === next) {
+                    this.tickQueues.delete(tick.symbol);
+                }
+            });
+        this.tickQueues.set(tick.symbol, next);
+        await next;
+    };
 
+    /**
+     * Process a single tick for stop-loss evaluation (called within queue)
+     */
+    private async processTickForSymbol(tick: MarketTick): Promise<void> {
         const config = this.repository.get(tick.symbol);
         if (!config) return;
 
-        this.processingSymbols.add(tick.symbol);
+        let currentConfig = config;
 
-        try {
-            // Check for trailing stop update
-            let currentConfig = config;
-
-            if (currentConfig.type === "TRAILING" && tick.price > (currentConfig.highWaterMark ?? currentConfig.entryPrice)) {
-                await this.updateTrailingStop(currentConfig, tick.price);
-                // Refresh config after update to check breach against NEW stop loss price
-                const updated = this.repository.get(tick.symbol);
-                if (updated) {
-                    currentConfig = updated;
-                }
+        // Check for trailing stop update
+        if (currentConfig.type === "TRAILING" && tick.price > (currentConfig.highWaterMark ?? currentConfig.entryPrice)) {
+            await this.updateTrailingStop(currentConfig, tick.price);
+            // Refresh config after update to check breach against NEW stop loss price
+            const updated = this.repository.get(tick.symbol);
+            if (!updated) {
+                logger.warn({ symbol: tick.symbol }, "Stop-loss config disappeared during trailing update");
+                return;
             }
-
-            // Check if stop-loss is breached
-            if (tick.price <= currentConfig.stopLossPrice) {
-                // Pass true to skip lock check because we already hold the lock
-                await this.executeStopLoss(currentConfig, tick, true);
-            }
-        } catch (error) {
-            logger.error({ err: error, symbol: tick.symbol }, "Error processing stop-loss tick");
-        } finally {
-            this.processingSymbols.delete(tick.symbol);
+            currentConfig = updated;
         }
-    };
+
+        // Check if stop-loss is breached
+        if (tick.price <= currentConfig.stopLossPrice) {
+            // Pass true to skip lock check because queue already serializes access
+            await this.executeStopLoss(currentConfig, tick, true);
+        }
+    }
 
     /**
      * Update trailing stop high water mark
@@ -353,14 +363,10 @@ export class StopLossMonitor extends EventEmitter {
             tag: `STOP-LOSS-${Date.now()}`,
         };
 
-        // Check if already processing this symbol to avoid double execution
-        if (!skipLockCheck && this.processingSymbols.has(config.symbol)) {
-            logger.warn({ symbol: config.symbol }, "Already processing stop-loss for symbol, skipping");
-            return;
-        }
-
+        // Note: The skipLockCheck parameter is now only used for logging; 
+        // the tickQueues pattern handles serialization automatically.
         if (!skipLockCheck) {
-            this.processingSymbols.add(config.symbol);
+            logger.debug({ symbol: config.symbol }, "Executing stop-loss (not called from tick queue)");
         }
 
         try {
@@ -405,10 +411,6 @@ export class StopLossMonitor extends EventEmitter {
         } catch (error) {
             logger.error({ err: error, symbol: config.symbol }, "Failed to execute stop-loss order");
             this.emit("stop-loss-error", { ...event, error });
-        } finally {
-            if (!skipLockCheck) {
-                this.processingSymbols.delete(config.symbol);
-            }
         }
     }
 

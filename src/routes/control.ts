@@ -86,6 +86,23 @@ router.post("/panic-sell", async (req, res, next) => {
         }
 
         const engine = resolveTradingEngine();
+        const broker = engine.getActiveBroker();
+
+        // Check broker availability before executing panic sell
+        if (!broker.isConnected()) {
+            logger.warn("Broker disconnected during panic sell, attempting reconnect...");
+            try {
+                await broker.connect();
+            } catch (err) {
+                logger.error({ err }, "Failed to connect broker for panic sell");
+                res.status(503).json({
+                    success: false,
+                    message: "Broker unavailable - manual intervention required"
+                });
+                return;
+            }
+        }
+
         const result = await engine.sellAllPositions();
 
         res.json({

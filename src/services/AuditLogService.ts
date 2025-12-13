@@ -273,6 +273,15 @@ export class AuditLogService {
     }
 
     private addToQueue(entry: AuditLogEntry) {
+        // Emit warning at 80% capacity
+        const WARN_THRESHOLD = Math.floor(this.MAX_QUEUE_SIZE * 0.8);
+        if (this.logQueue.length >= WARN_THRESHOLD && this.logQueue.length < this.MAX_QUEUE_SIZE) {
+            logger.error(
+                { queueSize: this.logQueue.length, maxSize: this.MAX_QUEUE_SIZE },
+                "CRITICAL: Audit log queue nearing capacity"
+            );
+        }
+
         if (this.logQueue.length >= this.MAX_QUEUE_SIZE) {
             logger.error("Audit log queue full, dropping oldest entry");
             this.logQueue.shift();

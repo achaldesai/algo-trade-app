@@ -9,6 +9,7 @@ import env from "../config/env";
 export class LmdbSettingsRepository extends EventEmitter implements SettingsRepository {
     private root: RootDatabase | null = null;
     private db: Database<RiskLimits> | null = null;
+    private initPromise: Promise<void> | null = null;
 
     // Default values from env
     private readonly defaults: RiskLimits = {
@@ -25,9 +26,23 @@ export class LmdbSettingsRepository extends EventEmitter implements SettingsRepo
         super();
     }
 
+    /**
+     * Initialize the LMDB database
+     * Uses promise-tracking to prevent race conditions on concurrent initialization
+     */
     async initialize(): Promise<void> {
         if (this.root) return;
+        if (this.initPromise) return this.initPromise;
 
+        this.initPromise = this.doInitialize();
+        try {
+            return await this.initPromise;
+        } finally {
+            this.initPromise = null;
+        }
+    }
+
+    private async doInitialize(): Promise<void> {
         await fs.mkdir(path.dirname(this.storePath), { recursive: true });
 
         this.root = open({

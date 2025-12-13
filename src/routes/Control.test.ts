@@ -36,9 +36,14 @@ const mockStopLossMonitor = {
     getStatus: mock.fn(() => ({ monitoring: true, activeStopLosses: 5 })),
 };
 
+const mockBroker = {
+    isConnected: mock.fn(() => true),
+    connect: mock.fn(async () => { }),
+};
+
 const mockTradingEngine = {
     sellAllPositions: mock.fn(async () => ({ executions: [], failures: [] })),
-    getActiveBroker: mock.fn(),
+    getActiveBroker: mock.fn(() => mockBroker),
 };
 
 // Partial mock container

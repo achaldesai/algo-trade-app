@@ -302,6 +302,7 @@ All orders are validated before execution:
 ### Panic Sell
 - **Endpoint**: `POST /api/control/panic-sell`
 - **Confirmation**: Requires `confirmToken: "PANIC-CONFIRM"` in request body to prevent accidental execution.
+- **Broker Check**: Verifies broker connectivity before execution; returns `503` if unavailable.
 - **Safety**: Bypasses circuit breakers and stops all trading loops/monitors immediately.
 
 ### Stop-Loss Automation
@@ -309,7 +310,8 @@ All orders are validated before execution:
 Automatic stop-loss protection for all positions:
 
 **Reliability Enhancements:**
-- **Race Condition Fix**: Implements symbol-level locking to prevent concurrent updates during high-frequency ticks.
+- **Promise-Queue Pattern**: Uses per-symbol promise queues to process ticks in order without dropping any.
+- **Trailing Stop Edge Case**: Handles config disappearing during trailing stop updates gracefully.
 - **Async Safety**: All async operations are wrapped to prevent unhandled promise rejections.
 
 **Automatic Stop-Loss Creation:**
