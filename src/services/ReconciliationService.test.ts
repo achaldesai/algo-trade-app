@@ -1,10 +1,12 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert";
 import { ReconciliationService } from "./ReconciliationService";
+import type { BrokerClient } from "../brokers/BrokerClient";
+import type { PortfolioService } from "./PortfolioService";
 
 describe("ReconciliationService", () => {
-    let mockBroker: any;
-    let mockPortfolioService: any;
+    let mockBroker: unknown;
+    let mockPortfolioService: unknown;
     let service: ReconciliationService;
 
     beforeEach(() => {
@@ -17,7 +19,10 @@ describe("ReconciliationService", () => {
             getTradeSummaries: mock.fn(() => Promise.resolve([])),
             recordExternalTrade: mock.fn(),
         };
-        service = new ReconciliationService(mockBroker, mockPortfolioService);
+        service = new ReconciliationService(
+            mockBroker as BrokerClient,
+            mockPortfolioService as PortfolioService
+        );
     });
 
     it("should reconcile with no discrepancies when empty", async () => {
@@ -27,7 +32,8 @@ describe("ReconciliationService", () => {
     });
 
     it("should detect discrepancy when broker has position but local does not", async () => {
-        mockBroker.getPositions.mock.mockImplementation(() => Promise.resolve([
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (mockBroker as any).getPositions.mock.mockImplementation(() => Promise.resolve([
             { symbol: "AAPL", side: "BUY", quantity: 10, price: 150 }
         ]));
 

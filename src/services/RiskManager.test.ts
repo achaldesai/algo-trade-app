@@ -20,7 +20,7 @@ describe("RiskManager", () => {
         mockSettingsRepo = {
             getRiskLimits: () => ({ ...defaultLimits }),
             on: mock.fn(),
-            saveRiskLimits: mock.fn(),
+            saveRiskLimits: mock.fn(() => Promise.resolve()),
             resetToDefaults: mock.fn(),
         } as unknown as SettingsRepository;
 

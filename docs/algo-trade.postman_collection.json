@@ -1078,7 +1078,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"maxDailyLoss\": 5000,\n  \"maxDailyLossPercent\": 2,\n  \"stopLossPercent\": 3,\n  \"maxOpenPositions\": 5,\n  \"maxPositionSize\": 100000\n}"
+              "raw": "{\n  \"maxDailyLoss\": 5000,\n  \"maxDailyLossPercent\": 2,\n  \"stopLossPercent\": 3,\n  \"maxOpenPositions\": 5,\n  \"maxPositionSize\": 100000,\n  \"circuitBroken\": false\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/settings",

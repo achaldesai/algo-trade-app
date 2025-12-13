@@ -9,8 +9,9 @@ const router = Router();
  * Get today's P&L summary
  */
 const CACHE_TTL_MS = 5000;
+// Using unknown as the data structure is complex and validated at runtime/construction
 let dailyPnLCache: {
-    data: any;
+    data: unknown;
     timestamp: number;
 } | null = null;
 
@@ -22,7 +23,8 @@ router.get("/daily", async (_req, res, next) => {
     try {
         // Check cache
         if (dailyPnLCache && (Date.now() - dailyPnLCache.timestamp < CACHE_TTL_MS)) {
-            return res.json(dailyPnLCache.data);
+            res.json(dailyPnLCache.data);
+            return;
         }
 
         const portfolioService = resolvePortfolioService();
@@ -111,7 +113,7 @@ router.get("/daily", async (_req, res, next) => {
             timestamp: Date.now()
         };
 
-        return res.json(responseData);
+        res.json(responseData);
     } catch (error) {
         next(error);
     }
