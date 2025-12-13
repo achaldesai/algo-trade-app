@@ -201,7 +201,7 @@ window.syncSymbol = async (symbol) => {
     try {
         await fetch(`/api/reconciliation/sync/${symbol}`, { method: 'POST' });
         await updateReconciliationStatus();
-    } catch (err) {
+    } catch (_err) {
         alert('Failed to sync ' + symbol);
     }
 };
@@ -213,7 +213,7 @@ if (reconSyncBtn) {
             await fetch('/api/reconciliation/run', { method: 'POST' });
             await updateReconciliationStatus();
             alert('Reconciliation run triggered');
-        } catch (err) {
+        } catch (_err) {
             alert('Failed to trigger reconciliation');
         }
     });
@@ -379,7 +379,7 @@ document.getElementById('settings-form').addEventListener('submit', async (e) =>
             const err = await res.json();
             alert('Failed to save settings: ' + err.message);
         }
-    } catch (error) {
+    } catch (_error) {
         alert('Error saving settings');
     }
 });
@@ -391,7 +391,7 @@ document.getElementById('reset-settings-btn').addEventListener('click', async ()
         await fetch('/api/settings/reset', { method: 'POST' });
         loadSettings();
         alert('Settings reset to defaults');
-    } catch (error) {
+    } catch (_error) {
         alert('Failed to reset settings');
     }
 });
@@ -427,7 +427,7 @@ toggleBtn.addEventListener('click', async () => {
     try {
         await fetch(endpoint, { method: 'POST' });
         await updateLoopStatus();
-    } catch (error) {
+    } catch (_error) {
         alert('Failed to toggle trading loop');
     }
 });
@@ -441,7 +441,7 @@ panicBtn.addEventListener('click', async () => {
         const res = await fetch('/api/control/panic-sell', { method: 'POST' });
         const data = await res.json();
         alert(`Panic sell executed! Executions: ${data.data.executions.length}, Failures: ${data.data.failures.length}`);
-    } catch (error) {
+    } catch (_error) {
         alert('Failed to execute panic sell');
     }
 });
@@ -495,7 +495,7 @@ if (testNotificationBtn) {
             setTimeout(() => {
                 resultEl.classList.add('hidden');
             }, 5000);
-        } catch (error) {
+        } catch (_error) {
             resultEl.classList.remove('hidden');
             resultEl.className = 'notification-result error';
             resultEl.textContent = '❌ Failed to send test notification';

@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import { getPortfolioRepository } from "../persistence";
+
 import type { SettingsRepository } from "../persistence/SettingsRepository"; // Will create this next
 import type { BrokerOrderExecution, BrokerOrderRequest } from "../types";
 import logger from "../utils/logger";
@@ -80,7 +80,7 @@ export class RiskManager extends EventEmitter {
         return { allowed: true };
     }
 
-    public recordExecution(execution: BrokerOrderExecution) {
+    public recordExecution(_execution: BrokerOrderExecution) {
         this.executionCount++;
         // Update daily PnL logic here if we have PnL data in execution (usually we don't till close)
         // We rely on PortfolioService for accurate PnL, this is for quick intra-day tracking if possible

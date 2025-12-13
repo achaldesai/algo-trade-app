@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { resolvePortfolioService, resolveMarketDataService, resolveRiskManager } from "../container";
-import type { Trade, TradeSummary } from "../types";
+import type { Trade } from "../types";
 
 const router = Router();
 

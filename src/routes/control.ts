@@ -21,7 +21,7 @@ router.get("/status", (req, res) => {
                 activeCount: stopLossStatus.activeStopLosses,
             },
         });
-    } catch (error) {
+    } catch (_error) {
         // If service not initialized yet
         res.json({ running: false, mode: "parallel", evaluating: false, stopLoss: { monitoring: false, activeCount: 0 } });
     }
@@ -70,7 +70,7 @@ router.post("/panic-sell", async (req, res, next) => {
 
             const stopLossMonitor = resolveStopLossMonitor();
             stopLossMonitor.stop();
-        } catch (e) {
+        } catch (_e) {
             // Ignore if services not init
         }
 

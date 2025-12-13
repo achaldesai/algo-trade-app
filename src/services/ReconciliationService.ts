@@ -1,6 +1,6 @@
 import type { BrokerClient } from "../brokers/BrokerClient";
 import type { PortfolioService } from "./PortfolioService";
-import type { Trade, TradeSummary } from "../types";
+import type { Trade } from "../types";
 import logger from "../utils/logger";
 
 /**
@@ -218,7 +218,7 @@ export class ReconciliationService {
     private determineAction(
         localQty: number,
         brokerQty: number,
-        isStartup: boolean
+        _isStartup: boolean
     ): PositionDiscrepancy["action"] {
         // If we have no local position but broker has one - sync from broker
         if (localQty === 0 && brokerQty !== 0) {
