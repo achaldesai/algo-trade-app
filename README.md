@@ -107,6 +107,30 @@ The service now ships with a broker abstraction and a basic VWAP-driven strategy
 - **VWAP mean reversion strategy** – demonstrates how to translate market data deviations into actionable orders.
 - **Automatic Token Management** – `TokenRefreshService` handles daily re-authentication for Angel One (eliminates manual token renewal), recalculates the next 04:30 IST window purely in UTC, and triggers a full re-auth when no persisted token is found.
 
+## 🛡️ Risk Management
+
+The system includes a robust risk management layer that enforces:
+
+- **Max Daily Loss**: Trading halts if daily loss limit is hit (circuit breaker).
+- **Position Limits**: Max open positions and max position size checks.
+- **Stop-Loss Automation**: Auto-creates stop-losses for every position (Fixed or Trailing).
+
+## 🚨 Emergency Procedures
+
+### Panic Sell
+Immediately liquidates ALL open positions.
+- **via Dashboard**: Click "PANIC SELL ALL" button (requires confirmation).
+- **via API**: `POST /api/control/panic-sell` with body `{"confirmToken": "PANIC-CONFIRM"}`.
+
+### Circuit Breaker
+If triggered, all new entry orders are blocked. Emergency exits (Panic Sell, Stop-Loss) are **ALWAYS ALLOWED**.
+- **Reset**: Automatic on daily reset or manual via API.
+
+## 🔒 Security
+
+- **Admin API Key**: Required header `X-Admin-API-Key` for sensitive endpoints.
+- **CSP**: Content Security Policy enabled to prevent XSS.
+
 ### Decoupled Data & Broker Configuration
 
 You can use **different providers** for market data and trading:

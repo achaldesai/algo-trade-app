@@ -433,14 +433,27 @@ toggleBtn.addEventListener('click', async () => {
 });
 
 panicBtn.addEventListener('click', async () => {
-    if (!confirm('ARE YOU SURE? This will sell ALL open positions immediately!')) {
+    const confirmation = prompt("⚠️ CRITICAL ACTION ⚠️\n\nThis will immediately SELL ALL open positions.\n\nTo confirm, type: PANIC-CONFIRM");
+
+    if (confirmation !== "PANIC-CONFIRM") {
+        if (confirmation !== null) alert("Incorrect confirmation code. Action cancelled.");
         return;
     }
 
     try {
-        const res = await fetch('/api/control/panic-sell', { method: 'POST' });
+        const res = await fetch('/api/control/panic-sell', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmToken: confirmation })
+        });
+
         const data = await res.json();
-        alert(`Panic sell executed! Executions: ${data.data.executions.length}, Failures: ${data.data.failures.length}`);
+
+        if (res.ok) {
+            alert(`Panic sell executed! Executions: ${data.data.executions.length}, Failures: ${data.data.failures.length}`);
+        } else {
+            alert(`Failed: ${data.message}`);
+        }
     } catch (_error) {
         alert('Failed to execute panic sell');
     }
@@ -507,4 +520,10 @@ if (testNotificationBtn) {
 }
 
 // Initial notification status check
+// Initial notification status check
 updateNotificationStatus();
+
+// Security Warning
+if (localStorage.getItem('adminApiKey')) {
+    console.warn("%c⚠️ SECURITY WARNING: Admin API Key is stored in localStorage. This is vulnerable to XSS. Use only in trusted dev environments.", "color: red; font-size: 14px; font-weight: bold;");
+}

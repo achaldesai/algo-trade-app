@@ -65,6 +65,12 @@ router.post("/stop", (req, res) => {
 
 router.post("/panic-sell", async (req, res, next) => {
     try {
+        const { confirmToken } = req.body;
+        if (confirmToken !== "PANIC-CONFIRM") {
+            res.status(400).json({ success: false, message: "Invalid confirmation token. Type 'PANIC-CONFIRM' to execute." });
+            return;
+        }
+
         logger.warn("🚨 PANIC SELL TRIGGERED 🚨");
 
         // Stop the loop and stop-loss monitor first to prevent new orders

@@ -23,7 +23,7 @@ export class RiskManager extends EventEmitter {
     private dailyUnrealizedPnL = 0;
     private circuitBroken = false;
     private executionCount = 0;
-    private processingLock = false; // Simple mutex for state updates
+    private processingLock = Promise.resolve(); // Async mutex for state updates
 
     // Cache limits in memory
     private limits: RiskLimits;
@@ -54,14 +54,17 @@ export class RiskManager extends EventEmitter {
             return { allowed: false, reason: `Invalid price: ${order.price} (must be > 0 for LIMIT orders)` };
         }
 
+        // 5. Bypass checks for Emergency Exits
+        const isEmergency = order.tag?.startsWith("STOP-LOSS") || order.tag?.startsWith("PANIC-SELL");
+
         // 1. Check Circuit Breaker
-        if (this.circuitBroken) {
+        if (this.circuitBroken && !isEmergency) {
             return { allowed: false, reason: "Circuit breaker active - trading halted" };
         }
 
         // 2. Check Daily Loss Limit (Realized + Unrealized)
         const totalDailyPnL = this.dailyRealizedPnL + currentUnrealizedPnL;
-        if (totalDailyPnL <= -this.limits.maxDailyLoss) {
+        if (totalDailyPnL <= -this.limits.maxDailyLoss && !isEmergency) {
             this.triggerCircuitBreaker(`Daily loss limit hit: ${totalDailyPnL} <= -${this.limits.maxDailyLoss}`);
             return { allowed: false, reason: "Daily loss limit exceeded" };
         }
@@ -69,15 +72,20 @@ export class RiskManager extends EventEmitter {
         // 3. Check Max Open Positions (only for new entry orders)
         // If it's a BUY order (assuming long-only for now or that BUY opens positions)
         // And we're currently at or above the limit
-        if (order.quantity > 0 && order.side === "BUY" && openPositionsCount >= this.limits.maxOpenPositions) {
+        if (order.quantity > 0 && order.side === "BUY" && openPositionsCount >= this.limits.maxOpenPositions && !isEmergency) {
             return { allowed: false, reason: `Max open positions limit reached: ${openPositionsCount} >= ${this.limits.maxOpenPositions}` };
         }
 
         // 4. Check Position Size
-        const estimatedValue = order.quantity * (order.price || 0); // Price might be missing for market orders
-        // If market order, we might skip this or use last price
-        if (estimatedValue > this.limits.maxPositionSize) {
-            return { allowed: false, reason: `Order value ${estimatedValue} exceeds max position size ${this.limits.maxPositionSize}` };
+        // Skip for MARKET orders since price is unknown (0), or emergency orders
+        if (order.type !== "MARKET" && !isEmergency) {
+            const estimatedValue = order.quantity * (order.price || 0);
+            if (estimatedValue > this.limits.maxPositionSize) {
+                return { allowed: false, reason: `Order value ${estimatedValue} exceeds max position size ${this.limits.maxPositionSize}` };
+            }
+        } else if (order.type === "MARKET" && !isEmergency) {
+            // Optional: warns or rough check if we had current price
+            // For now, implicit pass for market orders on size check, or we could require currentPrice passed in
         }
 
         return { allowed: true };
@@ -90,44 +98,44 @@ export class RiskManager extends EventEmitter {
     }
 
     // Update PnL from PortfolioService
-    public updatePnL(realized: number, unrealized: number) {
-        if (this.processingLock) {
-            logger.warn("RiskManager locked, skipping PnL update");
-            return;
-        }
+    public async updatePnL(realized: number, unrealized: number) {
+        // Queue updates via promise chain
+        this.processingLock = this.processingLock.then(async () => {
+            try {
+                this.dailyRealizedPnL = realized;
+                this.dailyUnrealizedPnL = unrealized;
 
-        this.processingLock = true;
-        try {
-            this.dailyRealizedPnL = realized;
-            this.dailyUnrealizedPnL = unrealized;
-
-            const total = realized + unrealized;
-            if (total <= -this.limits.maxDailyLoss && !this.circuitBroken) {
-                this.triggerCircuitBreaker(`Daily loss limit hit via PnL update: ${total}`);
+                const total = realized + unrealized;
+                if (total <= -this.limits.maxDailyLoss && !this.circuitBroken) {
+                    this.triggerCircuitBreaker(`Daily loss limit hit via PnL update: ${total}`);
+                }
+            } catch (error) {
+                logger.error({ err: error }, "Error updating PnL in RiskManager");
             }
-        } finally {
-            this.processingLock = false;
-        }
+        });
+
+        await this.processingLock;
     }
 
     public isCircuitBroken(): boolean {
         return this.circuitBroken;
     }
 
-    public resetDailyCounters() {
+    public async resetDailyCounters() {
         this.dailyRealizedPnL = 0;
         this.dailyUnrealizedPnL = 0;
         this.circuitBroken = false;
         this.executionCount = 0;
-        this.processingLock = false;
 
         // Persist reset state
         this.limits.circuitBroken = false;
-        this.settingsRepo.saveRiskLimits(this.limits).catch(err => {
-            logger.error({ err }, "Failed to persist circuit breaker reset");
-        });
-
-        logger.info("Daily risk counters reset");
+        try {
+            await this.settingsRepo.saveRiskLimits(this.limits);
+            logger.info("Daily risk counters reset");
+        } catch (err) {
+            logger.error({ err }, "CRITICAL: Failed to persist circuit breaker reset");
+            // We proceed but log critical error
+        }
     }
 
     private triggerCircuitBreaker(reason: string) {
@@ -136,7 +144,7 @@ export class RiskManager extends EventEmitter {
         // Persist broken state
         this.limits.circuitBroken = true;
         this.settingsRepo.saveRiskLimits(this.limits).catch(err => {
-            logger.error({ err }, "Failed to persist circuit breaker state");
+            logger.error({ err }, "CRITICAL: Failed to persist circuit breaker state");
         });
 
         logger.error({ reason }, "CIRCUIT BREAKER TRIGGERED - TRADING HALTED");

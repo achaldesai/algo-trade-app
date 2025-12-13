@@ -27,6 +27,11 @@ export class AuditLogService {
     private readonly repository: AuditLogRepository;
     private static instance: AuditLogService | null = null;
 
+    // Retry queue for failed logs
+    private logQueue: AuditLogEntry[] = [];
+    private isFlushing = false;
+    private readonly MAX_QUEUE_SIZE = 1000;
+
     constructor(options: AuditLogServiceOptions) {
         this.repository = options.repository;
 
@@ -243,21 +248,47 @@ export class AuditLogService {
             id: randomUUID(),
             timestamp: new Date(),
             ...entry,
+            details: this.redactSensitiveData(entry.details),
         };
 
         try {
             await this.repository.append(fullEntry);
             logger.debug({ eventType: entry.eventType, symbol: entry.symbol }, "Audit log entry created");
         } catch (error) {
-            logger.warn({ err: error, entry }, "Failed to write audit log entry, retrying once...");
-            try {
-                // Simple retry after 100ms
-                await new Promise(resolve => setTimeout(resolve, 100));
-                await this.repository.append(fullEntry);
-                logger.info({ eventType: entry.eventType }, "Audit log entry written on retry");
-            } catch (retryError) {
-                logger.error({ err: retryError, originalError: error, entry }, "CRITICAL: Failed to write audit log entry after retry");
+            logger.warn({ err: error, entry }, "Failed to write audit log entry, adding to retry queue");
+            this.addToQueue(fullEntry);
+        }
+    }
+
+    private addToQueue(entry: AuditLogEntry) {
+        if (this.logQueue.length >= this.MAX_QUEUE_SIZE) {
+            logger.error("Audit log queue full, dropping oldest entry");
+            this.logQueue.shift();
+        }
+        this.logQueue.push(entry);
+        void this.flushLogs();
+    }
+
+    private async flushLogs() {
+        if (this.isFlushing) return;
+        this.isFlushing = true;
+
+        try {
+            while (this.logQueue.length > 0) {
+                const entry = this.logQueue[0];
+                try {
+                    await this.repository.append(entry);
+                    this.logQueue.shift(); // Remove on success
+                } catch (err) {
+                    logger.warn({ err }, "Retry failed for audit log, waiting before next attempt");
+                    // Wait 1 second before retrying head of queue
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    // Break loop to release lock and try again later (or keep trying? Let's break to avoid blocking loop too long)
+                    break;
+                }
             }
+        } finally {
+            this.isFlushing = false;
         }
     }
 
@@ -289,6 +320,35 @@ export class AuditLogService {
         const cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - retentionDays);
         return this.repository.cleanup(cutoff);
+    }
+    /**
+     * Redact sensitive fields from any object
+     */
+    private redactSensitiveData(data: unknown): any {
+        if (!data) return data;
+
+        // Handle arrays
+        if (Array.isArray(data)) {
+            return data.map(item => this.redactSensitiveData(item));
+        }
+
+        // Handle objects
+        if (typeof data === "object") {
+            const redacted: Record<string, any> = {};
+            // Common sensitive keys
+            const sensitiveKeys = ["password", "secret", "token", "apikey", "auth", "credential", "access_token"];
+
+            for (const [key, value] of Object.entries(data as Record<string, any>)) {
+                if (sensitiveKeys.some(s => key.toLowerCase().includes(s))) {
+                    redacted[key] = "***REDACTED***";
+                } else {
+                    redacted[key] = this.redactSensitiveData(value);
+                }
+            }
+            return redacted;
+        }
+
+        return data;
     }
 }
 

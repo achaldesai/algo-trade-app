@@ -26,11 +26,29 @@ const limiter = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
 
+// Stricter rate limit for admin endpoints (10 req/min)
+const adminLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  limit: 10,
+  message: "Too many admin requests, please try again later.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 app.use(express.json());
 app.use(express.static("public"));
 
 // Apply rate limiting to all requests
 app.use("/api", limiter);
+
+// Security Headers (CSP)
+app.use((_req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' https://unpkg.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+  );
+  next();
+});
 
 // Prevent 404 logs for favicon
 app.get("/favicon.ico", (_req, res) => res.status(204).end());
@@ -44,7 +62,8 @@ app.use("/api/stocks", stocksRouter);
 app.use("/api/trades", tradesRouter);
 app.use("/api/strategies", strategiesRouter);
 app.use("/api/market-data", marketDataRouter);
-app.use("/api/admin", adminRouter);
+// Apply strict limiter to admin routes
+app.use("/api/admin", adminLimiter, adminRouter);
 app.use("/api/control", controlRouter);
 app.use("/api/reconciliation", reconciliationRouter);
 app.use("/api/settings", settingsRouter);

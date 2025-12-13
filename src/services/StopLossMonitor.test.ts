@@ -30,6 +30,10 @@ class MockTradingEngine extends EventEmitter {
         }),
     };
 
+    getActiveBroker() {
+        return this.activeBroker;
+    }
+
     async executeSignal(_broker: unknown, signal: unknown) {
         return {
             signal,
@@ -363,6 +367,89 @@ describe("StopLossMonitor", () => {
             assert.strictEqual(status.monitoring, false);
             assert.strictEqual(status.activeStopLosses, 2);
             assert.strictEqual(status.stopLosses.length, 2);
+        });
+    });
+    describe("race conditions and edge cases", () => {
+        it("should prevent double execution for the same symbol", async () => {
+            monitor.start();
+            await monitor.setStopLoss("WIPRO", {
+                entryPrice: 400,
+                quantity: 100,
+            });
+
+            // Mock executeSignal to be slow to simulate concurrency window
+            // We need to override the mock method for this specific test or rely on the fact 
+            // that 'await' in handleTick yields control.
+
+            let executionCount = 0;
+            monitor.on("stop-loss-executed", () => executionCount++);
+
+            // Send two ticks rapidly that both breach stop loss (3% of 400 = 12 -> stop 388)
+            const tick1 = { symbol: "WIPRO", price: 380, volume: 100, timestamp: new Date() };
+            const tick2 = { symbol: "WIPRO", price: 379, volume: 100, timestamp: new Date() };
+
+            // Emit concurrently without awaiting individually
+            const p1 = (monitor as any).handleTick(tick1);
+            const p2 = (monitor as any).handleTick(tick2);
+
+            await Promise.all([p1, p2]);
+
+            // One should succeed, one might be skipped or both processed if lock fails
+            // With lock, only ONE execution should happen effectively because 
+            // the first one will remove the stop loss configuration.
+            // OR, the second one will return early because of processingSymbols check.
+
+            // Wait for all async ops to settle
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            assert.strictEqual(executionCount, 1, "Should execute stop-loss exactly once");
+        });
+
+        it("should process stop-loss trigger even after trailing stop update in same tick", async () => {
+            // Scenario: Trailing stop trails UP, but then price crashes in the SAME tick? 
+            // Actually, a single tick has only one price. 
+            // The scenario is: Previous HighWaterMark was X. Current Price is Y > X. 
+            // Update HWM to Y. New Stop Loss is Y - %. 
+            // If Y is somehow causing a breach? No, if price goes UP, it won't breach a trailing stop (which is below).
+            // BUT, what if we have a weird logic where we updated HWM but the calculated SL is still breached?
+            // (Only possible if trailing% is huge or price jumped weirdly? Unlikely).
+
+            // Real Scenario: We receive a tick that triggers a trailing update.
+            // THEN immediately another tick comes that crashes.
+            // OR the code logic that refreshed config handles it.
+
+            // Let's test the "Refresh Config" logic specifically. 
+            // We can simulate this by mocking repository.save to imply update happened.
+            // But let's test simpler: ensure updateTrailingStop -> save -> subsequent check sees new SL.
+
+            monitor.start();
+            await monitor.setStopLoss("SBI", {
+                entryPrice: 500,
+                quantity: 10,
+                type: "TRAILING",
+                trailingPercent: 10 // Wide trail
+            });
+            // SL @ 450. HWM @ 500.
+
+            // Tick 1: Price 550.
+            // Trails HWM to 550. New New SL = 550 - 10% = 495.
+            // This tick itself (550) is > 495, so no breach.
+
+            await (monitor as any).handleTick({ symbol: "SBI", price: 550, volume: 10, timestamp: new Date() });
+
+            const sl = monitor.get("SBI");
+            assert.strictEqual(sl?.stopLossPrice, 495);
+
+            // Now test the specific code path: "updateTrailingStop" is called, then check.
+            // If we somehow had a tick that Updated Trailing BUT ALSO Breached?
+            // Impossible mathematically if Update condition is Price > HWM (since SL < HWM).
+            // So we just verify the Update logic works.
+
+            // However, let's verify that lock is released properly so subsequent tick works.
+            await (monitor as any).handleTick({ symbol: "SBI", price: 400, volume: 10, timestamp: new Date() });
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+            assert.strictEqual(monitor.get("SBI"), undefined, "Should be sold");
         });
     });
 });

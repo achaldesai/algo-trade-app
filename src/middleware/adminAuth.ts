@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import crypto from "crypto";
 import { HttpError } from "../utils/HttpError";
 import env from "../config/env";
 import logger from "../utils/logger";
@@ -30,15 +31,21 @@ export function adminAuthMiddleware(
   }
 
   // Check for API key in header
-  const providedKey = req.headers["x-admin-api-key"];
+  const headerVal = req.headers["x-admin-api-key"];
+  const providedKey = Array.isArray(headerVal) ? headerVal[0] : headerVal;
 
   if (!providedKey) {
     logger.warn({ path: req.path, ip: req.ip }, "Admin endpoint accessed without API key");
     throw new HttpError(401, "Admin API key required. Include X-Admin-API-Key header.");
   }
 
-  // Validate API key
-  if (providedKey !== adminApiKey) {
+  // Validate API key using SHA-256 hash comparison to prevent timing attacks
+  const hash = (str: string) => crypto.createHash('sha256').update(str).digest();
+
+  const providedHash = hash(providedKey);
+  const adminHash = hash(adminApiKey);
+
+  if (!crypto.timingSafeEqual(providedHash, adminHash)) {
     logger.warn(
       { path: req.path, ip: req.ip },
       "Admin endpoint accessed with invalid API key"

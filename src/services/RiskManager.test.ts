@@ -102,7 +102,7 @@ describe("RiskManager", () => {
             assert.strictEqual(result.allowed, true);
         });
 
-        it("should reject orders if daily loss limit exceeded", () => {
+        it("should reject orders if daily loss limit exceeded", async () => {
             const order: BrokerOrderRequest = {
                 symbol: "TEST",
                 side: "BUY",
@@ -116,14 +116,14 @@ describe("RiskManager", () => {
             // We don't use updatePnL here to avoid triggering circuit breaker immediately
             // Instead we rely on the PnL passed to checkOrderAllowed logic 
             // strict unit test of the checkOrderAllowed logic
-            riskManager.updatePnL(-900, 0);
+            await riskManager.updatePnL(-900, 0);
 
             const result = riskManager.checkOrderAllowed(order, -200, 0);
             assert.strictEqual(result.allowed, false);
             assert.ok(result.reason?.includes("Daily loss limit exceeded"));
         });
 
-        it("should reject orders if circuit breaker is triggered", () => {
+        it("should reject orders if circuit breaker is triggered", async () => {
             const order: BrokerOrderRequest = {
                 symbol: "TEST",
                 side: "BUY",
@@ -134,7 +134,7 @@ describe("RiskManager", () => {
             };
 
             // Trigger circuit breaker
-            riskManager.updatePnL(-1500, 0); // Exceeds limit significantly
+            await riskManager.updatePnL(-1500, 0); // Exceeds limit significantly
 
             assert.strictEqual(riskManager.isCircuitBroken(), true);
 
@@ -145,13 +145,13 @@ describe("RiskManager", () => {
     });
 
     describe("updatePnL", () => {
-        it("should trigger circuit breaker when loss limit hit", () => {
+        it("should trigger circuit breaker when loss limit hit", async () => {
             let circuitEventTriggered = false;
             riskManager.on("circuit_break", () => {
                 circuitEventTriggered = true;
             });
 
-            riskManager.updatePnL(-1001, 0); // Limit is 1000
+            await riskManager.updatePnL(-1001, 0); // Limit is 1000
 
             assert.strictEqual(riskManager.isCircuitBroken(), true);
             assert.strictEqual(circuitEventTriggered, true);

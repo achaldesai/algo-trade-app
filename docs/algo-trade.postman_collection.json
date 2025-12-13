@@ -321,8 +321,16 @@
                 "key": "X-Admin-API-Key",
                 "value": "{{adminApiKey}}",
                 "description": "Admin API key for authentication"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"confirmToken\": \"PANIC-CONFIRM\"\n}"
+            },
             "url": {
               "raw": "{{baseUrl}}/api/control/panic-sell",
               "host": [

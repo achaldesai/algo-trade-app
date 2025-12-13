@@ -205,6 +205,11 @@ export const resetContainer = (): AppContainer => {
   return activeContainer;
 };
 
+// For testing purposes
+export const setContainer = (container: AppContainer): void => {
+  activeContainer = container;
+};
+
 export const resolvePortfolioService = (): PortfolioService => getContainer().portfolioService;
 
 export const resolveMarketDataService = (): MarketDataService => getContainer().marketDataService;

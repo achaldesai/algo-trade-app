@@ -130,7 +130,10 @@ curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/admin/db-stats
 curl -H "X-Admin-API-Key: $API_KEY" http://localhost:3000/api/admin/health
 ```
 
-**Security Note**: All admin endpoints require the `X-Admin-API-Key` header with a valid API key. Without `ADMIN_API_KEY` configured in your environment, these endpoints will return `503 Service Unavailable`.
+**Security Note**: All admin endpoints require the `X-Admin-API-Key` header with a valid API key. 
+- **Time-Safe Analysis**: Key comparison uses constant-time algorithms to prevent side-channel attacks.
+- **Rate Limiting**: Admin endpoints are strictly limited to **10 requests per minute** per IP to prevent brute-force attacks.
+Without `ADMIN_API_KEY` configured in your environment, these endpoints will return `503 Service Unavailable`.
 
 ### Backup Contents
 
@@ -248,7 +251,8 @@ curl http://localhost:3000/api/pnl/positions
 
 ### Rate Limiting
 Global rate limiting is applied to all API endpoints to prevent abuse:
-- **Limit**: 100 requests per 15-minute window per IP
+- **Limit**: 100 requests per 15-minute window per IP (Global)
+- **Admin Limit**: 10 requests per 1-minute window per IP (Strict limit for `/api/admin` routes)
 - **Headers**: Standard `RateLimit-*` headers are included in responses
 
 ### Caching
@@ -290,6 +294,11 @@ All orders are validated before execution:
 - **Trigger**: Automatic trading halt if daily loss limit is exceeded
 - **Persistence**: Circuit breaker state is persisted to database and survives server restarts
 - **Reset**: Can be manually reset via API or automatically on daily reset
+- **Bypass**: Emergency actions like Stop-Loss execution and Panic Sell BYPASS the circuit breaker to ensure safety.
+
+### Panic Sell
+- **Endpoint**: `POST /api/control/panic-sell`
+- **Confirmation**: Requires `confirmToken: "PANIC-CONFIRM"` in request body to prevent accidental execution.
 
 ### Stop-Loss Automation
 
@@ -360,7 +369,7 @@ The application includes comprehensive audit logging for all important events:
 
 ### Audit API Endpoints
 
-Audit log endpoints require `X-Admin-API-Key` header.
+Audit log endpoints require `X-Admin-API-Key` header. Sensitive data (passwords, tokens) in log details is automatically redacted.
 
 ```bash
 API_KEY="your_admin_api_key"
