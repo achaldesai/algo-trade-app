@@ -110,10 +110,22 @@ const start = async () => {
     }
 
     // Initialize Trading Loop Service (but don't start it yet)
-    const { resolveMarketDataService, resolveTradingEngine, resolveStopLossMonitor } = await import("./container");
+    const { resolveMarketDataService, resolveTradingEngine, resolveStopLossMonitor, resolveRiskManager, resolveNotificationService } = await import("./container");
     const { TradingLoopService } = await import("./services/TradingLoopService");
     TradingLoopService.getInstance(resolveMarketDataService(), resolveTradingEngine());
     logger.info("Trading loop service initialized");
+
+    // Register critical_error listener for RiskManager
+    const riskManager = resolveRiskManager();
+    const notificationService = resolveNotificationService();
+    riskManager.on("critical_error", (event: { type: string; error: Error }) => {
+      logger.error({ event }, "CRITICAL ERROR: System may require manual intervention");
+      // Send alert via notification service
+      void notificationService.notifyCriticalError(
+        event.type,
+        event.error?.message || "Unknown error"
+      );
+    });
 
     // Initialize Stop-Loss Monitor (starts automatically with trading loop)
     const stopLossMonitor = resolveStopLossMonitor();

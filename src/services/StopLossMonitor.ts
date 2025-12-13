@@ -59,9 +59,17 @@ export class StopLossMonitor extends EventEmitter {
      */
     private handleTradeExecuted = async (trade: Trade): Promise<void> => {
         const existing = this.symbolQueues.get(trade.symbol) ?? Promise.resolve();
-        const next = existing.then(() => this.processTradeUpdate(trade)).catch(err => {
-            logger.error({ err, trade }, "Failed to process trade for stop-loss");
-        });
+        const next = existing
+            .then(() => this.processTradeUpdate(trade))
+            .catch(err => {
+                logger.error({ err, trade }, "Failed to process trade for stop-loss");
+            })
+            .finally(() => {
+                // Clean up if this is still the current promise (prevents memory leak)
+                if (this.symbolQueues.get(trade.symbol) === next) {
+                    this.symbolQueues.delete(trade.symbol);
+                }
+            });
         this.symbolQueues.set(trade.symbol, next);
         await next;
     };

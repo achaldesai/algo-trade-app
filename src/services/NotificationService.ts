@@ -228,6 +228,26 @@ export class NotificationService {
     }
 
     /**
+     * Notify about a critical system error
+     */
+    async notifyCriticalError(errorType: string, errorMessage: string): Promise<void> {
+        const embed: DiscordEmbed = {
+            title: "🚨 CRITICAL ERROR",
+            description: `System error: ${errorType}`,
+            color: COLORS.ERROR,
+            fields: [
+                { name: "Error", value: errorMessage || "Unknown error" },
+                { name: "Action Required", value: "Manual intervention may be required" }
+            ],
+            timestamp: new Date().toISOString(),
+            footer: { text: "Algo Trade App" },
+        };
+
+        // Send immediately, don't batch
+        await this.sendDiscordEmbed(embed);
+    }
+
+    /**
      * Queue a notification for batching
      */
     private async queueNotification(payload: DiscordWebhookPayload): Promise<void> {
