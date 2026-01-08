@@ -26,10 +26,10 @@ const limiter = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
 
-// Stricter rate limit for admin endpoints (10 req/min)
+// Stricter rate limit for admin endpoints (60 req/min)
 const adminLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  limit: 10,
+  limit: 60,
   message: "Too many admin requests, please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
@@ -37,6 +37,9 @@ const adminLimiter = rateLimit({
 
 app.use(express.json());
 app.use(express.static("public"));
+
+// Trust the first proxy (Cloudflare Tunnel)
+app.set("trust proxy", 1);
 
 // Apply rate limiting to all requests
 app.use("/api", limiter);

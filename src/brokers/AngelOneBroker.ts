@@ -257,6 +257,8 @@ export class AngelOneBroker implements BrokerClient {
         ? this.generateTOTP(this.config.totpSecret)
         : undefined;
 
+      logger.debug({ totp }, "Generate TOTP result.");
+
       const response = await this.smartApi.generateSession(
         this.config.clientId,
         this.config.password,

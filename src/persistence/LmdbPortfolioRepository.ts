@@ -32,7 +32,7 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
 
   private tradesDb: Database<TradeRecordData> | null = null;
 
-  constructor(private readonly storePath: string) {}
+  constructor(private readonly storePath: string) { }
 
   /**
    * Creates a timestamped backup of the LMDB database
@@ -46,13 +46,12 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
     const backupDir = path.join(path.dirname(this.storePath), 'backups');
     const backupPath = path.join(backupDir, `portfolio-${timestamp}-${randomSuffix}`);
 
-    // Ensure backup directory exists
     await fs.mkdir(backupDir, { recursive: true });
 
-    // Copy entire LMDB directory (includes data.mdb and lock.mdb)
+    await fs.mkdir(backupDir, { recursive: true });
+
     await fs.cp(this.storePath, backupPath, { recursive: true });
 
-    // Clean up old backups (keep only last 7)
     await this.cleanupOldBackups(backupDir, 7);
 
     return backupPath;
@@ -63,14 +62,12 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
    * @param backupPath Path to the backup directory
    */
   async restoreFromBackup(backupPath: string): Promise<void> {
-    // Verify backup exists
     try {
       await fs.access(backupPath);
     } catch {
       throw new Error(`Backup not found: ${backupPath}`);
     }
 
-    // Close current databases
     if (this.stocksDb) {
       this.stocksDb.close();
       this.stocksDb = null;
@@ -80,13 +77,12 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
       this.tradesDb = null;
     }
 
-    // Remove current database
     await fs.rm(this.storePath, { recursive: true, force: true });
 
-    // Copy backup to current location
+    await fs.rm(this.storePath, { recursive: true, force: true });
+
     await fs.cp(backupPath, this.storePath, { recursive: true });
 
-    // Reinitialize databases
     await this.initialize();
   }
 
@@ -190,6 +186,19 @@ export class LmdbPortfolioRepository implements PortfolioRepository {
 
     const directory = path.dirname(this.storePath);
     await fs.mkdir(directory, { recursive: true });
+
+    // Ensure storePath is not a file before trying to create it as a directory
+    try {
+      const stats = await fs.stat(this.storePath);
+      if (stats.isFile()) {
+        throw new Error(`Cannot initialize LMDB at ${this.storePath} because a file already exists at this path.`);
+      }
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
     await fs.mkdir(this.storePath, { recursive: true });
 
     const root = open<unknown>({

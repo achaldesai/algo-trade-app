@@ -198,6 +198,39 @@ curl -X POST http://localhost:3000/api/auth/angelone/refresh
 - `POST /api/auth/angelone/refresh` - Manual token refresh
 - `POST /api/auth/angelone/logout` - Clear session
 
+### Automated Login (Zerodha)
+
+Zerodha broker supports fully automated authentication using TOTP secret, eliminating the need for manual OAuth callback flow:
+
+**Environment Variables:**
+
+```bash
+ZERODHA_USER_ID=your_user_id
+ZERODHA_PASSWORD=your_password
+ZERODHA_TOTP_SECRET=your_totp_secret  # From Zerodha Profile > Password & Security > Enable external TOTP
+ZERODHA_API_KEY=your_api_key
+ZERODHA_API_SECRET=your_api_secret
+```
+
+**How It Works:**
+
+1. When the broker connects and no `accessToken` or `requestToken` is available
+2. If all automated login credentials are configured
+3. The broker automatically performs the full login flow:
+   - Submits credentials to Zerodha login API
+   - Generates and submits TOTP for 2FA
+   - Extracts request token from redirect
+   - Generates final access token session
+
+**Authentication Priority:**
+
+1. Existing `accessToken` (if configured)
+2. `requestToken` + `apiSecret` (OAuth callback)
+3. Automated login with `userId` + `password` + `totpSecret`
+4. Falls back to paper broker if none available
+
+**Note**: The automated login uses Zerodha's internal web APIs and requires valid credentials. Tokens generated this way expire at 6 AM IST next day, same as OAuth-generated tokens.
+
 ## Trading Loop & Control API
 
 The application includes a real-time trading loop that evaluates strategies on every market tick.

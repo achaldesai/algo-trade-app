@@ -70,6 +70,57 @@ router.get("/zerodha/login", (req: Request, res: Response) => {
 });
 
 /**
+ * GET /auth/zerodha/callback
+ * Automatic redirect handler from Zerodha
+ * Query: ?request_token=...&status=success
+ */
+router.get("/zerodha/callback", async (req: Request, res: Response) => {
+  try {
+    const { request_token: requestToken } = req.query as { request_token?: string };
+
+    if (!requestToken) {
+      throw new HttpError(400, "Request token is missing from redirect");
+    }
+
+    if (!env.brokerApiKey || !env.brokerApiSecret) {
+      throw new HttpError(400, "Zerodha API credentials not configured");
+    }
+
+    const kite = new KiteConnect({
+      api_key: env.brokerApiKey,
+    });
+
+    logger.info("Automatically exchanging request token from redirect");
+
+    const session = await kite.generateSession(requestToken, env.brokerApiSecret);
+
+    const now = new Date();
+    const expiryDate = new Date(now);
+    expiryDate.setUTCHours(0, 30, 0, 0);
+    if (expiryDate <= now) {
+      expiryDate.setDate(expiryDate.getDate() + 1);
+    }
+
+    const tokenData: ZerodhaTokenData = {
+      accessToken: session.access_token,
+      expiresAt: expiryDate.toISOString(),
+      userId: session.user_id,
+      apiKey: env.brokerApiKey,
+    };
+
+    await saveToken(tokenData);
+    process.env.ZERODHA_ACCESS_TOKEN = session.access_token;
+
+    logger.info({ userId: session.user_id }, "Zerodha automatic authentication successful");
+
+    res.redirect("/");
+  } catch (error) {
+    logger.error({ err: error }, "Failed to handle Zerodha redirect");
+    res.status(400).send(`Authentication failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+});
+
+/**
  * POST /auth/zerodha/callback
  * Exchange request token for access token
  * Body: { requestToken: string }
@@ -92,7 +143,8 @@ router.post("/zerodha/callback", async (req: Request, res: Response) => {
 
     logger.info("Exchanging request token for access token");
 
-    // Generate session (exchange request token for access token)
+    logger.info("Exchanging request token for access token");
+
     const session = await kite.generateSession(requestToken, env.brokerApiSecret);
 
     // Calculate expiry (Zerodha tokens expire at 6 AM IST next day)
@@ -103,7 +155,6 @@ router.post("/zerodha/callback", async (req: Request, res: Response) => {
       expiryDate.setDate(expiryDate.getDate() + 1);
     }
 
-    // Save token to persistent storage
     const tokenData: ZerodhaTokenData = {
       accessToken: session.access_token,
       expiresAt: expiryDate.toISOString(),
@@ -113,7 +164,6 @@ router.post("/zerodha/callback", async (req: Request, res: Response) => {
 
     await saveToken(tokenData);
 
-    // Update environment variable for current session
     process.env.ZERODHA_ACCESS_TOKEN = session.access_token;
 
     logger.info(
@@ -140,7 +190,6 @@ router.post("/zerodha/callback", async (req: Request, res: Response) => {
 
     logger.error({ err: error }, "Failed to exchange request token");
 
-    // Provide more helpful error messages
     const errorMessage =
       error instanceof Error && error.message.includes("Invalid")
         ? "Invalid or expired request token"
@@ -158,6 +207,17 @@ router.get("/zerodha/status", async (req: Request, res: Response) => {
   try {
     const tokenData = await loadToken();
 
+    if (!tokenData && process.env.ZERODHA_ACCESS_TOKEN) {
+      res.json({
+        authenticated: true,
+        isActive: true,
+        userId: "ENV_USER",
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        message: "Zerodha session active via environment variable",
+      });
+      return;
+    }
+
     if (!tokenData) {
       res.json({
         authenticated: false,
@@ -166,7 +226,6 @@ router.get("/zerodha/status", async (req: Request, res: Response) => {
       return;
     }
 
-    // Check if current access token matches saved one
     const currentToken = env.brokerAccessToken || process.env.ZERODHA_ACCESS_TOKEN;
     const isActive = currentToken === tokenData.accessToken;
 
@@ -192,7 +251,6 @@ router.post("/zerodha/logout", async (req: Request, res: Response) => {
     const tokenRepo = getTokenRepository(env.portfolioStorePath);
     await tokenRepo.deleteZerodhaToken();
 
-    // Clear environment variable
     delete process.env.ZERODHA_ACCESS_TOKEN;
 
     logger.info("Zerodha session terminated");

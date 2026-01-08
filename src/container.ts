@@ -54,7 +54,7 @@ const buildBroker = (): BrokerClient => {
       return new ZerodhaBroker({
         apiKey: env.brokerApiKey,
         apiSecret: env.brokerApiSecret,
-        accessToken: env.brokerAccessToken,
+        accessToken: env.brokerAccessToken || process.env.ZERODHA_ACCESS_TOKEN,
         requestToken: env.brokerRequestToken,
         defaultExchange: env.brokerDefaultExchange,
         product: env.brokerProduct,

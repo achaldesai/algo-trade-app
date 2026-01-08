@@ -46,12 +46,17 @@ export const env = {
   brokerBaseUrl: process.env.BROKER_BASE_URL ?? "",
 
   // Legacy Zerodha/KiteConnect configuration
-  brokerApiKey: process.env.BROKER_API_KEY ?? "eac2wbs798o3cl7t",
-  brokerApiSecret: process.env.BROKER_API_SECRET ?? "nnyzg2a9x2ffp4d8kzm06xvtkgxt3vfw",
-  brokerAccessToken: process.env.BROKER_ACCESS_TOKEN ?? "",
+  brokerApiKey: process.env.BROKER_API_KEY ?? process.env.ZERODHA_API_KEY ?? "eac2wbs798o3cl7t",
+  brokerApiSecret: process.env.BROKER_API_SECRET ?? process.env.ZERODHA_API_SECRET ?? "nnyzg2a9x2ffp4d8kzm06xvtkgxt3vfw",
+  brokerAccessToken: process.env.BROKER_ACCESS_TOKEN ?? process.env.ZERODHA_ACCESS_TOKEN ?? "",
   brokerRequestToken: process.env.BROKER_REQUEST_TOKEN ?? "",
-  brokerDefaultExchange: process.env.BROKER_DEFAULT_EXCHANGE ?? "NSE",
-  brokerProduct: process.env.BROKER_PRODUCT ?? "CNC",
+  brokerDefaultExchange: process.env.BROKER_DEFAULT_EXCHANGE ?? process.env.ZERODHA_DEFAULT_EXCHANGE ?? "NSE",
+  brokerProduct: process.env.BROKER_PRODUCT ?? process.env.ZERODHA_PRODUCT ?? "CNC",
+
+  // Zerodha Login Automation
+  zerodhaUserId: process.env.ZERODHA_USER_ID ?? "",
+  zerodhaPassword: process.env.ZERODHA_PASSWORD ?? "",
+  zerodhaTotpSecret: process.env.ZERODHA_TOTP_SECRET ?? "",
 
   // Angel One SmartAPI configuration
   angelOneApiKey: process.env.ANGEL_ONE_API_KEY ?? "",
