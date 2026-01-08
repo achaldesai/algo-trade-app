@@ -1,3 +1,5 @@
+import axios from "axios";
+import { authenticator } from "otplib";
 import { KiteConnect } from "kiteconnect";
 import PaperBroker from "./PaperBroker";
 import type BrokerClient from "./BrokerClient";
@@ -18,6 +20,8 @@ import type {
   TransactionType,
 } from "kiteconnect/types/connect";
 import logger from "../utils/logger";
+import env from "../config/env";
+import { getTokenRepository, type ZerodhaTokenData } from "../persistence/TokenRepository";
 
 export interface ZerodhaBrokerConfig {
   apiKey: string;
@@ -79,15 +83,60 @@ export class ZerodhaBroker implements BrokerClient {
       if (this.config.accessToken) {
         this.kite.setAccessToken(this.config.accessToken);
         this.kiteSessionActive = true;
+        logger.info({ broker: this.name }, "Zerodha session established via access token");
       } else if (this.config.requestToken && this.config.apiSecret) {
         try {
           const session = await this.kite.generateSession(this.config.requestToken, this.config.apiSecret);
           this.kite.setAccessToken(session.access_token);
           this.kiteSessionActive = true;
+          logger.info({ broker: this.name }, "Zerodha session established via request token");
         } catch (error) {
           logger.warn({ err: error }, "Failed to establish Zerodha session via request token");
           this.kiteSessionActive = false;
         }
+      } else if (env.zerodhaUserId && env.zerodhaPassword && env.zerodhaTotpSecret && this.config.apiSecret) {
+        try {
+          logger.info({ broker: this.name }, "Attempting automated Zerodha login with TOTP");
+          const session = await this.getAutomatedSession();
+          if (session?.access_token) {
+            this.kite.setAccessToken(session.access_token);
+            this.kiteSessionActive = true;
+
+            // Save the token to the repository so dashboard reports correct status
+            const now = new Date();
+            const expiryDate = new Date(now);
+            expiryDate.setUTCHours(0, 30, 0, 0); // 6 AM IST = 00:30 UTC
+            if (expiryDate <= now) {
+              expiryDate.setDate(expiryDate.getDate() + 1);
+            }
+
+            const tokenData: ZerodhaTokenData = {
+              accessToken: session.access_token,
+              expiresAt: expiryDate.toISOString(),
+              userId: env.zerodhaUserId,
+              apiKey: this.config.apiKey,
+            };
+
+            try {
+              const tokenRepo = getTokenRepository(env.portfolioStorePath);
+              await tokenRepo.saveZerodhaToken(tokenData);
+              process.env.ZERODHA_ACCESS_TOKEN = session.access_token;
+            } catch (saveError) {
+              logger.warn({ err: saveError }, "Failed to save Zerodha token to repository (non-fatal)");
+            }
+
+            logger.info({ broker: this.name, userId: env.zerodhaUserId }, "Zerodha session established via automated login");
+          } else {
+            logger.error({ broker: this.name }, "Automated login returned no access token. Please authenticate manually via GET /api/auth/zerodha/login");
+            this.kiteSessionActive = false;
+          }
+        } catch (error) {
+          logger.error({ err: error, broker: this.name }, "Automated Zerodha login failed. Please authenticate manually via GET /api/auth/zerodha/login");
+          this.kiteSessionActive = false;
+        }
+      } else {
+        logger.error({ broker: this.name }, "No valid authentication method available for Zerodha. Please authenticate via GET /api/auth/zerodha/login or set ZERODHA_USER_ID, ZERODHA_PASSWORD, and ZERODHA_TOTP_SECRET for automated login");
+        this.kiteSessionActive = false;
       }
     } catch (error) {
       logger.error({ err: error }, "Failed to initialise KiteConnect client");
@@ -96,6 +145,125 @@ export class ZerodhaBroker implements BrokerClient {
     }
 
     this.connected = true;
+  }
+
+  /**
+   * Automated session generation using Zerodha credentials and TOTP secret.
+   * This bypasses the need for manual login/callback flow by:
+   * 1. Submitting login credentials to get a request_id
+   * 2. Submitting TOTP for 2FA verification
+   * 3. Extracting request_token from the login redirect
+   * 4. Generating final session with access_token
+   */
+  private async getAutomatedSession(): Promise<{ access_token: string } | null> {
+    if (!this.kite || !this.config.apiSecret) {
+      return null;
+    }
+
+    const instance = axios.create({ withCredentials: true });
+    let cookies: string[] = [];
+
+    // 1. Initial login request
+    const loginRes = await instance.post(
+      "https://kite.zerodha.com/api/login",
+      new URLSearchParams({
+        user_id: env.zerodhaUserId,
+        password: env.zerodhaPassword,
+      }).toString(),
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      }
+    );
+
+    const loginCookies = loginRes.headers["set-cookie"];
+    if (loginCookies) {
+      cookies = cookies.concat(loginCookies);
+    }
+
+    const requestId = loginRes.data?.data?.request_id;
+    if (!requestId) {
+      throw new Error("Login response missing request_id");
+    }
+
+    // 2. Two-factor authentication with TOTP
+    const totpToken = authenticator.generate(env.zerodhaTotpSecret);
+    const twofaRes = await instance.post(
+      "https://kite.zerodha.com/api/twofa",
+      new URLSearchParams({
+        user_id: env.zerodhaUserId,
+        request_id: requestId,
+        twofa_value: totpToken,
+        skip_session: "true",
+      }).toString(),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Cookie: cookies.join("; "),
+        },
+      }
+    );
+
+    const twofaCookies = twofaRes.headers["set-cookie"];
+    if (twofaCookies) {
+      cookies = cookies.concat(twofaCookies);
+    }
+
+    // 3. Get request_token via login URL redirect chain
+    // The flow is: login URL -> /connect/finish -> callback URL with request_token
+    // We need to follow redirects manually to maintain cookies
+    let currentUrl = this.kite.getLoginURL();
+    let requestToken: string | null = null;
+    const maxRedirects = 5;
+
+    for (let i = 0; i < maxRedirects; i++) {
+      const redirectRes = await instance.get(currentUrl, {
+        maxRedirects: 0,
+        validateStatus: (status) => status === 302 || status === 200,
+        headers: {
+          Cookie: cookies.join("; "),
+        },
+      });
+
+      const newCookies = redirectRes.headers["set-cookie"];
+      if (newCookies) {
+        cookies = cookies.concat(newCookies);
+      }
+
+      const redirectUrl = redirectRes.headers.location;
+
+      if (!redirectUrl) {
+        throw new Error(`Redirect chain ended without request_token at ${currentUrl}`);
+      }
+
+      try {
+        const parsedUrl = new URL(redirectUrl, "https://kite.zerodha.com");
+        requestToken = parsedUrl.searchParams.get("request_token");
+
+        if (requestToken) {
+          logger.debug({ redirectCount: i + 1 }, "Found request_token in redirect");
+          break;
+        }
+      } catch {
+        // URL parsing failed, continue following redirects
+      }
+
+      // Follow the redirect
+      currentUrl = redirectUrl.startsWith("http")
+        ? redirectUrl
+        : `https://kite.zerodha.com${redirectUrl}`;
+
+      logger.debug({ redirect: i + 1, url: currentUrl }, "Following redirect");
+    }
+
+    if (!requestToken) {
+      throw new Error("Failed to extract request_token after following redirect chain");
+    }
+
+    // 4. Generate final session
+    const session = await this.kite.generateSession(requestToken, this.config.apiSecret);
+    logger.debug({ accessToken: session.access_token?.slice(0, 10) + "..." }, "Generated Zerodha access token");
+
+    return session;
   }
 
   async disconnect(): Promise<void> {
@@ -118,7 +286,6 @@ export class ZerodhaBroker implements BrokerClient {
         }
       } catch (error) {
         logger.warn({ err: error }, "Failed to fetch positions from Zerodha, falling back to paper broker");
-        // fall back to paper broker below
       }
     }
 
@@ -151,7 +318,6 @@ export class ZerodhaBroker implements BrokerClient {
         return execution;
       } catch (error) {
         logger.error({ err: error, symbol: order.symbol, side: order.side }, "Failed to place order via Zerodha, using paper broker");
-        // fall back to paper broker below
       }
     }
 
@@ -165,7 +331,6 @@ export class ZerodhaBroker implements BrokerClient {
         return;
       } catch (error) {
         logger.warn({ err: error, orderId }, "Failed to cancel Zerodha order, delegating to paper broker");
-        // fall back to paper broker below
       }
     }
 
@@ -197,7 +362,6 @@ export class ZerodhaBroker implements BrokerClient {
         } satisfies BrokerOrderQuote;
       } catch (error) {
         logger.warn({ err: error, symbol }, "Failed to fetch Zerodha quote, using paper broker data");
-        // fall back to paper broker below
       }
     }
 

@@ -22,6 +22,7 @@ export class InstrumentMasterService {
   private instruments: Map<string, Instrument> = new Map();
   private symbolToTokenMap: Map<string, string> = new Map();
   private isLoaded = false;
+  private loadingPromise: Promise<void> | null = null;
 
   private readonly INSTRUMENT_FILE = path.join(
     process.cwd(),
@@ -69,12 +70,28 @@ export class InstrumentMasterService {
    */
   async loadInstrumentMaster(): Promise<void> {
     if (this.isLoaded) {
-      logger.debug("Instrument master already loaded");
       return;
     }
 
+    // If loading is in progress, wait for it to complete (prevents race condition)
+    if (this.loadingPromise) {
+      await this.loadingPromise;
+      return;
+    }
+
+    this.loadingPromise = this.doLoad();
     try {
-      // Check if file exists
+      await this.loadingPromise;
+    } finally {
+      this.loadingPromise = null;
+    }
+  }
+
+  /**
+   * Internal method that performs the actual loading
+   */
+  private async doLoad(): Promise<void> {
+    try {
       try {
         await fs.access(this.INSTRUMENT_FILE);
       } catch {
@@ -87,7 +104,6 @@ export class InstrumentMasterService {
       const data = await fs.readFile(this.INSTRUMENT_FILE, "utf-8");
       const instruments = JSON.parse(data) as Instrument[];
 
-      // Build maps for fast lookups
       for (const instrument of instruments) {
         const key = `${instrument.exch_seg}:${instrument.symbol}`;
         this.instruments.set(key, instrument);

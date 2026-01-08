@@ -57,15 +57,14 @@ const start = async () => {
     const migrationService = new TokenMigrationService();
     await migrationService.migrate(env.portfolioStorePath);
 
-    // Initialize authentication service (loads saved tokens)
     const authService = AuthService.getInstance();
     await authService.initialize();
 
-    // ===== STRICT STARTUP VALIDATION =====
-    // Validate broker authentication (skip for paper broker)
     if (env.brokerProvider !== "paper") {
       const { resolveBrokerClient } = await import("./container");
       const broker = resolveBrokerClient();
+
+      await broker.connect();
 
       if (!broker.isConnected()) {
         logger.error({
@@ -77,13 +76,23 @@ const start = async () => {
     }
 
     // For ticker (DATA_PROVIDER=angelone), validate Angel One tokens exist
-    // NOTE: This is a WARNING, not fatal, so users can authenticate via the running server
     let tickerTokensValid = false;
     if (env.dataProvider === "angelone") {
       const { loadAngelToken } = await import("./routes/auth");
-      const angelTokens = await loadAngelToken();
+      const { TokenRefreshService } = await import("./services/TokenRefreshService");
+      const refreshService = TokenRefreshService.getInstance();
+      let angelTokens = await loadAngelToken();
 
       if (!angelTokens) {
+        if (env.angelOneTotpSecret) {
+          logger.info("Angel One tokens missing or expired. Attempting automatic re-authentication...");
+          try {
+            await refreshService.refreshToken();
+            angelTokens = await loadAngelToken();
+          } catch (error) {
+            logger.warn({ err: error }, "Automatic Angel One re-authentication failed");
+          }
+        }
         logger.warn("Angel One tokens not found. Ticker will not start. Authenticate via /api/auth/angelone/login");
       } else {
         // Check token expiry
@@ -96,22 +105,17 @@ const start = async () => {
         }
       }
     }
-    // ===== END STRICT STARTUP VALIDATION =====
 
-    // Load Angel One instrument master if using angelone broker or data provider
+
     if (env.brokerProvider === "angelone" || env.dataProvider === "angelone") {
       try {
-        logger.info("Loading Angel One instrument master...");
         const instrumentService = getInstrumentMasterService();
         await instrumentService.loadInstrumentMaster();
-        logger.info({ count: instrumentService.getInstrumentCount() }, "Instrument master loaded");
       } catch (error) {
         logger.warn({ err: error }, "Failed to load instrument master (will retry on first API call)");
       }
     }
 
-    // Connect ticker from container (if configured via DATA_PROVIDER=angelone)
-    // Only connect if tokens were validated successfully
     const { resolveTickerClient } = await import("./container");
     const tickerClient = resolveTickerClient();
     if (tickerClient && tickerTokensValid) {
@@ -141,8 +145,6 @@ const start = async () => {
           { discrepancies: result.discrepancies.length, synced: result.syncedSymbols.length },
           "Position discrepancies found - check dashboard for details"
         );
-      } else {
-        logger.info("Position reconciliation complete - no discrepancies");
       }
     } catch (err) {
       logger.error({ err }, "Position reconciliation failed on startup");
@@ -154,12 +156,10 @@ const start = async () => {
     TradingLoopService.getInstance(resolveMarketDataService(), resolveTradingEngine());
     logger.info("Trading loop service initialized");
 
-    // Register critical_error listener for RiskManager
     const riskManager = resolveRiskManager();
     const notificationService = resolveNotificationService();
     riskManager.on("critical_error", (event: { type: string; error: Error }) => {
       logger.error({ event }, "CRITICAL ERROR: System may require manual intervention");
-      // Send alert via notification service
       void notificationService.notifyCriticalError(
         event.type,
         event.error?.message || "Unknown error"
@@ -170,7 +170,6 @@ const start = async () => {
     const stopLossMonitor = resolveStopLossMonitor();
     logger.info({ activeStopLosses: stopLossMonitor.getAll().length }, "Stop-loss monitor initialized");
 
-    // Start Discord Bot for remote access
     const { resolveDiscordBotService } = await import("./container");
     const discordBotService = resolveDiscordBotService();
     void discordBotService.start();

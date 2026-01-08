@@ -21,9 +21,13 @@ export const validateEnvironment = async (env: EnvConfig): Promise<void> => {
 
     const hasAccessToken = env.brokerAccessToken.trim().length > 0;
     const hasRequestFlow = env.brokerRequestToken.trim().length > 0 && env.brokerApiSecret.trim().length > 0;
+    const hasAutomatedLogin = env.zerodhaUserId.trim().length > 0
+      && env.zerodhaPassword.trim().length > 0
+      && env.zerodhaTotpSecret.trim().length > 0
+      && env.brokerApiSecret.trim().length > 0;
 
-    if (!hasAccessToken && !hasRequestFlow) {
-      warnings.push("Zerodha broker will operate in paper mode because BROKER_ACCESS_TOKEN or (BROKER_REQUEST_TOKEN + BROKER_API_SECRET) are not set.");
+    if (!hasAccessToken && !hasRequestFlow && !hasAutomatedLogin) {
+      warnings.push("Zerodha broker will operate in paper mode because no valid authentication method is configured. Set BROKER_ACCESS_TOKEN, or (BROKER_REQUEST_TOKEN + BROKER_API_SECRET), or (ZERODHA_USER_ID + ZERODHA_PASSWORD + ZERODHA_TOTP_SECRET + BROKER_API_SECRET) for automated login.");
     }
 
     if (!SUPPORTED_EXCHANGES.has(env.brokerDefaultExchange.toUpperCase())) {

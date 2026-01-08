@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, statSync, existsSync, rmSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
@@ -11,12 +11,19 @@ type WalkFn = (dir: string, results: string[]) => void;
 
 const ROOT = process.cwd();
 
-if (!process.env.PORTFOLIO_BACKEND) {
-  process.env.PORTFOLIO_BACKEND = "file";
-}
+const TEST_STORE_PATH = path.resolve(ROOT, "data/portfolio-store.test.json");
+
+// Force 'file' backend for tests to avoid LMDB/JSON path conflicts
+process.env.PORTFOLIO_BACKEND = "file";
 
 if (!process.env.PORTFOLIO_STORE) {
-  process.env.PORTFOLIO_STORE = path.resolve(ROOT, "data/portfolio-store.test.json");
+  process.env.PORTFOLIO_STORE = TEST_STORE_PATH;
+}
+
+// Clean up existing test data to prevent EEXIST conflicts
+if (existsSync(TEST_STORE_PATH)) {
+    console.log(`Cleaning up existing test data at ${TEST_STORE_PATH}...`);
+    rmSync(TEST_STORE_PATH, { recursive: true, force: true });
 }
 
 const collectTests: FileCollector = (dir) => {
