@@ -19,13 +19,13 @@ export interface CreateTradeRecord {
 export interface PortfolioRepository {
   initialize(): Promise<void>;
   reset(): Promise<void>;
-  listStocks(): Promise<Stock[]>;
-  findStock(symbol: string): Promise<Stock | undefined>;
-  createStock(record: CreateStockRecord): Promise<Stock>;
-  ensureStock(record: CreateStockRecord): Promise<Stock>;
-  listTrades(): Promise<Trade[]>;
-  createTrade(record: CreateTradeRecord): Promise<Trade>;
-  createTradeIfMissing(record: CreateTradeRecord): Promise<boolean>;
+  listStocks(userId: string): Promise<Stock[]>;
+  findStock(userId: string, symbol: string): Promise<Stock | undefined>;
+  createStock(userId: string, record: CreateStockRecord): Promise<Stock>;
+  ensureStock(userId: string, record: CreateStockRecord): Promise<Stock>;
+  listTrades(userId: string): Promise<Trade[]>;
+  createTrade(userId: string, record: CreateTradeRecord): Promise<Trade>;
+  createTradeIfMissing(userId: string, record: CreateTradeRecord): Promise<boolean>;
 }
 
 export default PortfolioRepository;

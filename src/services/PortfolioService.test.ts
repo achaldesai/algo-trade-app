@@ -19,9 +19,9 @@ describe("PortfolioService trade handling", () => {
 
   it("records realized PnL when covering short positions", async () => {
     const symbol = uniqueSymbol("SHORT");
-    await service.addStock({ symbol, name: "Short Instrument" });
+    await service.addStock("test-user", { symbol, name: "Short Instrument" });
 
-    await service.addTrade({
+    await service.addTrade("test-user", {
       symbol,
       side: "SELL",
       quantity: 10,
@@ -29,7 +29,7 @@ describe("PortfolioService trade handling", () => {
       executedAt: new Date("2024-01-01T10:00:00.000Z"),
     });
 
-    await service.addTrade({
+    await service.addTrade("test-user", {
       symbol,
       side: "BUY",
       quantity: 6,
@@ -37,14 +37,14 @@ describe("PortfolioService trade handling", () => {
       executedAt: new Date("2024-01-02T10:00:00.000Z"),
     });
 
-    let summary = (await service.getTradeSummaries()).find((item) => item.symbol === symbol);
+    let summary = (await service.getTradeSummaries("test-user")).find((item) => item.symbol === symbol);
     assert(summary);
     assert.equal(summary.netQuantity, -4);
     assert.equal(summary.averageEntryPrice, 50);
     assert.equal(summary.realizedPnl, 60);
     assert.equal(summary.position, "SHORT");
 
-    await service.addTrade({
+    await service.addTrade("test-user", {
       symbol,
       side: "BUY",
       quantity: 4,
@@ -52,7 +52,7 @@ describe("PortfolioService trade handling", () => {
       executedAt: new Date("2024-01-03T10:00:00.000Z"),
     });
 
-    summary = (await service.getTradeSummaries()).find((item) => item.symbol === symbol);
+    summary = (await service.getTradeSummaries("test-user")).find((item) => item.symbol === symbol);
     assert(summary);
     assert.equal(summary.netQuantity, 0);
     assert.equal(summary.averageEntryPrice, 0);
@@ -62,9 +62,9 @@ describe("PortfolioService trade handling", () => {
 
   it("keeps mark prices aligned with the most recent execution", async () => {
     const symbol = uniqueSymbol("MARK");
-    await service.addStock({ symbol, name: "Mark Instrument" });
+    await service.addStock("test-user", { symbol, name: "Mark Instrument" });
 
-    await service.addTrade({
+    await service.addTrade("test-user", {
       symbol,
       side: "BUY",
       quantity: 10,
@@ -72,7 +72,7 @@ describe("PortfolioService trade handling", () => {
       executedAt: new Date("2024-06-01T10:00:00.000Z"),
     });
 
-    await service.addTrade({
+    await service.addTrade("test-user", {
       symbol,
       side: "BUY",
       quantity: 5,
@@ -80,7 +80,7 @@ describe("PortfolioService trade handling", () => {
       executedAt: new Date("2024-06-02T10:00:00.000Z"),
     });
 
-    await service.recordExternalTrade({
+    await service.recordExternalTrade("test-user", {
       id: "external-old",
       symbol,
       side: "BUY",
@@ -89,7 +89,7 @@ describe("PortfolioService trade handling", () => {
       executedAt: new Date("2024-05-01T10:00:00.000Z"),
     });
 
-    const snapshot = await service.getSnapshot();
+    const snapshot = await service.getSnapshot("test-user");
     const position = snapshot.positions.find((item) => item.symbol === symbol);
     assert(position);
     assert.equal(position.netQuantity, 16);

@@ -2,8 +2,9 @@ import PaperBroker from "./brokers/PaperBroker";
 import type BrokerClient from "./brokers/BrokerClient";
 import ZerodhaBroker from "./brokers/ZerodhaBroker";
 import AngelOneBroker from "./brokers/AngelOneBroker";
+import { BrokerFactory } from "./brokers/BrokerFactory";
 import env from "./config/env";
-import { getPortfolioRepository, getSettingsRepository, getStopLossRepository, getAuditLogRepository } from "./persistence";
+import { getPortfolioRepository, getSettingsRepository, getStopLossRepository, getAuditLogRepository, getUserRepository } from "./persistence";
 import MarketDataService from "./services/MarketDataService";
 import PortfolioService from "./services/PortfolioService";
 import TradingEngine from "./services/TradingEngine";
@@ -22,6 +23,7 @@ import { HealthService } from "./services/HealthService";
 import { NotificationService } from "./services/NotificationService";
 import { TunnelService } from "./services/TunnelService";
 import { DiscordBotService } from "./services/DiscordBotService";
+import { MarketScannerService } from "./services/MarketScannerService";
 import type { SettingsRepository } from "./persistence/SettingsRepository";
 import type { StopLossRepository } from "./persistence/StopLossRepository";
 import type { AuditLogRepository } from "./persistence/AuditLogRepository";
@@ -30,6 +32,7 @@ export interface AppContainer {
   portfolioService: PortfolioService;
   marketDataService: MarketDataService;
   historicalDataService: HistoricalDataService;
+  marketScannerService: MarketScannerService;
   portfolioRebalancer: PortfolioRebalancer;
   executionPlanner: ExecutionPlanner;
   brokerClient: BrokerClient;
@@ -107,12 +110,14 @@ export const createContainer = (): AppContainer => {
   const stopLossRepository = getStopLossRepository();
   const marketDataService = new MarketDataService();
   const historicalDataService = buildHistoricalDataService();
+  const marketScannerService = new MarketScannerService(historicalDataService);
   const portfolioRebalancer = new PortfolioRebalancer();
   const executionPlanner = new ExecutionPlanner();
   const brokerClient = buildBroker();
   const riskManager = new RiskManager(settingsRepository);
   const tradingEngine = new TradingEngine({
-    broker: brokerClient,
+    brokerFactory: (userId: string) => BrokerFactory.getBroker(userId),
+    fallbackBroker: new PaperBroker(),
     marketData: marketDataService,
     portfolioService,
     riskManager,
@@ -124,7 +129,11 @@ export const createContainer = (): AppContainer => {
   const tickerClient = buildTicker(marketDataService);
 
   // Build reconciliation service for syncing with broker
-  const reconciliationService = new ReconciliationService(brokerClient, portfolioService);
+  const reconciliationService = new ReconciliationService(
+    (userId: string) => BrokerFactory.getBroker(userId),
+    portfolioService,
+    getUserRepository()
+  );
 
   // Build stop-loss monitor
   const stopLossMonitor = new StopLossMonitor({
@@ -179,6 +188,7 @@ export const createContainer = (): AppContainer => {
     portfolioService,
     marketDataService,
     historicalDataService,
+    marketScannerService,
     portfolioRebalancer,
     executionPlanner,
     brokerClient,
@@ -224,6 +234,8 @@ export const resolveMarketDataService = (): MarketDataService => getContainer().
 
 export const resolveHistoricalDataService = (): HistoricalDataService => getContainer().historicalDataService;
 
+export const resolveMarketScannerService = (): MarketScannerService => getContainer().marketScannerService;
+
 export const resolvePortfolioRebalancer = (): PortfolioRebalancer => getContainer().portfolioRebalancer;
 
 export const resolveExecutionPlanner = (): ExecutionPlanner => getContainer().executionPlanner;
@@ -253,3 +265,5 @@ export const resolveHealthService = (): HealthService => getContainer().healthSe
 export const resolveNotificationService = (): NotificationService => getContainer().notificationService;
 
 export const resolveDiscordBotService = (): DiscordBotService => getContainer().discordBotService;
+
+export const resolveUserRepository = () => import("./persistence/UserRepository").then(m => m.getUserRepository());

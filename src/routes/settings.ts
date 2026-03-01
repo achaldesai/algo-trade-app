@@ -3,19 +3,21 @@ import { resolveSettingsRepository } from "../container";
 import { HttpError } from "../utils/HttpError";
 import logger from "../utils/logger";
 import type { RiskLimits } from "../services/RiskManager";
-import { adminAuthMiddleware } from "../middleware/adminAuth";
+import { userAuthMiddleware } from "../middleware/userAuth";
+import type { AuthSession } from "../types/user";
 import { riskLimitsSchema } from "../schemas/settings";
 
 const router = Router();
 
 // Apply authentication middleware to all settings routes
-router.use(adminAuthMiddleware);
+router.use(userAuthMiddleware);
 
 // GET /api/settings - Get current risk limits
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
     try {
         const repo = resolveSettingsRepository();
-        const limits = repo.getRiskLimits();
+        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        const limits = repo.getRiskLimits(userId);
         res.json(limits);
     } catch (error) {
         next(error);
@@ -26,7 +28,8 @@ router.get("/", async (_req, res, next) => {
 router.post("/", async (req, res, next) => {
     try {
         const repo = resolveSettingsRepository();
-        const currentLimits = repo.getRiskLimits();
+        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        const currentLimits = repo.getRiskLimits(userId);
 
         // Validate and merge settings
         const validationResult = riskLimitsSchema.safeParse(req.body);
@@ -47,7 +50,7 @@ router.post("/", async (req, res, next) => {
         };
 
 
-        await repo.saveRiskLimits(newLimits);
+        await repo.saveRiskLimits(userId, newLimits);
 
         logger.info({ old: currentLimits, new: newLimits }, "Settings updated via API");
         res.json(newLimits);
@@ -57,10 +60,11 @@ router.post("/", async (req, res, next) => {
 });
 
 // POST /api/settings/reset - Reset to defaults
-router.post("/reset", async (_req, res, next) => {
+router.post("/reset", async (req, res, next) => {
     try {
         const repo = resolveSettingsRepository();
-        const defaults = await repo.resetToDefaults();
+        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        const defaults = await repo.resetToDefaults(userId);
         logger.warn("Settings reset to defaults via API");
         res.json(defaults);
     } catch (error) {

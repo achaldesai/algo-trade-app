@@ -1,15 +1,15 @@
-import { loadToken, type ZerodhaTokenData } from "../routes/auth";
-import logger from "../utils/logger";
-import env from "../config/env";
+/**
+ * Service to manage authentication sessions and tokens
+ */
+import { getTokenRepository, type ZerodhaTokenData } from "../persistence/TokenRepository";
 
 /**
- * Service to manage Zerodha authentication state
+ * Service to manage Zerodha authentication state per User
  */
 export class AuthService {
   private static instance: AuthService;
-  private tokenData: ZerodhaTokenData | null = null;
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): AuthService {
     if (!AuthService.instance) {
@@ -19,64 +19,30 @@ export class AuthService {
   }
 
   /**
-   * Initialize auth service and load saved tokens
+   * Get current token data for a user
    */
-  public async initialize(): Promise<void> {
-    if (env.brokerProvider !== "zerodha") {
-      logger.info("Zerodha broker not enabled, skipping token load");
-      return;
-    }
-
-    try {
-      const tokenData = await loadToken();
-
-      if (tokenData) {
-        // Inject token into environment for broker to use
-        // Note: This mutation is intentional - the Zerodha broker reads from process.env
-        // This pattern allows hot-swapping tokens without restarting the server
-        process.env.ZERODHA_ACCESS_TOKEN = tokenData.accessToken;
-        this.tokenData = tokenData;
-
-        logger.info(
-          {
-            userId: tokenData.userId,
-            expiresAt: tokenData.expiresAt,
-          },
-          "Zerodha access token loaded from storage"
-        );
-      } else {
-        logger.info("No saved Zerodha token found, authentication required");
-      }
-    } catch (error) {
-      logger.error({ err: error }, "Failed to load saved Zerodha token");
-    }
+  public async getTokenData(userId: string): Promise<ZerodhaTokenData | null> {
+    const repo = getTokenRepository();
+    return await repo.getZerodhaToken(userId);
   }
 
   /**
-   * Get current token data
+   * Check if token is valid and not expired for a given user
    */
-  public getTokenData(): ZerodhaTokenData | null {
-    return this.tokenData;
-  }
+  public async isAuthenticated(userId: string): Promise<boolean> {
+    const data = await this.getTokenData(userId);
+    if (!data) return false;
 
-  /**
-   * Check if token is valid and not expired
-   */
-  public isAuthenticated(): boolean {
-    if (!this.tokenData) {
-      return false;
-    }
-
-    const expiresAt = new Date(this.tokenData.expiresAt);
+    const expiresAt = new Date(data.expiresAt);
     return expiresAt > new Date();
   }
 
   /**
-   * Clear authentication state
+   * Clear authentication state for a user
    */
-  public clear(): void {
-    this.tokenData = null;
-    delete process.env.ZERODHA_ACCESS_TOKEN;
+  public async clear(userId: string): Promise<void> {
+    const repo = getTokenRepository();
+    await repo.deleteZerodhaToken(userId);
   }
 }
 

@@ -11,6 +11,7 @@ import { RepositoryConflictError } from "./errors";
 import { deterministicTradeId } from "./storeUtils";
 
 interface StockRecordData {
+  userId: string;
   symbol: string;
   name: string;
   createdAt: string;
@@ -18,6 +19,7 @@ interface StockRecordData {
 
 interface TradeRecordData {
   id: string;
+  userId: string;
   symbol: string;
   side: Trade["side"];
   quantity: number;
@@ -77,12 +79,14 @@ const parseStore = (payload: string): PortfolioStoreData | null => {
     return {
       version: typeof parsed.version === "number" ? parsed.version : 0,
       stocks: parsed.stocks.map((stock) => ({
+        userId: String((stock as { userId?: unknown }).userId ?? "SYSTEM_DEFAULT"),
         symbol: String(stock.symbol ?? "").toUpperCase(),
         name: String(stock.name ?? ""),
         createdAt: new Date(stock.createdAt ?? Date.now()).toISOString(),
       })),
       trades: parsed.trades.map((trade) => ({
         id: String(trade.id ?? ""),
+        userId: String((trade as { userId?: unknown }).userId ?? "SYSTEM_DEFAULT"),
         symbol: String(trade.symbol ?? "").toUpperCase(),
         side: trade.side === "SELL" ? "SELL" : "BUY",
         quantity: Number(trade.quantity ?? 0),
@@ -101,7 +105,7 @@ export class FilePortfolioRepository implements PortfolioRepository {
 
   private writeTail: Promise<void> = Promise.resolve();
 
-  constructor(private readonly filePath: string) {}
+  constructor(private readonly filePath: string) { }
 
   async initialize(): Promise<void> {
     if (this.store) {
@@ -132,27 +136,31 @@ export class FilePortfolioRepository implements PortfolioRepository {
     await this.persist();
   }
 
-  async listStocks(): Promise<Stock[]> {
+  async listStocks(userId: string): Promise<Stock[]> {
     const store = await this.getStore();
-    return [...store.stocks]
+    return store.stocks
+      .filter((record) => record.userId === userId)
       .sort((a, b) => a.symbol.localeCompare(b.symbol))
       .map((record) => toStock(record));
   }
 
-  async findStock(symbol: string): Promise<Stock | undefined> {
+  async findStock(userId: string, symbol: string): Promise<Stock | undefined> {
     const store = await this.getStore();
-    const record = store.stocks.find((stock) => stock.symbol === symbol.toUpperCase());
+    const record = store.stocks.find(
+      (stock) => stock.userId === userId && stock.symbol === symbol.toUpperCase()
+    );
     return record ? toStock(record) : undefined;
   }
 
-  async createStock(record: CreateStockRecord): Promise<Stock> {
+  async createStock(userId: string, record: CreateStockRecord): Promise<Stock> {
     const store = await this.getStore();
     const symbol = record.symbol.toUpperCase();
-    if (store.stocks.some((stock) => stock.symbol === symbol)) {
+    if (store.stocks.some((stock) => stock.userId === userId && stock.symbol === symbol)) {
       throw new RepositoryConflictError(`Stock ${symbol} already exists`);
     }
 
     const entry: StockRecordData = {
+      userId,
       symbol,
       name: record.name,
       createdAt: record.createdAt.toISOString(),
@@ -164,29 +172,31 @@ export class FilePortfolioRepository implements PortfolioRepository {
     return toStock(entry);
   }
 
-  async ensureStock(record: CreateStockRecord): Promise<Stock> {
-    const existing = await this.findStock(record.symbol);
+  async ensureStock(userId: string, record: CreateStockRecord): Promise<Stock> {
+    const existing = await this.findStock(userId, record.symbol);
     if (existing) {
       return existing;
     }
-    return this.createStock(record);
+    return this.createStock(userId, record);
   }
 
-  async listTrades(): Promise<Trade[]> {
+  async listTrades(userId: string): Promise<Trade[]> {
     const store = await this.getStore();
-    return [...store.trades]
+    return store.trades
+      .filter((record) => record.userId === userId)
       .sort(compareTrades)
       .map((record) => toTrade(record));
   }
 
-  async createTrade(record: CreateTradeRecord): Promise<Trade> {
+  async createTrade(userId: string, record: CreateTradeRecord): Promise<Trade> {
     const store = await this.getStore();
-    if (store.trades.some((trade) => trade.id === record.id)) {
+    if (store.trades.some((trade) => trade.userId === userId && trade.id === record.id)) {
       throw new RepositoryConflictError(`Trade ${record.id} already exists`);
     }
 
     const entry: TradeRecordData = {
       id: record.id,
+      userId,
       symbol: record.symbol.toUpperCase(),
       side: record.side,
       quantity: Math.round(record.quantity),
@@ -202,14 +212,15 @@ export class FilePortfolioRepository implements PortfolioRepository {
     return toTrade(entry);
   }
 
-  async createTradeIfMissing(record: CreateTradeRecord): Promise<boolean> {
+  async createTradeIfMissing(userId: string, record: CreateTradeRecord): Promise<boolean> {
     const store = await this.getStore();
-    if (store.trades.some((trade) => trade.id === record.id)) {
+    if (store.trades.some((trade) => trade.userId === userId && trade.id === record.id)) {
       return false;
     }
 
     const entry: TradeRecordData = {
       id: record.id,
+      userId,
       symbol: record.symbol.toUpperCase(),
       side: record.side,
       quantity: Math.round(record.quantity),
@@ -237,7 +248,9 @@ export class FilePortfolioRepository implements PortfolioRepository {
   }
 
   private buildSeedStore(): PortfolioStoreData {
+    const systemUserId = "SYSTEM_DEFAULT";
     const stocks: StockRecordData[] = seedStocks.map((stock) => ({
+      userId: systemUserId,
       symbol: stock.symbol.toUpperCase(),
       name: stock.name.trim(),
       createdAt: new Date().toISOString(),
@@ -252,6 +265,7 @@ export class FilePortfolioRepository implements PortfolioRepository {
         executedAt: trade.executedAt ?? new Date(),
         notes: trade.notes,
       }),
+      userId: systemUserId,
       symbol: trade.symbol.toUpperCase(),
       side: trade.side,
       quantity: Math.round(trade.quantity),

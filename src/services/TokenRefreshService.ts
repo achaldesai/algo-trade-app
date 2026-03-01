@@ -91,8 +91,9 @@ export class TokenRefreshService {
   /**
    * Perform full re-authentication with TOTP
    */
-  private async performReauthentication(): Promise<void> {
-    // Read from process.env to support testing overrides
+  private async performReauthentication(userId: string): Promise<void> {
+    // For now, still read from env for SYSTEM_DEFAULT
+    // In a fully multi-tenant scenario, we'd look up the user's config
     const apiKey = process.env.ANGEL_ONE_API_KEY || env.angelOneApiKey;
     const clientId = process.env.ANGEL_ONE_CLIENT_ID || env.angelOneClientId;
     const password = process.env.ANGEL_ONE_PASSWORD || env.angelOnePassword;
@@ -145,7 +146,7 @@ export class TokenRefreshService {
       expiresAt: expiryDate.toISOString(),
     };
 
-    await saveAngelToken(tokenData);
+    await saveAngelToken(userId, tokenData);
 
     logger.info(
       {
@@ -160,12 +161,12 @@ export class TokenRefreshService {
    * Perform token refresh using existing refresh token
    * (useful for mid-session reconnections)
    */
-  public async refreshToken(): Promise<void> {
-    const tokenData = await loadAngelToken();
+  public async refreshToken(userId: string): Promise<void> {
+    const tokenData = await loadAngelToken(userId);
 
     if (!tokenData) {
       logger.info("No persisted Angel One token found, performing full re-authentication");
-      await this.performReauthentication();
+      await this.performReauthentication(userId);
       return;
     }
 
@@ -173,7 +174,7 @@ export class TokenRefreshService {
     const expiresAt = new Date(tokenData.expiresAt);
     if (expiresAt < new Date()) {
       logger.info("Token expired, performing full re-authentication");
-      await this.performReauthentication();
+      await this.performReauthentication(userId);
       return;
     }
 
@@ -204,7 +205,7 @@ export class TokenRefreshService {
       expiresAt: tokenData.expiresAt,
     };
 
-    await saveAngelToken(updatedTokenData);
+    await saveAngelToken(userId, updatedTokenData);
 
     logger.info({ clientId: tokenData.clientId }, "Angel One token refreshed successfully");
   }
@@ -260,7 +261,7 @@ export class TokenRefreshService {
    */
   private async attemptRefresh(): Promise<void> {
     try {
-      await this.performReauthentication();
+      await this.performReauthentication("SYSTEM_DEFAULT");
       // Success
       this.retryCount = 0;
       this.scheduleDailyRefresh();

@@ -38,7 +38,7 @@ describe("RiskManager", () => {
                 tag: "test"
             };
 
-            const result = riskManager.checkOrderAllowed(order, 0, 0);
+            const result = riskManager.checkOrderAllowed("test-user", order, 0, 0);
             assert.strictEqual(result.allowed, true);
         });
 
@@ -51,7 +51,7 @@ describe("RiskManager", () => {
                 tag: "test"
             };
 
-            const result = riskManager.checkOrderAllowed(order, 0, 0);
+            const result = riskManager.checkOrderAllowed("test-user", order, 0, 0);
             assert.strictEqual(result.allowed, false);
             assert.ok(result.reason?.includes("Invalid quantity"));
         });
@@ -66,7 +66,7 @@ describe("RiskManager", () => {
                 tag: "test"
             };
 
-            const result = riskManager.checkOrderAllowed(order, 0, 0);
+            const result = riskManager.checkOrderAllowed("test-user", order, 0, 0);
             assert.strictEqual(result.allowed, false);
             assert.ok(result.reason?.includes("exceeds max position size"));
         });
@@ -82,7 +82,7 @@ describe("RiskManager", () => {
             };
 
             // Current open positions = 3 (limit is 3)
-            const result = riskManager.checkOrderAllowed(order, 0, 3);
+            const result = riskManager.checkOrderAllowed("test-user", order, 0, 3);
             assert.strictEqual(result.allowed, false);
             assert.ok(result.reason?.includes("Max open positions limit reached"));
         });
@@ -98,7 +98,7 @@ describe("RiskManager", () => {
             };
 
             // Current open positions = 3 (limit is 3), but this is SELL
-            const result = riskManager.checkOrderAllowed(order, 0, 3);
+            const result = riskManager.checkOrderAllowed("test-user", order, 0, 3);
             assert.strictEqual(result.allowed, true);
         });
 
@@ -116,9 +116,9 @@ describe("RiskManager", () => {
             // We don't use updatePnL here to avoid triggering circuit breaker immediately
             // Instead we rely on the PnL passed to checkOrderAllowed logic 
             // strict unit test of the checkOrderAllowed logic
-            await riskManager.updatePnL(-900, 0);
+            await riskManager.updatePnL("test-user", -900, 0);
 
-            const result = riskManager.checkOrderAllowed(order, -200, 0);
+            const result = riskManager.checkOrderAllowed("test-user", order, -200, 0);
             assert.strictEqual(result.allowed, false);
             assert.ok(result.reason?.includes("Daily loss limit exceeded"));
         });
@@ -134,11 +134,11 @@ describe("RiskManager", () => {
             };
 
             // Trigger circuit breaker
-            await riskManager.updatePnL(-1500, 0); // Exceeds limit significantly
+            await riskManager.updatePnL("test-user", -1500, 0); // Exceeds limit significantly
 
-            assert.strictEqual(riskManager.isCircuitBroken(), true);
+            assert.strictEqual(riskManager.isCircuitBroken("test-user"), true);
 
-            const result = riskManager.checkOrderAllowed(order, 0, 0);
+            const result = riskManager.checkOrderAllowed("test-user", order, 0, 0);
             assert.strictEqual(result.allowed, false);
             assert.ok(result.reason?.includes("Circuit breaker active"));
         });
@@ -151,9 +151,9 @@ describe("RiskManager", () => {
                 circuitEventTriggered = true;
             });
 
-            await riskManager.updatePnL(-1001, 0); // Limit is 1000
+            await riskManager.updatePnL("test-user", -1001, 0); // Limit is 1000
 
-            assert.strictEqual(riskManager.isCircuitBroken(), true);
+            assert.strictEqual(riskManager.isCircuitBroken("test-user"), true);
             assert.strictEqual(circuitEventTriggered, true);
         });
     });

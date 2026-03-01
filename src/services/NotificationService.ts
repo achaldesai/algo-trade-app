@@ -55,18 +55,20 @@ export class NotificationService {
 
         // Subscribe to TradingEngine events
         if (options.tradingEngine) {
-            options.tradingEngine.on("trade-executed", (trade: Trade) => {
-                void this.notifyTradeExecuted(trade);
+            options.tradingEngine.on("trade-executed", (data: { trade: Trade; userId: string }) => {
+                void this.notifyTradeExecuted(data.userId, data.trade);
             });
         }
 
         // Subscribe to StopLossMonitor events
         if (options.stopLossMonitor) {
-            options.stopLossMonitor.on("stop-loss-triggered", (event: { config: { symbol: string; stopLossPrice: number }; triggerPrice: number }) => {
-                void this.notifyStopLossTriggered(event);
+            options.stopLossMonitor.on("stop-loss-triggered", (event: { config: { symbol: string; stopLossPrice: number; userId?: string }; triggerPrice: number }) => {
+                const userId = event.config.userId || "SYSTEM_DEFAULT";
+                void this.notifyStopLossTriggered(userId, event);
             });
-            options.stopLossMonitor.on("stop-loss-executed", (event: { config: { symbol: string; quantity: number }; execution: unknown }) => {
-                void this.notifyStopLossExecuted(event);
+            options.stopLossMonitor.on("stop-loss-executed", (event: { config: { symbol: string; userId?: string; quantity: number }; execution: unknown }) => {
+                const userId = event.config.userId || "SYSTEM_DEFAULT";
+                void this.notifyStopLossExecuted(userId, event);
             });
         }
 
@@ -111,13 +113,13 @@ export class NotificationService {
     /**
      * Notify about a trade execution
      */
-    private async notifyTradeExecuted(trade: Trade): Promise<void> {
+    private async notifyTradeExecuted(userId: string, trade: Trade): Promise<void> {
         const isBuy = trade.side === "BUY";
         const emoji = isBuy ? "📈" : "📉";
         const action = isBuy ? "Bought" : "Sold";
 
         const embed: DiscordEmbed = {
-            title: `${emoji} Trade Executed`,
+            title: `${emoji} Trade Executed (User: ${userId})`,
             description: `${action} **${trade.quantity}** shares of **${trade.symbol}**`,
             color: COLORS.SUCCESS,
             fields: [
@@ -141,9 +143,9 @@ export class NotificationService {
     /**
      * Notify about a stop-loss trigger
      */
-    private async notifyStopLossTriggered(event: { config: { symbol: string; stopLossPrice: number }; triggerPrice: number }): Promise<void> {
+    private async notifyStopLossTriggered(userId: string, event: { config: { symbol: string; stopLossPrice: number }; triggerPrice: number }): Promise<void> {
         const embed: DiscordEmbed = {
-            title: "⚠️ Stop-Loss Triggered",
+            title: `⚠️ Stop-Loss Triggered (User: ${userId})`,
             description: `Stop-loss triggered for **${event.config.symbol}**`,
             color: COLORS.WARNING,
             fields: [
@@ -161,9 +163,9 @@ export class NotificationService {
     /**
      * Notify about a stop-loss execution
      */
-    private async notifyStopLossExecuted(event: { config: { symbol: string; quantity: number }; execution: unknown }): Promise<void> {
+    private async notifyStopLossExecuted(userId: string, event: { config: { symbol: string; quantity: number }; execution: unknown }): Promise<void> {
         const embed: DiscordEmbed = {
-            title: "🛑 Stop-Loss Executed",
+            title: `🛑 Stop-Loss Executed (User: ${userId})`,
             description: `Position in **${event.config.symbol}** has been closed by stop-loss`,
             color: COLORS.ORANGE,
             fields: [

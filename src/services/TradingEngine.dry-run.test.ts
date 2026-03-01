@@ -25,7 +25,7 @@ describe("TradingEngine - Dry Run Mode", () => {
     broker = new PaperBroker();
 
     engine = new TradingEngine({
-      broker,
+      brokerFactory: async () => broker,
       portfolioService,
       marketData,
       riskManager,
@@ -56,7 +56,7 @@ describe("TradingEngine - Dry Run Mode", () => {
       ],
     };
 
-    const result = await engine.executeSignal(broker, signal);
+    const result = await engine.executeSignal("test-user", broker, signal);
 
     // Should return executions
     assert.strictEqual(result.executions.length, 1);
@@ -82,7 +82,7 @@ describe("TradingEngine - Dry Run Mode", () => {
 
     // Ensure stock exists (ignore if already exists)
     try {
-      await portfolioService.addStock({ symbol: "AAPL", name: "Apple Inc." });
+      await portfolioService.addStock("test-user", { symbol: "AAPL", name: "Apple Inc." });
     } catch {
       // Stock already exists, that's fine
     }
@@ -102,7 +102,7 @@ describe("TradingEngine - Dry Run Mode", () => {
       ],
     };
 
-    const result = await engine.executeSignal(broker, signal);
+    const result = await engine.executeSignal("test-user", broker, signal);
 
     // Should return executions
     assert.ok(result.executions.length >= 0, "Should return executions array");
@@ -121,7 +121,7 @@ describe("TradingEngine - Dry Run Mode", () => {
 
     // Ensure stock exists (ignore if already exists)
     try {
-      await portfolioService.addStock({ symbol: "AAPL", name: "Apple Inc." });
+      await portfolioService.addStock("test-user", { symbol: "AAPL", name: "Apple Inc." });
     } catch {
       // Stock already exists, that's fine
     }
@@ -142,7 +142,7 @@ describe("TradingEngine - Dry Run Mode", () => {
       ],
     };
 
-    const result = await engine.executeSignal(broker, largeOrder);
+    const result = await engine.executeSignal("test-user", broker, largeOrder);
 
     // Should have failures due to position size limit
     assert.strictEqual(result.failures.length, 1);
@@ -154,7 +154,7 @@ describe("TradingEngine - Dry Run Mode", () => {
 
     const portfolioService = resolvePortfolioService();
     try {
-      await portfolioService.addStock({ symbol: "AAPL", name: "Apple Inc." });
+      await portfolioService.addStock("test-user", { symbol: "AAPL", name: "Apple Inc." });
     } catch {
       // Stock already exists, that's fine
     }
@@ -174,7 +174,7 @@ describe("TradingEngine - Dry Run Mode", () => {
       ],
     };
 
-    const result = await engine.executeSignal(broker, invalidOrder);
+    const result = await engine.executeSignal("test-user", broker, invalidOrder);
 
     assert.strictEqual(result.failures.length, 1);
     assert.ok(result.failures[0].error.includes("Invalid price"));
@@ -185,7 +185,7 @@ describe("TradingEngine - Dry Run Mode", () => {
 
     const portfolioService = resolvePortfolioService();
     try {
-      await portfolioService.addStock({ symbol: "AAPL", name: "Apple Inc." });
+      await portfolioService.addStock("test-user", { symbol: "AAPL", name: "Apple Inc." });
     } catch {
       // Stock already exists, that's fine
     }
@@ -205,7 +205,7 @@ describe("TradingEngine - Dry Run Mode", () => {
       ],
     };
 
-    const result = await engine.executeSignal(broker, invalidOrder);
+    const result = await engine.executeSignal("test-user", broker, invalidOrder);
 
     assert.strictEqual(result.failures.length, 1);
     assert.ok(result.failures[0].error.includes("Invalid quantity"));

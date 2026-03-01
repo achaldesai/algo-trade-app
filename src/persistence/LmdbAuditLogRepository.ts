@@ -4,6 +4,7 @@ import logger from "../utils/logger";
 
 interface StoredAuditEntry {
     id: string;
+    userId: string;
     timestamp: string;
     eventType: AuditEventType;
     category: "trade" | "risk" | "strategy" | "system";
@@ -71,7 +72,8 @@ export class LmdbAuditLogRepository implements AuditLogRepository {
         let skipped = 0;
 
         for (const { value } of this.logs.getRange({ start: startKey, end: endKey, reverse: true })) {
-            // Apply filters
+            // Apply filtering
+            if (query.userId && value.userId !== query.userId) continue;
             if (query.eventTypes && query.eventTypes.length > 0) {
                 if (!query.eventTypes.includes(value.eventType)) continue;
             }
@@ -97,11 +99,12 @@ export class LmdbAuditLogRepository implements AuditLogRepository {
         return results;
     }
 
-    async getToday(): Promise<AuditLogEntry[]> {
+    async getToday(userId?: string): Promise<AuditLogEntry[]> {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
         return this.query({
+            userId,
             fromDate: today,
             limit: 500,
         });

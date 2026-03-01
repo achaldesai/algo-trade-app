@@ -4,6 +4,7 @@ export type StopLossType = "FIXED" | "TRAILING";
 
 export interface StopLossConfig {
     symbol: string;
+    userId: string;
     entryPrice: number;
     stopLossPrice: number;
     quantity: number;
@@ -16,9 +17,10 @@ export interface StopLossConfig {
 
 export interface StopLossRepository extends EventEmitter {
     initialize(): Promise<void>;
-    getAll(): StopLossConfig[];
-    get(symbol: string): StopLossConfig | undefined;
+    getAll(userId: string): StopLossConfig[];
+    get(userId: string, symbol: string): StopLossConfig | undefined;
+    getBySymbol(symbol: string): StopLossConfig[];
     save(config: StopLossConfig): Promise<void>;
-    delete(symbol: string): Promise<void>;
+    delete(userId: string, symbol: string): Promise<void>;
     close(): Promise<void>;
 }

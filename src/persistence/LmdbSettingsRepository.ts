@@ -20,7 +20,7 @@ export class LmdbSettingsRepository extends EventEmitter implements SettingsRepo
         stopLossPercent: Number(env.stopLossPercent || 3)
     };
 
-    private cache: RiskLimits = { ...this.defaults };
+    private cache = new Map<string, RiskLimits>();
 
     constructor(private readonly storePath: string) {
         super();
@@ -56,28 +56,37 @@ export class LmdbSettingsRepository extends EventEmitter implements SettingsRepo
         });
 
         // Load into cache
-        const saved = this.db.get("riskLimits");
-        if (saved) {
-            this.cache = { ...this.defaults, ...saved };
-        } else {
-            await this.saveRiskLimits(this.defaults);
+        for (const { key, value } of this.db.getRange()) {
+            if (typeof key === "string" && key.startsWith("riskLimits:")) {
+                const userId = key.split(":")[1];
+                if (userId) {
+                    this.cache.set(userId, { ...this.defaults, ...value });
+                }
+            }
         }
     }
 
-    getRiskLimits(): RiskLimits {
-        return { ...this.cache };
+    getRiskLimits(userId: string): RiskLimits {
+        const cached = this.cache.get(userId);
+        if (cached) return { ...cached };
+
+        // Return default limits synchronously if missing
+        return { ...this.defaults };
     }
 
-    async saveRiskLimits(limits: RiskLimits): Promise<void> {
+    async saveRiskLimits(userId: string, limits: RiskLimits): Promise<void> {
         if (!this.db) await this.initialize();
         if (!this.db) throw new Error("Failed to initialize settings database");
-        await this.db.put("riskLimits", limits);
-        this.cache = { ...limits };
-        this.emit("updated", this.cache);
+        await this.db.put(`riskLimits:${userId}`, limits);
+        this.cache.set(userId, { ...limits });
+        this.emit(`updated:${userId}`, limits);
+
+        // Backwards compatibility for global event listener (can be removed later)
+        this.emit("updated", limits);
     }
 
-    async resetToDefaults(): Promise<RiskLimits> {
-        await this.saveRiskLimits(this.defaults);
+    async resetToDefaults(userId: string): Promise<RiskLimits> {
+        await this.saveRiskLimits(userId, this.defaults);
         return this.defaults;
     }
 

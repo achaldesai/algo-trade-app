@@ -8,7 +8,7 @@ import env from "../config/env";
 describe("Admin Auth Middleware", () => {
     let req: Partial<Request>;
     let res: Partial<Response>;
-    type MockNext = NextFunction & { mock: { callCount: () => number } };
+    type MockNext = NextFunction & { mock: { callCount: () => number, calls: { arguments: unknown[] }[] } };
     let next: MockNext;
 
     beforeEach(() => {
@@ -37,69 +37,78 @@ describe("Admin Auth Middleware", () => {
     // Actually, we can assign to the property if it's not readonly.
     // If it is, we need another way.
 
-    it("should throw 503 if ADMIN_API_KEY is not configured", () => {
+    it("should throw 503 if ADMIN_API_KEY is not configured", async () => {
         const originalKey = env.adminApiKey;
         env.adminApiKey = "";
 
         try {
-            assert.throws(() => adminAuthMiddleware(req as Request, res as Response, next), (err: unknown) => {
-                return err instanceof HttpError && err.statusCode === 503;
-            });
+            await adminAuthMiddleware(req as Request, res as Response, next);
+            assert.strictEqual(next.mock.callCount(), 1);
+            const err = next.mock.calls[0].arguments[0] as HttpError;
+            assert.ok(err instanceof HttpError);
+            assert.strictEqual(err.statusCode, 503);
         } finally {
             env.adminApiKey = originalKey;
         }
     });
 
-    it("should throw 401 if header is missing", () => {
+    it("should throw 401 if header is missing", async () => {
         const originalKey = env.adminApiKey;
         env.adminApiKey = "secret";
 
         try {
-            assert.throws(() => adminAuthMiddleware(req as Request, res as Response, next), (err: unknown) => {
-                return err instanceof HttpError && err.statusCode === 401;
-            });
+            await adminAuthMiddleware(req as Request, res as Response, next);
+            assert.strictEqual(next.mock.callCount(), 1);
+            const err = next.mock.calls[0].arguments[0] as HttpError;
+            assert.ok(err instanceof HttpError);
+            assert.strictEqual(err.statusCode, 401);
         } finally {
             env.adminApiKey = originalKey;
         }
     });
 
-    it("should throw 403 if key is incorrect", () => {
+    it("should throw 403 if key is incorrect", async () => {
         const originalKey = env.adminApiKey;
         env.adminApiKey = "secret";
         req.headers!["x-admin-api-key"] = "wrong-secret";
 
         try {
-            assert.throws(() => adminAuthMiddleware(req as Request, res as Response, next), (err: unknown) => {
-                return err instanceof HttpError && err.statusCode === 403;
-            });
+            await adminAuthMiddleware(req as Request, res as Response, next);
+            assert.strictEqual(next.mock.callCount(), 1);
+            const err = next.mock.calls[0].arguments[0] as HttpError;
+            assert.ok(err instanceof HttpError);
+            assert.strictEqual(err.statusCode, 403);
         } finally {
             env.adminApiKey = originalKey;
         }
     });
 
-    it("should call next() if key is correct", () => {
+    it("should call next() if key is correct", async () => {
         const originalKey = env.adminApiKey;
         env.adminApiKey = "secret";
         req.headers!["x-admin-api-key"] = "secret";
 
         try {
-            adminAuthMiddleware(req as Request, res as Response, next);
+            await adminAuthMiddleware(req as Request, res as Response, next);
             assert.strictEqual(next.mock.callCount(), 1);
+            assert.strictEqual(next.mock.calls[0].arguments[0], undefined);
         } finally {
             env.adminApiKey = originalKey;
         }
     });
 
-    it("should prevent timing attacks (length leak check logic only)", () => {
+    it("should prevent timing attacks (length leak check logic only)", async () => {
         // This is hard to test deterministically, but we verify it works with different lengths
         const originalKey = env.adminApiKey;
         env.adminApiKey = "secret";
         req.headers!["x-admin-api-key"] = "very-long-secret-key-mismatch";
 
         try {
-            assert.throws(() => adminAuthMiddleware(req as Request, res as Response, next), (err: unknown) => {
-                return err instanceof HttpError && err.statusCode === 403;
-            });
+            await adminAuthMiddleware(req as Request, res as Response, next);
+            assert.strictEqual(next.mock.callCount(), 1);
+            const err = next.mock.calls[0].arguments[0] as HttpError;
+            assert.ok(err instanceof HttpError);
+            assert.strictEqual(err.statusCode, 403);
         } finally {
             env.adminApiKey = originalKey;
         }

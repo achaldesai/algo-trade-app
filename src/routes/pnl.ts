@@ -2,7 +2,11 @@ import { Router } from "express";
 import { resolvePortfolioService, resolveMarketDataService, resolveRiskManager } from "../container";
 
 
+import { userAuthMiddleware } from "../middleware/userAuth";
+import type { AuthSession } from "../types/user";
+
 const router = Router();
+router.use(userAuthMiddleware);
 
 /**
  * GET /api/pnl/daily
@@ -19,7 +23,7 @@ let dailyPnLCache: {
  * GET /api/pnl/daily
  * Get today's P&L summary
  */
-router.get("/daily", async (_req, res, next) => {
+router.get("/daily", async (req, res, next) => {
     try {
         // Check cache
         if (dailyPnLCache && (Date.now() - dailyPnLCache.timestamp < CACHE_TTL_MS)) {
@@ -30,9 +34,10 @@ router.get("/daily", async (_req, res, next) => {
         const portfolioService = resolvePortfolioService();
         const marketDataService = resolveMarketDataService();
         const riskManager = resolveRiskManager();
+        const userId = (req as unknown as { user: AuthSession }).user.userId;
 
         // Get all trades
-        const allTrades = await portfolioService.listTrades();
+        const allTrades = await portfolioService.listTrades(userId);
 
         // Filter to today's trades
         const today = new Date();
@@ -46,10 +51,10 @@ router.get("/daily", async (_req, res, next) => {
         });
 
         // Calculate daily realized P&L from today's trades
-        const dailyRealizedPnL = await portfolioService.getRealizedPnl(today);
+        const dailyRealizedPnL = await portfolioService.getRealizedPnl(userId, today);
 
         // Get current positions for unrealized P&L
-        const snapshot = await portfolioService.getSnapshot();
+        const snapshot = await portfolioService.getSnapshot(userId);
 
         // Update unrealized P&L with live market prices if available
         let totalUnrealizedPnL = 0;
@@ -78,7 +83,7 @@ router.get("/daily", async (_req, res, next) => {
         });
 
         // Risk manager status
-        const riskStatus = riskManager.getStatus();
+        const riskStatus = riskManager.getStatus(userId);
 
         const totalPnL = dailyRealizedPnL + totalUnrealizedPnL;
 
@@ -123,12 +128,13 @@ router.get("/daily", async (_req, res, next) => {
  * GET /api/pnl/summary
  * Get overall P&L summary (all time)
  */
-router.get("/summary", async (_req, res, next) => {
+router.get("/summary", async (req, res, next) => {
     try {
         const portfolioService = resolvePortfolioService();
         const marketDataService = resolveMarketDataService();
+        const userId = (req as unknown as { user: AuthSession }).user.userId;
 
-        const snapshot = await portfolioService.getSnapshot();
+        const snapshot = await portfolioService.getSnapshot(userId);
 
         let totalRealizedPnL = 0;
         let totalUnrealizedPnL = 0;
@@ -180,11 +186,12 @@ router.get("/summary", async (_req, res, next) => {
  * GET /api/pnl/positions
  * Get current positions with live prices
  */
-router.get("/positions", async (_req, res, next) => {
+router.get("/positions", async (req, res, next) => {
     try {
         const portfolioService = resolvePortfolioService();
         const marketDataService = resolveMarketDataService();
-        const summaries = await portfolioService.getTradeSummaries();
+        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        const summaries = await portfolioService.getTradeSummaries(userId);
 
         const positions = summaries
             .filter(s => s.netQuantity !== 0)

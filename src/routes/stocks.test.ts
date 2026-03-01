@@ -15,6 +15,11 @@ interface RequestOptions {
 }
 
 const testApp = express();
+testApp.use((req, res, next) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (req as any).user = { userId: "test-user" };
+  next();
+});
 testApp.use("/api/stocks", stocksRouter);
 testApp.use(errorHandler);
 
@@ -86,7 +91,7 @@ describe("/api/stocks routes", () => {
     assert.equal(payload.data.name, "Test Instrument");
 
     const portfolioService = resolvePortfolioService();
-    const created = (await portfolioService.listStocks()).find((stock) => stock.symbol === uniqueSymbol);
+    const created = (await portfolioService.listStocks("test-user")).find((stock) => stock.symbol === uniqueSymbol);
     assert(created);
   });
 });

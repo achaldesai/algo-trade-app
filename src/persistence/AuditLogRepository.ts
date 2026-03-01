@@ -22,6 +22,7 @@ export type AuditEventType =
 
 export interface AuditLogEntry {
     id: string;
+    userId: string;
     timestamp: Date;
     eventType: AuditEventType;
     category: "trade" | "risk" | "strategy" | "system";
@@ -32,6 +33,7 @@ export interface AuditLogEntry {
 }
 
 export interface AuditLogQuery {
+    userId?: string;
     fromDate?: Date;
     toDate?: Date;
     eventTypes?: AuditEventType[];
@@ -58,7 +60,7 @@ export interface AuditLogRepository {
     /**
      * Get entries from today
      */
-    getToday(): Promise<AuditLogEntry[]>;
+    getToday(userId?: string): Promise<AuditLogEntry[]>;
 
     /**
      * Get count of entries by event type

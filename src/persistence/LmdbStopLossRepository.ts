@@ -7,6 +7,7 @@ import logger from "../utils/logger";
 
 interface StoredStopLossConfig {
     symbol: string;
+    userId: string;
     entryPrice: number;
     stopLossPrice: number;
     quantity: number;
@@ -67,42 +68,54 @@ export class LmdbStopLossRepository extends EventEmitter implements StopLossRepo
         };
     }
 
-    getAll(): StopLossConfig[] {
-        return Array.from(this.cache.values());
+    getAll(userId: string): StopLossConfig[] {
+        return Array.from(this.cache.values()).filter(c => c.userId === userId);
     }
 
-    get(symbol: string): StopLossConfig | undefined {
-        return this.cache.get(symbol.toUpperCase());
+    get(userId: string, symbol: string): StopLossConfig | undefined {
+        return this.cache.get(`${userId}:${symbol.toUpperCase()}`);
+    }
+
+    getBySymbol(symbol: string): StopLossConfig[] {
+        const upperSymbol = symbol.toUpperCase();
+        return Array.from(this.cache.values()).filter(c => c.symbol === upperSymbol);
     }
 
     async save(config: StopLossConfig): Promise<void> {
         if (!this.db) await this.initialize();
 
         const symbol = config.symbol.toUpperCase();
+        const userId = config.userId;
         const normalized: StopLossConfig = {
             ...config,
             symbol,
             updatedAt: new Date(),
         };
 
-        await this.db!.put(symbol, this.serialize(normalized));
-        this.cache.set(symbol, normalized);
+        const key = `${userId}:${symbol}`;
+        await this.db!.put(key, this.serialize(normalized));
+        this.cache.set(key, normalized);
 
+        this.emit(`saved:${userId}`, normalized);
+        // Retain backward compat event for now
         this.emit("saved", normalized);
-        logger.info({ symbol, stopLossPrice: normalized.stopLossPrice, type: normalized.type }, "Stop-loss saved");
+        logger.info({ userId, symbol, stopLossPrice: normalized.stopLossPrice, type: normalized.type }, "Stop-loss saved");
     }
 
-    async delete(symbol: string): Promise<void> {
+    async delete(userId: string, symbol: string): Promise<void> {
         if (!this.db) await this.initialize();
 
         const upperSymbol = symbol.toUpperCase();
-        const existing = this.cache.get(upperSymbol);
+        const key = `${userId}:${upperSymbol}`;
+        const existing = this.cache.get(key);
 
         if (existing) {
-            await this.db!.remove(upperSymbol);
-            this.cache.delete(upperSymbol);
+            await this.db!.remove(key);
+            this.cache.delete(key);
+            this.emit(`deleted:${userId}`, upperSymbol);
+            // Retain backward compat event for now
             this.emit("deleted", upperSymbol);
-            logger.info({ symbol: upperSymbol }, "Stop-loss deleted");
+            logger.info({ userId, symbol: upperSymbol }, "Stop-loss deleted");
         }
     }
 

@@ -4,6 +4,7 @@ import { resolveTradingEngine, resolveStopLossMonitor } from "../container";
 import logger from "../utils/logger";
 import { HttpError } from "../utils/HttpError";
 import { adminAuthMiddleware } from "../middleware/adminAuth";
+import { getUserRepository } from "../persistence";
 
 const router = Router();
 
@@ -86,29 +87,28 @@ router.post("/panic-sell", async (req, res, next) => {
         }
 
         const engine = resolveTradingEngine();
-        const broker = engine.getActiveBroker();
+        const users = await getUserRepository().listUsers();
 
-        // Check broker availability before executing panic sell
-        if (!broker.isConnected()) {
-            logger.warn("Broker disconnected during panic sell, attempting reconnect...");
+        // Execute panic sell for each user
+        let totalExecuted = 0;
+        let totalFailed = 0;
+        const resultsByUserId: Record<string, unknown> = {};
+
+        for (const user of users) {
             try {
-                await broker.connect();
+                const result = await engine.sellAllPositions(user.id);
+                totalExecuted += result.executions.length;
+                totalFailed += result.failures.length;
+                resultsByUserId[user.id] = result;
             } catch (err) {
-                logger.error({ err }, "Failed to connect broker for panic sell");
-                res.status(503).json({
-                    success: false,
-                    message: "Broker unavailable - manual intervention required"
-                });
-                return;
+                logger.error({ err, userId: user.id }, "Panic sell failed for user");
             }
         }
 
-        const result = await engine.sellAllPositions();
-
         res.json({
             success: true,
-            message: "Panic sell executed",
-            data: result,
+            message: "Panic sell executed across all users",
+            data: { executedCount: totalExecuted, failedCount: totalFailed, details: resultsByUserId },
         });
     } catch (error) {
         next(error);

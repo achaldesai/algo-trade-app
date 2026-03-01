@@ -21,7 +21,7 @@ import { HttpError } from "../utils/HttpError";
 import env from "../config/env";
 
 export interface TradingEngineOptions {
-  broker: BrokerClient;
+  brokerFactory: (userId: string) => Promise<BrokerClient>;
   fallbackBroker?: BrokerClient;
   portfolioService: PortfolioService;
   marketData: MarketDataService;
@@ -41,11 +41,9 @@ export interface StrategyEvaluationResult {
 export class TradingEngine extends EventEmitter {
   private readonly strategies = new Map<string, BaseStrategy>();
 
-  private readonly primaryBroker: BrokerClient;
+  private readonly brokerFactory: (userId: string) => Promise<BrokerClient>;
 
   private readonly fallbackBroker: BrokerClient;
-
-  private activeBroker: BrokerClient;
 
   private readonly portfolioService: PortfolioService;
 
@@ -55,16 +53,17 @@ export class TradingEngine extends EventEmitter {
 
   constructor(options: TradingEngineOptions) {
     super();
-    this.primaryBroker = options.broker;
+    this.brokerFactory = options.brokerFactory;
     this.fallbackBroker = options.fallbackBroker ?? new PaperBroker();
-    this.activeBroker = this.primaryBroker;
     this.portfolioService = options.portfolioService;
     this.marketData = options.marketData;
     this.riskManager = options.riskManager;
   }
 
-  getActiveBroker(): BrokerClient {
-    return this.activeBroker;
+  private async ensureBrokerConnected(broker: BrokerClient): Promise<void> {
+    if (!broker.isConnected()) {
+      await broker.connect();
+    }
   }
 
   registerStrategy(strategy: BaseStrategy): void {
@@ -79,17 +78,7 @@ export class TradingEngine extends EventEmitter {
     return this.strategies.get(id);
   }
 
-  private async ensureBrokerConnected(broker: BrokerClient): Promise<void> {
-    if (!broker.isConnected()) {
-      await broker.connect();
-    }
-  }
-
-  async connect(): Promise<void> {
-    await this.ensureBrokerConnected(this.activeBroker);
-  }
-
-  async evaluate(strategyId: string): Promise<StrategyEvaluationResult> {
+  async evaluate(strategyId: string, userId: string): Promise<StrategyEvaluationResult> {
     const strategy = this.strategies.get(strategyId);
     if (!strategy) {
       throw new HttpError(404, `Unknown strategy ${strategyId}`);
@@ -97,20 +86,21 @@ export class TradingEngine extends EventEmitter {
 
     const errors: StrategyEvaluationError[] = [];
 
-    this.activeBroker = this.primaryBroker;
+    let activeBroker: BrokerClient;
     try {
-      await this.connect();
+      activeBroker = await this.brokerFactory(userId);
+      await this.ensureBrokerConnected(activeBroker);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to connect broker";
       errors.push({ stage: "BROKER_CONNECTION", message, details: this.serializeError(error) });
       logger.error(
-        { err: error, strategyId, broker: this.primaryBroker.name },
+        { err: error, strategyId, userId },
         "Primary broker connection failed, using paper fallback",
       );
 
-      this.activeBroker = this.fallbackBroker;
+      activeBroker = this.fallbackBroker;
       try {
-        await this.connect();
+        await this.ensureBrokerConnected(activeBroker);
       } catch (fallbackError) {
         const fallbackMessage =
           fallbackError instanceof Error ? fallbackError.message : "Failed to connect fallback broker";
@@ -120,12 +110,12 @@ export class TradingEngine extends EventEmitter {
           details: this.serializeError(fallbackError),
         });
         logger.error(
-          { err: fallbackError, strategyId, broker: this.fallbackBroker.name },
+          { err: fallbackError, strategyId, userId, broker: this.fallbackBroker.name },
           "Fallback broker connection failed",
         );
 
         const marketSnapshot = this.marketData.getSnapshot();
-        const portfolioSnapshot = await this.portfolioService.getSnapshot();
+        const portfolioSnapshot = await this.portfolioService.getSnapshot(userId);
         return {
           strategyId,
           snapshot: {
@@ -139,9 +129,9 @@ export class TradingEngine extends EventEmitter {
     }
 
     const marketSnapshot = this.marketData.getSnapshot();
-    const portfolioSnapshot = await this.portfolioService.getSnapshot();
+    const portfolioSnapshot = await this.portfolioService.getSnapshot(userId);
 
-    const broker = this.activeBroker;
+    const broker = activeBroker;
 
     let signals: StrategySignal[] = [];
     try {
@@ -159,7 +149,7 @@ export class TradingEngine extends EventEmitter {
     const executions: StrategyExecutionResult[] = [];
     for (const signal of signals) {
       try {
-        const executed = await this.executeSignal(broker, signal);
+        const executed = await this.executeSignal(userId, broker, signal);
         executions.push(executed);
         if (executed.failures.length > 0) {
           errors.push(
@@ -188,7 +178,7 @@ export class TradingEngine extends EventEmitter {
     };
   }
 
-  async executeSignal(broker: BrokerClient, signal: StrategySignal): Promise<StrategyExecutionResult> {
+  async executeSignal(userId: string, broker: BrokerClient, signal: StrategySignal): Promise<StrategyExecutionResult> {
     const executions: BrokerOrderExecution[] = [];
     const failures: BrokerOrderFailure[] = [];
 
@@ -222,17 +212,17 @@ export class TradingEngine extends EventEmitter {
     for (const order of signal.requestedOrders) {
       try {
         // Validation (Risk Checks)
-        const portfolioSnapshot = await this.portfolioService.getSnapshot();
+        const portfolioSnapshot = await this.portfolioService.getSnapshot(userId);
         const unrealizedPnL = portfolioSnapshot.positions.reduce((sum, p) => sum + p.unrealizedPnl, 0);
         const openPositionsCount = portfolioSnapshot.positions.filter(p => p.netQuantity !== 0).length;
 
-        const riskResult = this.riskManager.checkOrderAllowed(order, unrealizedPnL, openPositionsCount);
+        const riskResult = this.riskManager.checkOrderAllowed(userId, order, unrealizedPnL, openPositionsCount);
         if (!riskResult.allowed) {
           throw new Error(`Risk check failed: ${riskResult.reason}`);
         }
 
         const execution = await broker.placeOrder(order);
-        this.riskManager.recordExecution(execution);
+        this.riskManager.recordExecution(userId, execution);
         executions.push(execution);
 
         if (execution.filledQuantity > 0 && execution.status !== "REJECTED") {
@@ -244,10 +234,10 @@ export class TradingEngine extends EventEmitter {
             price: execution.averagePrice,
             executedAt: execution.executedAt,
           };
-          await this.portfolioService.recordExternalTrade(trade);
+          await this.portfolioService.recordExternalTrade(userId, trade);
 
           // Emit trade event for stop-loss monitor integration
-          this.emit("trade-executed", trade);
+          this.emit("trade-executed", { trade, userId });
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Order execution failed";
@@ -289,15 +279,15 @@ export class TradingEngine extends EventEmitter {
     return error;
   }
 
-  async sellAllPositions(): Promise<{ executions: BrokerOrderExecution[]; failures: BrokerOrderFailure[] }> {
+  async sellAllPositions(userId: string): Promise<{ executions: BrokerOrderExecution[]; failures: BrokerOrderFailure[] }> {
     const executions: BrokerOrderExecution[] = [];
     const failures: BrokerOrderFailure[] = [];
 
+    let activeBroker: BrokerClient;
     try {
-      // 1. Get all open positions from broker
-      // Note: We use the broker's position data as the source of truth for liquidation
-      await this.connect();
-      const positions = await this.activeBroker.getPositions();
+      activeBroker = await this.brokerFactory(userId);
+      await this.ensureBrokerConnected(activeBroker);
+      const positions = await activeBroker.getPositions();
 
       for (const position of positions) {
         if (position.quantity === 0) continue;
@@ -316,7 +306,7 @@ export class TradingEngine extends EventEmitter {
         };
 
         try {
-          const execution = await this.activeBroker.placeOrder(order);
+          const execution = await activeBroker.placeOrder(order);
           executions.push(execution);
 
           if (execution.filledQuantity > 0) {
@@ -328,7 +318,7 @@ export class TradingEngine extends EventEmitter {
               price: execution.averagePrice,
               executedAt: execution.executedAt,
             };
-            await this.portfolioService.recordExternalTrade(trade);
+            await this.portfolioService.recordExternalTrade(userId, trade);
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : "Panic sell failed";

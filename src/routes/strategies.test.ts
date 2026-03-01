@@ -3,10 +3,17 @@ import express from "express";
 import { EventEmitter, once } from "node:events";
 import { before, beforeEach, describe, it } from "node:test";
 import { createRequest, createResponse, type RequestMethod } from "node-mocks-http";
+import env from "../config/env";
+
+env.brokerProvider = "paper";
+
 import errorHandler from "../middleware/errorHandler";
 import strategiesRouter from "./strategies";
 import { ensurePortfolioStore, resetPortfolioStore } from "../persistence";
+import { ensureUserStore, getUserRepository } from "../persistence";
 import { resetContainer } from "../container";
+
+let testUserId = "test-user";
 
 interface RequestOptions {
   method: RequestMethod;
@@ -15,6 +22,11 @@ interface RequestOptions {
 }
 
 const testApp = express();
+testApp.use((req, res, next) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (req as any).user = { userId: testUserId };
+  next();
+});
 testApp.use("/api/strategies", strategiesRouter);
 testApp.use(errorHandler);
 
@@ -49,6 +61,14 @@ describe("/api/strategies routes", () => {
   beforeEach(async () => {
     await resetPortfolioStore();
     resetContainer();
+
+    await ensureUserStore();
+    const userRepo = getUserRepository();
+    let user = await userRepo.findUserByUsername("test_strategies_user");
+    if (!user) {
+      user = await userRepo.createUser({ username: "test_strategies_user", passwordHash: "password", role: "USER" });
+    }
+    testUserId = user.id;
   });
 
   it("evaluates a strategy and returns execution details", async () => {

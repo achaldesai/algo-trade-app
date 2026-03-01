@@ -3,7 +3,11 @@ import { resolveReconciliationService } from "../container";
 import { HttpError } from "../utils/HttpError";
 import logger from "../utils/logger";
 
+import { userAuthMiddleware } from "../middleware/userAuth";
+import type { AuthSession } from "../types/user";
+
 const router = Router();
+router.use(userAuthMiddleware);
 
 // GET /api/reconciliation/status - Get last reconciliation result
 router.get("/status", async (_req, res, next) => {
@@ -46,7 +50,8 @@ router.post("/sync/:symbol", async (req, res, next) => {
         }
 
         const service = resolveReconciliationService();
-        await service.syncSymbolFromBroker(symbol.toUpperCase());
+        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        await service.syncSymbolFromBroker(userId, symbol.toUpperCase());
 
         res.json({
             success: true,

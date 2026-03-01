@@ -16,11 +16,13 @@ import type {
 import { RepositoryConflictError } from "../persistence/errors";
 
 export interface CreateStockInput {
+  userId: string;
   symbol: string;
   name: string;
 }
 
 export interface CreateTradeInput {
+  userId: string;
   symbol: string;
   side: TradeSide;
   quantity: number;
@@ -40,7 +42,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 export class PortfolioService {
   constructor(private readonly repository: PortfolioRepository) { }
 
-  public async addStock(input: CreateStockInput): Promise<Stock> {
+  public async addStock(userId: string, input: Omit<CreateStockInput, 'userId'>): Promise<Stock> {
     const symbol = input.symbol.trim().toUpperCase();
     if (!symbol) {
       throw new HttpError(400, "Stock symbol is required");
@@ -58,7 +60,7 @@ export class PortfolioService {
     };
 
     try {
-      return await this.repository.createStock(record);
+      return await this.repository.createStock(userId, record);
     } catch (error) {
       if (error instanceof RepositoryConflictError) {
         throw new HttpError(409, `Stock with symbol ${symbol} already exists`);
@@ -67,17 +69,17 @@ export class PortfolioService {
     }
   }
 
-  public async listStocks(): Promise<Stock[]> {
-    return this.repository.listStocks();
+  public async listStocks(userId: string): Promise<Stock[]> {
+    return this.repository.listStocks(userId);
   }
 
-  public async addTrade(input: CreateTradeInput): Promise<Trade> {
+  public async addTrade(userId: string, input: Omit<CreateTradeInput, 'userId'>): Promise<Trade> {
     const symbol = input.symbol.trim().toUpperCase();
     if (!symbol) {
       throw new HttpError(400, "Trade symbol is required");
     }
 
-    const stock = await this.repository.findStock(symbol);
+    const stock = await this.repository.findStock(userId, symbol);
     if (!stock) {
       throw new HttpError(404, `Unknown stock symbol ${symbol}`);
     }
@@ -100,25 +102,25 @@ export class PortfolioService {
       notes: input.notes?.trim() || undefined,
     };
 
-    return this.repository.createTrade(record);
+    return this.repository.createTrade(userId, record);
   }
 
-  public async listTrades(): Promise<Trade[]> {
-    const trades = await this.repository.listTrades();
+  public async listTrades(userId: string): Promise<Trade[]> {
+    const trades = await this.repository.listTrades(userId);
     return [...trades].sort((a, b) => b.executedAt.getTime() - a.executedAt.getTime());
   }
 
-  public async recordExternalTrade(trade: Trade): Promise<void> {
+  public async recordExternalTrade(userId: string, trade: Trade): Promise<void> {
     const symbol = trade.symbol.trim().toUpperCase();
     if (!symbol) {
       throw new HttpError(400, "Trade symbol is required");
     }
 
-    await this.repository.ensureStock({ symbol, name: symbol, createdAt: new Date() });
+    await this.repository.ensureStock(userId, { symbol, name: symbol, createdAt: new Date() });
 
     const id = UUID_PATTERN.test(trade.id) ? trade.id : randomUUID();
 
-    await this.repository.createTradeIfMissing({
+    await this.repository.createTradeIfMissing(userId, {
       id,
       symbol,
       side: trade.side,
@@ -129,11 +131,11 @@ export class PortfolioService {
     });
   }
 
-  public async getSnapshot(): Promise<PortfolioSnapshot> {
-    const trades = await this.repository.listTrades();
+  public async getSnapshot(userId: string): Promise<PortfolioSnapshot> {
+    const trades = await this.repository.listTrades(userId);
     const [summaries, latestPrices] = await Promise.all([
-      this.getTradeSummaries(trades),
-      this.getLatestTradePrices(trades),
+      this.getTradeSummaries(userId, trades),
+      this.getLatestTradePrices(userId, trades),
     ]);
 
     const positions: PortfolioPositionSnapshot[] = summaries.map((summary) => {
@@ -152,9 +154,9 @@ export class PortfolioService {
     } satisfies PortfolioSnapshot;
   }
 
-  public async getTradeSummaries(tradesOverride?: Trade[]): Promise<TradeSummary[]> {
-    const trades = tradesOverride ?? (await this.repository.listTrades());
-    const stocks = await this.repository.listStocks();
+  public async getTradeSummaries(userId: string, tradesOverride?: Trade[]): Promise<TradeSummary[]> {
+    const trades = tradesOverride ?? (await this.repository.listTrades(userId));
+    const stocks = await this.repository.listStocks(userId);
     const stockMap = new Map(stocks.map((stock) => [stock.symbol, stock.name]));
 
     const states = new Map<string, PositionState>();
@@ -223,8 +225,8 @@ export class PortfolioService {
     });
   }
 
-  private async getLatestTradePrices(tradesOverride?: Trade[]): Promise<Map<string, number>> {
-    const trades = tradesOverride ?? (await this.repository.listTrades());
+  private async getLatestTradePrices(userId: string, tradesOverride?: Trade[]): Promise<Map<string, number>> {
+    const trades = tradesOverride ?? (await this.repository.listTrades(userId));
     const latest = new Map<string, number>();
 
     for (let index = trades.length - 1; index >= 0; index -= 1) {
@@ -242,8 +244,8 @@ export class PortfolioService {
    * If fromDate is provided, only includes P&L from trades executed on or after that date.
    * Requires processing full trade history to determine accurate cost basis.
    */
-  public async getRealizedPnl(fromDate?: Date): Promise<number> {
-    const trades = await this.listTrades(); // Already sorted descending, need ascending for replay
+  public async getRealizedPnl(userId: string, fromDate?: Date): Promise<number> {
+    const trades = await this.listTrades(userId); // Already sorted descending, need ascending for replay
     // Sort ascending for chronological processing
     const chronologicalTrades = [...trades].sort((a, b) => a.executedAt.getTime() - b.executedAt.getTime());
 

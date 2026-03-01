@@ -1,5 +1,6 @@
 import { EventEmitter } from "events";
 import type { MarketTick, BrokerOrderRequest, Trade } from "../types";
+import type BrokerClient from "../brokers/BrokerClient";
 import type MarketDataService from "./MarketDataService";
 import type TradingEngine from "./TradingEngine";
 import type { StopLossConfig, StopLossRepository } from "../persistence/StopLossRepository";
@@ -12,6 +13,7 @@ export interface StopLossMonitorOptions {
     tradingEngine: TradingEngine;
     stopLossRepository: StopLossRepository;
     riskManager: RiskManager;
+    brokerFactory?: (userId: string) => Promise<BrokerClient>;
 }
 
 export interface StopLossTriggeredEvent {
@@ -35,6 +37,7 @@ export class StopLossMonitor extends EventEmitter {
     private readonly tradingEngine: TradingEngine;
     private readonly repository: StopLossRepository;
     private readonly riskManager: RiskManager;
+    private readonly brokerFactory?: (userId: string) => Promise<BrokerClient>;
     private readonly symbolQueues = new Map<string, Promise<void>>();
     private readonly tickQueues = new Map<string, Promise<void>>();
 
@@ -48,6 +51,7 @@ export class StopLossMonitor extends EventEmitter {
         this.tradingEngine = options.tradingEngine;
         this.repository = options.stopLossRepository;
         this.riskManager = options.riskManager;
+        this.brokerFactory = options.brokerFactory;
 
         // Listen to trade events for automatic stop-loss management
         this.tradingEngine.on("trade-executed", this.handleTradeExecuted);
@@ -58,31 +62,33 @@ export class StopLossMonitor extends EventEmitter {
      * Uses promise-chaining queue per symbol to ensure trades are processed
      * in order without dropping any updates.
      */
-    private handleTradeExecuted = async (trade: Trade): Promise<void> => {
-        const existing = this.symbolQueues.get(trade.symbol) ?? Promise.resolve();
+    private handleTradeExecuted = async (data: { trade: Trade, userId: string }): Promise<void> => {
+        const { trade, userId } = data;
+        const queueKey = `${userId}:${trade.symbol}`;
+        const existing = this.symbolQueues.get(queueKey) ?? Promise.resolve();
         const next = existing
-            .then(() => this.processTradeUpdate(trade))
+            .then(() => this.processTradeUpdate(userId, trade))
             .catch(err => {
-                logger.error({ err, trade }, "Failed to process trade for stop-loss");
+                logger.error({ err, trade, userId }, "Failed to process trade for stop-loss");
             })
             .finally(() => {
                 // Clean up if this is still the current promise (prevents memory leak)
-                if (this.symbolQueues.get(trade.symbol) === next) {
-                    this.symbolQueues.delete(trade.symbol);
+                if (this.symbolQueues.get(queueKey) === next) {
+                    this.symbolQueues.delete(queueKey);
                 }
             });
-        this.symbolQueues.set(trade.symbol, next);
+        this.symbolQueues.set(queueKey, next);
         await next;
     };
 
     /**
      * Process a single trade update (called within queue)
      */
-    private async processTradeUpdate(trade: Trade): Promise<void> {
+    private async processTradeUpdate(userId: string, trade: Trade): Promise<void> {
         if (trade.side === "BUY") {
-            await this.onPositionOpened(trade);
+            await this.onPositionOpened(userId, trade);
         } else {
-            await this.onPositionReduced(trade);
+            await this.onPositionReduced(userId, trade);
         }
     }
 
@@ -131,21 +137,25 @@ export class StopLossMonitor extends EventEmitter {
     /**
      * Get all active stop-losses
      */
-    getAll(): StopLossConfig[] {
-        return this.repository.getAll();
+    getAll(userId?: string): StopLossConfig[] {
+        // Simple fallback until repository has a get-all-without-userid method, 
+        // normally we should be scoping these by user anyway.
+        if (userId) return this.repository.getAll(userId);
+        return []; // Getting all for ALL users via this method is likely unwanted
     }
 
     /**
      * Get stop-loss for a specific symbol
      */
-    get(symbol: string): StopLossConfig | undefined {
-        return this.repository.get(symbol);
+    get(userId: string, symbol: string): StopLossConfig | undefined {
+        return this.repository.get(userId, symbol);
     }
 
     /**
      * Create or update a stop-loss for a position
      */
     async setStopLoss(
+        userId: string,
         symbol: string,
         options: {
             entryPrice: number;
@@ -155,7 +165,7 @@ export class StopLossMonitor extends EventEmitter {
             trailingPercent?: number;
         }
     ): Promise<StopLossConfig> {
-        const riskLimits = this.riskManager.getStatus().limits;
+        const riskLimits = this.riskManager.getStatus(userId).limits;
         const defaultStopLossPercent = riskLimits.stopLossPercent;
 
         const type = options.type ?? "FIXED";
@@ -172,6 +182,7 @@ export class StopLossMonitor extends EventEmitter {
 
         const config: StopLossConfig = {
             symbol: symbol.toUpperCase(),
+            userId,
             entryPrice: options.entryPrice,
             stopLossPrice: Number(stopLossPrice.toFixed(2)),
             quantity: options.quantity,
@@ -195,15 +206,15 @@ export class StopLossMonitor extends EventEmitter {
     /**
      * Remove stop-loss for a symbol
      */
-    async removeStopLoss(symbol: string): Promise<void> {
-        await this.repository.delete(symbol);
+    async removeStopLoss(userId: string, symbol: string): Promise<void> {
+        await this.repository.delete(userId, symbol);
     }
 
     /**
      * Auto-create stop-loss when a position is opened
      * Called by TradingEngine after trade execution
      */
-    async onPositionOpened(trade: Trade): Promise<void> {
+    async onPositionOpened(userId: string, trade: Trade): Promise<void> {
         if (trade.side !== "BUY") {
             // Only set stop-loss for LONG positions (BUY entries)
             // For SHORT positions, we'd need a stop-loss above entry (future enhancement)
@@ -211,7 +222,7 @@ export class StopLossMonitor extends EventEmitter {
         }
 
         // Check if we already have a stop-loss for this symbol
-        const existing = this.repository.get(trade.symbol);
+        const existing = this.repository.get(userId, trade.symbol);
         if (existing) {
             // Update quantity if adding to position
             const newQuantity = existing.quantity + trade.quantity;
@@ -219,7 +230,7 @@ export class StopLossMonitor extends EventEmitter {
             const totalCost = (existing.entryPrice * existing.quantity) + (trade.price * trade.quantity);
             const newEntryPrice = totalCost / newQuantity;
 
-            await this.setStopLoss(trade.symbol, {
+            await this.setStopLoss(userId, trade.symbol, {
                 entryPrice: newEntryPrice,
                 quantity: newQuantity,
                 type: existing.type,
@@ -227,7 +238,7 @@ export class StopLossMonitor extends EventEmitter {
             });
         } else {
             // Create new stop-loss
-            await this.setStopLoss(trade.symbol, {
+            await this.setStopLoss(userId, trade.symbol, {
                 entryPrice: trade.price,
                 quantity: trade.quantity,
             });
@@ -237,17 +248,17 @@ export class StopLossMonitor extends EventEmitter {
     /**
      * Adjust stop-loss when a position is reduced
      */
-    async onPositionReduced(trade: Trade): Promise<void> {
+    async onPositionReduced(userId: string, trade: Trade): Promise<void> {
         if (trade.side !== "SELL") return;
 
-        const existing = this.repository.get(trade.symbol);
+        const existing = this.repository.get(userId, trade.symbol);
         if (!existing) return;
 
         const newQuantity = existing.quantity - trade.quantity;
 
         if (newQuantity <= 0) {
             // Position fully closed - remove stop-loss
-            await this.removeStopLoss(trade.symbol);
+            await this.removeStopLoss(userId, trade.symbol);
         } else {
             // Update quantity
             existing.quantity = newQuantity;
@@ -281,27 +292,29 @@ export class StopLossMonitor extends EventEmitter {
      * Process a single tick for stop-loss evaluation (called within queue)
      */
     private async processTickForSymbol(tick: MarketTick): Promise<void> {
-        const config = this.repository.get(tick.symbol);
-        if (!config) return;
+        const configs = this.repository.getBySymbol(tick.symbol);
+        if (configs.length === 0) return;
 
-        let currentConfig = config;
+        for (const config of configs) {
+            let currentConfig = config;
 
-        // Check for trailing stop update
-        if (currentConfig.type === "TRAILING" && tick.price > (currentConfig.highWaterMark ?? currentConfig.entryPrice)) {
-            await this.updateTrailingStop(currentConfig, tick.price);
-            // Refresh config after update to check breach against NEW stop loss price
-            const updated = this.repository.get(tick.symbol);
-            if (!updated) {
-                logger.warn({ symbol: tick.symbol }, "Stop-loss config disappeared during trailing update");
-                return;
+            // Check for trailing stop update
+            if (currentConfig.type === "TRAILING" && tick.price > (currentConfig.highWaterMark ?? currentConfig.entryPrice)) {
+                await this.updateTrailingStop(currentConfig, tick.price);
+                // Refresh config after update to check breach against NEW stop loss price
+                const updated = this.repository.get(config.userId, tick.symbol);
+                if (!updated) {
+                    logger.warn({ symbol: tick.symbol, userId: config.userId }, "Stop-loss config disappeared during trailing update");
+                    continue; // use continue instead of return, other users' stop losses may remain
+                }
+                currentConfig = updated;
             }
-            currentConfig = updated;
-        }
 
-        // Check if stop-loss is breached
-        if (tick.price <= currentConfig.stopLossPrice) {
-            // Pass true to skip lock check because queue already serializes access
-            await this.executeStopLoss(currentConfig, tick, true);
+            // Check if stop-loss is breached
+            if (tick.price <= currentConfig.stopLossPrice) {
+                // Pass true to skip lock check because queue already serializes access
+                await this.executeStopLoss(currentConfig, tick, true);
+            }
         }
     }
 
@@ -370,6 +383,15 @@ export class StopLossMonitor extends EventEmitter {
         }
 
         try {
+            // Fetch the user's broker to execute the system signal
+            let broker: BrokerClient;
+            if (this.brokerFactory) {
+                broker = await this.brokerFactory(config.userId);
+            } else {
+                const { BrokerFactory } = await import("../brokers/BrokerFactory");
+                broker = await BrokerFactory.getBroker(config.userId);
+            }
+
             // Execute via TradingEngine (bypasses normal risk checks for emergency exit)
             const signal = {
                 strategyId: "stop-loss-monitor",
@@ -378,7 +400,8 @@ export class StopLossMonitor extends EventEmitter {
             };
 
             const result = await this.tradingEngine.executeSignal(
-                this.tradingEngine.getActiveBroker(),
+                config.userId,
+                broker,
                 signal
             );
 
@@ -389,7 +412,7 @@ export class StopLossMonitor extends EventEmitter {
                 );
 
                 // Remove the stop-loss after successful execution
-                await this.repository.delete(config.symbol);
+                await this.repository.delete(config.userId, config.symbol);
 
                 this.emit("stop-loss-executed", {
                     ...event,
@@ -417,12 +440,12 @@ export class StopLossMonitor extends EventEmitter {
     /**
      * Get status summary
      */
-    getStatus(): {
+    getStatus(userId?: string): {
         monitoring: boolean;
         activeStopLosses: number;
         stopLosses: StopLossConfig[];
     } {
-        const stopLosses = this.repository.getAll();
+        const stopLosses = userId ? this.repository.getAll(userId) : [];
         return {
             monitoring: this.isMonitoring,
             activeStopLosses: stopLosses.length,

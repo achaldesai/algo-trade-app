@@ -7,6 +7,7 @@ import logger from "../utils/logger";
  * Represents a discrepancy between local and broker positions
  */
 export interface PositionDiscrepancy {
+    userId: string;
     symbol: string;
     localQuantity: number;
     brokerQuantity: number;
@@ -23,20 +24,23 @@ export interface ReconciliationResult {
     discrepancies: PositionDiscrepancy[];
     brokerPositionCount: number;
     localPositionCount: number;
-    syncedSymbols: string[];
+    syncedSymbols: { userId: string; symbol: string }[];
 }
 
 /**
  * Service to reconcile local portfolio state with broker positions.
  * Ensures consistency between what the app thinks and what the broker has.
  */
+import type { UserRepository } from "../persistence/UserRepository";
+
 export class ReconciliationService {
     private lastReconciliation: ReconciliationResult | null = null;
     private isReconciling = false;
 
     constructor(
-        private readonly broker: BrokerClient,
-        private readonly portfolioService: PortfolioService
+        private readonly brokerFactory: (userId: string) => Promise<BrokerClient>,
+        private readonly portfolioService: PortfolioService,
+        private readonly userRepository: UserRepository
     ) { }
 
     /**
@@ -66,74 +70,86 @@ export class ReconciliationService {
         this.isReconciling = true;
 
         try {
-            // Ensure broker is connected
-            if (!this.broker.isConnected()) {
-                try {
-                    await this.broker.connect();
-                } catch (err) {
-                    logger.warn({ err }, "Could not connect to broker for reconciliation");
-                    return this.createEmptyResult();
-                }
-            }
-
-            // Fetch positions from broker
-            let brokerPositions: Trade[] = [];
-            try {
-                brokerPositions = await this.broker.getPositions();
-            } catch (err) {
-                logger.error({ err }, "Failed to fetch broker positions for reconciliation");
-                return this.createEmptyResult();
-            }
-
-            // Get local positions from PortfolioService
-            const localSummaries = await this.portfolioService.getTradeSummaries();
-
-            // Build comparison maps
-            const brokerMap = this.buildPositionMap(brokerPositions);
-            const localMap = new Map<string, number>(
-                localSummaries
-                    .filter((s) => s.netQuantity !== 0)
-                    .map((s) => [s.symbol, s.netQuantity])
-            );
-
-            // Find all unique symbols
-            const allSymbols = new Set([...brokerMap.keys(), ...localMap.keys()]);
-
-            // Compare positions
+            const users = await this.userRepository.listUsers();
             const discrepancies: PositionDiscrepancy[] = [];
-            const syncedSymbols: string[] = [];
+            const syncedSymbols: { userId: string; symbol: string }[] = [];
+            let totalBrokerCount = 0;
+            let totalLocalCount = 0;
 
-            for (const symbol of allSymbols) {
-                const brokerQty = brokerMap.get(symbol) ?? 0;
-                const localQty = localMap.get(symbol) ?? 0;
-                const difference = brokerQty - localQty;
+            for (const user of users) {
+                const broker = await this.brokerFactory(user.id);
 
-                if (Math.abs(difference) > 0.001) {
-                    // Significant difference
-                    const discrepancy: PositionDiscrepancy = {
-                        symbol,
-                        localQuantity: localQty,
-                        brokerQuantity: brokerQty,
-                        difference,
-                        action: this.determineAction(localQty, brokerQty, isStartup),
-                    };
-                    discrepancies.push(discrepancy);
+                // Ensure broker is connected
+                if (!broker.isConnected()) {
+                    try {
+                        await broker.connect();
+                    } catch (err) {
+                        logger.warn({ err, userId: user.id }, "Could not connect to broker for reconciliation");
+                        continue;
+                    }
+                }
 
-                    logger.warn(
-                        {
+                // Fetch positions from broker
+                let brokerPositions: Trade[] = [];
+                try {
+                    brokerPositions = await broker.getPositions();
+                } catch (err) {
+                    logger.error({ err, userId: user.id }, "Failed to fetch broker positions for reconciliation");
+                    continue;
+                }
+
+                // Get local positions from PortfolioService
+                const localSummaries = await this.portfolioService.getTradeSummaries(user.id);
+
+                // Build comparison maps
+                const brokerMap = this.buildPositionMap(brokerPositions);
+                const localMap = new Map<string, number>(
+                    localSummaries
+                        .filter((s) => s.netQuantity !== 0)
+                        .map((s) => [s.symbol, s.netQuantity])
+                );
+
+                totalBrokerCount += brokerMap.size;
+                totalLocalCount += localMap.size;
+
+                // Find all unique symbols
+                const allSymbols = new Set([...brokerMap.keys(), ...localMap.keys()]);
+
+                // Compare positions
+                for (const symbol of allSymbols) {
+                    const brokerQty = brokerMap.get(symbol) ?? 0;
+                    const localQty = localMap.get(symbol) ?? 0;
+                    const difference = brokerQty - localQty;
+
+                    if (Math.abs(difference) > 0.001) {
+                        // Significant difference
+                        const discrepancy: PositionDiscrepancy = {
+                            userId: user.id,
                             symbol,
-                            localQty,
-                            brokerQty,
+                            localQuantity: localQty,
+                            brokerQuantity: brokerQty,
                             difference,
-                            action: discrepancy.action,
-                        },
-                        "Position discrepancy detected"
-                    );
+                            action: this.determineAction(localQty, brokerQty, isStartup),
+                        };
+                        discrepancies.push(discrepancy);
 
-                    // Auto-sync from broker on startup for positions we don't have locally
-                    if (isStartup && discrepancy.action === "SYNC_FROM_BROKER") {
-                        await this.syncFromBroker(symbol, brokerPositions);
-                        syncedSymbols.push(symbol);
+                        logger.warn(
+                            {
+                                userId: user.id,
+                                symbol,
+                                localQty,
+                                brokerQty,
+                                difference,
+                                action: discrepancy.action,
+                            },
+                            "Position discrepancy detected"
+                        );
+
+                        // Auto-sync from broker on startup for positions we don't have locally
+                        if (isStartup && discrepancy.action === "SYNC_FROM_BROKER") {
+                            await this.syncFromBroker(user.id, symbol, brokerPositions);
+                            syncedSymbols.push({ userId: user.id, symbol });
+                        }
                     }
                 }
             }
@@ -142,8 +158,8 @@ export class ReconciliationService {
                 timestamp: new Date(),
                 hasDiscrepancies: discrepancies.length > 0,
                 discrepancies,
-                brokerPositionCount: brokerMap.size,
-                localPositionCount: localMap.size,
+                brokerPositionCount: totalBrokerCount,
+                localPositionCount: totalLocalCount,
                 syncedSymbols,
             };
 
@@ -151,7 +167,7 @@ export class ReconciliationService {
 
             if (discrepancies.length === 0) {
                 logger.info(
-                    { brokerPositions: brokerMap.size, localPositions: localMap.size },
+                    { brokerPositions: totalBrokerCount, localPositions: totalLocalCount },
                     "Position reconciliation complete - no discrepancies"
                 );
             } else {
@@ -185,11 +201,15 @@ export class ReconciliationService {
     }
 
     /**
-     * Manually sync a position from broker
+     * Manually sync a position from broker for a specific user
      */
-    async syncSymbolFromBroker(symbol: string): Promise<void> {
-        const brokerPositions = await this.broker.getPositions();
-        await this.syncFromBroker(symbol, brokerPositions);
+    async syncSymbolFromBroker(userId: string, symbol: string): Promise<void> {
+        const broker = await this.brokerFactory(userId);
+        if (!broker.isConnected()) {
+            await broker.connect();
+        }
+        const brokerPositions = await broker.getPositions();
+        await this.syncFromBroker(userId, symbol, brokerPositions);
         // Re-run reconciliation to update state
         await this.reconcilePeriodic();
     }
@@ -237,15 +257,15 @@ export class ReconciliationService {
     /**
      * Sync a symbol's position from broker by recording trades
      */
-    private async syncFromBroker(symbol: string, brokerPositions: Trade[]): Promise<void> {
+    private async syncFromBroker(userId: string, symbol: string, brokerPositions: Trade[]): Promise<void> {
         const symbolTrades = brokerPositions.filter((t) => t.symbol === symbol);
 
         for (const trade of symbolTrades) {
             try {
-                await this.portfolioService.recordExternalTrade(trade);
-                logger.info({ symbol, side: trade.side, quantity: trade.quantity }, "Synced trade from broker");
+                await this.portfolioService.recordExternalTrade(userId, trade);
+                logger.info({ userId, symbol, side: trade.side, quantity: trade.quantity }, "Synced trade from broker");
             } catch (err) {
-                logger.warn({ err, symbol }, "Failed to sync trade from broker");
+                logger.warn({ err, userId, symbol }, "Failed to sync trade from broker");
             }
         }
     }

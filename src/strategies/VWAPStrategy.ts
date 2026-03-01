@@ -15,10 +15,12 @@ export class VWAPStrategy extends BaseStrategy {
     for (const tick of context.market.ticks) {
       const position = context.portfolio.positions.find((item) => item.symbol === tick.symbol);
       const positionSize = position?.netQuantity ?? 0;
-      const referenceVolume = Math.max(Math.abs(positionSize), 1);
-      const vwapDenominator = tick.volume + referenceVolume;
-      const vwapNumerator = tick.price * tick.volume + (position?.averageEntryPrice ?? tick.price) * referenceVolume;
-      const vwap = vwapDenominator > 0 ? vwapNumerator / vwapDenominator : tick.price;
+
+      // Use averagePrice (Day's VWAP) from tick if available, otherwise fallback to price
+      // Logic: If averagePrice is available, it is the most accurate VWAP.
+      const vwap = tick.averagePrice ?? tick.price;
+
+      if (vwap === 0) continue;
 
       const deviation = (tick.price - vwap) / vwap;
 

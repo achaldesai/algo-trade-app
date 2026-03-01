@@ -181,7 +181,7 @@ export class HealthService {
         try {
             const repo = await getPortfolioRepository();
             // Quick read test
-            await repo.listStocks();
+            await repo.listStocks("SYSTEM_DEFAULT");
 
             return {
                 name: "database",
@@ -249,7 +249,7 @@ export class HealthService {
                 name: "stopLoss",
                 status: "healthy",
                 message: status.monitoring
-                    ? `Monitoring ${status.activeStopLosses} positions`
+                    ? `Monitoring active`
                     : "Stopped",
                 lastUpdated: new Date(),
             };

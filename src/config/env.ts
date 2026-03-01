@@ -97,6 +97,9 @@ export const env = {
 
   // Stop-Loss Defaults
   defaultTrailingStopPercent: parseNumberWithFallback(process.env.DEFAULT_TRAILING_STOP_PERCENT, 3),
+
+  // Watchlist
+  watchlist: (process.env.WATCHLIST ?? "RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK").split(",").map(s => s.trim()).filter(s => s.length > 0),
 };
 
 export type EnvConfig = typeof env;

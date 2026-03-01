@@ -1,6 +1,7 @@
 import type { MarketTick } from "../types";
 import type MarketDataService from "./MarketDataService";
 import type TradingEngine from "./TradingEngine";
+import type { UserRepository } from "../persistence/UserRepository";
 import logger from "../utils/logger";
 
 export type EvaluationMode = "parallel" | "sequential";
@@ -30,6 +31,7 @@ export class TradingLoopService {
     constructor(
         private readonly marketDataService: MarketDataService,
         private readonly tradingEngine: TradingEngine,
+        private readonly userRepository: UserRepository,
         options?: TradingLoopOptions
     ) {
         if (options?.evaluationMode) {
@@ -43,15 +45,17 @@ export class TradingLoopService {
     static getInstance(
         marketDataService?: MarketDataService,
         tradingEngine?: TradingEngine,
+        userRepository?: UserRepository,
         options?: TradingLoopOptions
     ): TradingLoopService {
         if (!TradingLoopService.instance) {
-            if (!marketDataService || !tradingEngine) {
+            if (!marketDataService || !tradingEngine || !userRepository) {
                 throw new Error("TradingLoopService not initialized");
             }
             TradingLoopService.instance = new TradingLoopService(
                 marketDataService,
                 tradingEngine,
+                userRepository,
                 options
             );
         }
@@ -105,17 +109,24 @@ export class TradingLoopService {
         const startTime = performance.now();
 
         try {
+            const users = await this.userRepository.listUsers();
             const strategies = this.tradingEngine.getStrategies();
 
             if (this.evaluationMode === "parallel") {
-                // Parallel evaluation - evaluate all strategies concurrently
-                await Promise.all(
-                    strategies.map(strategy => this.tradingEngine.evaluate(strategy.id))
-                );
+                // Parallel evaluation - evaluate all strategies concurrently for all users
+                const evaluations: Promise<unknown>[] = [];
+                for (const user of users) {
+                    for (const strategy of strategies) {
+                        evaluations.push(this.tradingEngine.evaluate(strategy.id, user.id));
+                    }
+                }
+                await Promise.all(evaluations);
             } else {
                 // Sequential evaluation - maintain order dependency
-                for (const strategy of strategies) {
-                    await this.tradingEngine.evaluate(strategy.id);
+                for (const user of users) {
+                    for (const strategy of strategies) {
+                        await this.tradingEngine.evaluate(strategy.id, user.id);
+                    }
                 }
             }
 

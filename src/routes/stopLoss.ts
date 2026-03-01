@@ -1,20 +1,22 @@
 import { Router } from "express";
 import { resolveStopLossMonitor } from "../container";
 import type { StopLossConfig } from "../persistence/StopLossRepository";
-import { adminAuthMiddleware } from "../middleware/adminAuth";
+import { userAuthMiddleware } from "../middleware/userAuth";
+import type { AuthSession } from "../types/user";
 
 const router = Router();
 
 // Apply authentication middleware to all stop-loss routes
-router.use(adminAuthMiddleware);
+router.use(userAuthMiddleware);
 
 /**
  * GET /api/stop-loss
  * List all active stop-losses
  */
-router.get("/", (_req, res) => {
+router.get("/", (req, res) => {
     const monitor = resolveStopLossMonitor();
-    const status = monitor.getStatus();
+    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const status = monitor.getStatus(userId);
 
     res.json({
         success: true,
@@ -32,9 +34,10 @@ router.get("/", (_req, res) => {
  */
 router.get("/:symbol", (req, res): void => {
     const monitor = resolveStopLossMonitor();
+    const userId = (req as unknown as { user: AuthSession }).user.userId;
     const symbol = req.params.symbol.toUpperCase();
 
-    const stopLoss = monitor.get(symbol);
+    const stopLoss = monitor.get(userId, symbol);
 
     if (!stopLoss) {
         res.status(404).json({
@@ -63,12 +66,13 @@ router.get("/:symbol", (req, res): void => {
  */
 router.put("/:symbol", async (req, res): Promise<void> => {
     const monitor = resolveStopLossMonitor();
+    const userId = (req as unknown as { user: AuthSession }).user.userId;
     const symbol = req.params.symbol.toUpperCase();
 
     const { stopLossPrice, type, trailingPercent, entryPrice, quantity } = req.body;
 
     // Check if we have an existing stop-loss to update
-    const existing = monitor.get(symbol);
+    const existing = monitor.get(userId, symbol);
 
     if (!existing && (entryPrice === undefined || quantity === undefined)) {
         res.status(400).json({
@@ -79,7 +83,7 @@ router.put("/:symbol", async (req, res): Promise<void> => {
     }
 
     try {
-        const config = await monitor.setStopLoss(symbol, {
+        const config = await monitor.setStopLoss(userId, symbol, {
             entryPrice: entryPrice ?? existing?.entryPrice ?? 0,
             quantity: quantity ?? existing?.quantity ?? 0,
             stopLossPrice,
@@ -107,9 +111,10 @@ router.put("/:symbol", async (req, res): Promise<void> => {
  */
 router.delete("/:symbol", async (req, res): Promise<void> => {
     const monitor = resolveStopLossMonitor();
+    const userId = (req as unknown as { user: AuthSession }).user.userId;
     const symbol = req.params.symbol.toUpperCase();
 
-    const existing = monitor.get(symbol);
+    const existing = monitor.get(userId, symbol);
 
     if (!existing) {
         res.status(404).json({
@@ -120,7 +125,7 @@ router.delete("/:symbol", async (req, res): Promise<void> => {
     }
 
     try {
-        await monitor.removeStopLoss(symbol);
+        await monitor.removeStopLoss(userId, symbol);
 
         res.json({
             success: true,

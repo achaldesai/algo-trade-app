@@ -33,61 +33,202 @@ const POLL_INTERVAL_LOOP = 2000;
 const POLL_INTERVAL_STATUS = 5000;
 const POLL_INTERVAL_STRATEGY = 10000;
 
-// Auth Helper
-function getAdminKey() {
-    return sessionStorage.getItem('adminApiKey') || '';
+// Auth State Management
+let pollIntervals = [];
+
+function getAuthToken() {
+    return sessionStorage.getItem('authToken') || '';
 }
 
-function setAdminKey(key) {
-    if (key) {
-        sessionStorage.setItem('adminApiKey', key);
+function setAuthToken(token, user) {
+    if (token) {
+        sessionStorage.setItem('authToken', token);
+        if (user) sessionStorage.setItem('authUser', JSON.stringify(user));
     } else {
-        sessionStorage.removeItem('adminApiKey');
+        sessionStorage.removeItem('authToken');
+        sessionStorage.removeItem('authUser');
     }
-    // Trigger immediate updates to refresh UI with authenticated data
-    updateSystemHealth();
-    loadSettings();
-    updateLoopStatus();
 }
 
 /**
- * Fetch wrapper that automatically includes admin auth headers for protected endpoints.
- * @param {string} url - The URL to fetch
- * @param {object} options - Fetch options (method, body, etc.)
- * @param {boolean} requiresAuth - Whether this endpoint requires admin auth (default: false)
- * @returns {Promise<Response>} - The fetch response
+ * Fetch wrapper that automatically includes auth headers for protected endpoints.
  */
 async function apiFetch(url, options = {}, requiresAuth = false) {
     const headers = { ...options.headers };
 
-    // Auto-add admin key for authenticated endpoints
     if (requiresAuth) {
-        headers['X-Admin-API-Key'] = getAdminKey();
+        const token = getAuthToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+            // Also send as X-Admin-API-Key for fallback compatibility if needed
+            headers['X-Admin-API-Key'] = token;
+        }
     }
 
-    // Auto-add Content-Type for POST/PUT with body
     if (options.body && typeof options.body === 'string' && !headers['Content-Type']) {
         headers['Content-Type'] = 'application/json';
     }
 
-    return fetch(url, { ...options, headers });
+    const res = await fetch(url, { ...options, headers });
+
+    // Auto-logout on 401 if it's an authenticated route
+    if (res.status === 401 && requiresAuth) {
+        setAuthToken(null, null);
+        stopDashboard();
+        checkAuthState();
+    }
+
+    return res;
 }
 
-// Make the "Auth Required" badge clickable to prompt for key if missing
+// UI Initialization
 document.addEventListener('DOMContentLoaded', () => {
-    const healthStatusEntry = document.getElementById('health-status');
-    if (healthStatusEntry) {
-        healthStatusEntry.style.cursor = 'pointer';
-        healthStatusEntry.title = 'Click to login/update Admin Key';
-        healthStatusEntry.addEventListener('click', () => {
-            const currentKey = getAdminKey();
-            const newKey = prompt('Enter Admin API Key:', currentKey);
-            if (newKey !== null) {
-                setAdminKey(newKey);
+    // Auth UI switching logic
+    const tabLogin = document.getElementById('tab-login');
+    const tabRegister = document.getElementById('tab-register');
+    const formLogin = document.getElementById('login-form');
+    const formRegister = document.getElementById('register-form');
+    const errorMsg = document.getElementById('auth-error-message');
+
+    function switchTab(isLogin) {
+        errorMsg.classList.add('hidden');
+        if (isLogin) {
+            tabLogin.classList.add('active');
+            tabRegister.classList.remove('active');
+            formLogin.classList.add('active');
+            formRegister.classList.remove('active');
+        } else {
+            tabRegister.classList.add('active');
+            tabLogin.classList.remove('active');
+            formRegister.classList.add('active');
+            formLogin.classList.remove('active');
+        }
+    }
+
+    tabLogin.addEventListener('click', () => switchTab(true));
+    tabRegister.addEventListener('click', () => switchTab(false));
+
+    function showError(msg) {
+        errorMsg.textContent = msg;
+        errorMsg.classList.remove('hidden');
+    }
+
+    // Login Submission
+    formLogin.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = formLogin.querySelector('button');
+        btn.disabled = true;
+        btn.textContent = 'Signing in...';
+
+        try {
+            const formData = new FormData(formLogin);
+            const data = Object.fromEntries(formData);
+
+            const res = await fetch('/api/users/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await res.json();
+            if (result.success) {
+                setAuthToken(result.data.token, result.data.user);
+                checkAuthState();
+            } else {
+                showError(result.error || 'Invalid credentials');
             }
+        } catch (_err) {
+            showError('Failed to connect to server');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Sign In';
+        }
+    });
+
+    // Register Submission
+    formRegister.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = formRegister.querySelector('button');
+        btn.disabled = true;
+        btn.textContent = 'Creating account...';
+
+        try {
+            const formData = new FormData(formRegister);
+            const data = Object.fromEntries(formData);
+
+            const res = await fetch('/api/users/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await res.json();
+            if (result.success) {
+                // Auto login after register
+                const loginRes = await fetch('/api/users/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: data.username, password: data.password })
+                });
+                const loginResult = await loginRes.json();
+                if (loginResult.success) {
+                    setAuthToken(loginResult.data.token, loginResult.data.user);
+                    checkAuthState();
+                } else {
+                    switchTab(true);
+                    showError('Account created! Please sign in.');
+                }
+            } else {
+                showError(result.error || 'Registration failed');
+            }
+        } catch (_err) {
+            showError('Failed to connect to server');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Create Account';
+        }
+    });
+
+    // Logout Handler
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            setAuthToken(null, null);
+            stopDashboard();
+            checkAuthState();
         });
     }
+
+    checkAuthState();
 });
+
+function checkAuthState() {
+    const authWrapper = document.getElementById('auth-container');
+    const mainContainer = document.getElementById('main-container');
+    const token = getAuthToken();
+
+    if (token) {
+        authWrapper.classList.add('hidden');
+        mainContainer.classList.remove('hidden');
+
+        const userStr = sessionStorage.getItem('authUser');
+        if (userStr) {
+            const user = JSON.parse(userStr);
+            const badge = document.getElementById('current-user-badge');
+            if (badge) {
+                badge.textContent = `${user.username} (${user.role})`;
+                badge.classList.remove('hidden');
+            }
+        }
+
+        startDashboard();
+    } else {
+        authWrapper.classList.remove('hidden');
+        mainContainer.classList.add('hidden');
+        const badge = document.getElementById('current-user-badge');
+        if (badge) badge.classList.add('hidden');
+    }
+}
 
 // Polling Functions
 async function updateStatus() {
@@ -280,23 +421,36 @@ if (reconSyncBtn) {
     });
 }
 
-// Start Polling
-setInterval(updateStatus, POLL_INTERVAL_STATUS);
-setInterval(updateStrategies, POLL_INTERVAL_STRATEGY);
-setInterval(updateMarketData, POLL_INTERVAL_MARKET);
-setInterval(updateLoopStatus, POLL_INTERVAL_LOOP);
-setInterval(updateReconciliationStatus, POLL_INTERVAL_STATUS);
-setInterval(updateDailyPnL, POLL_INTERVAL_PNL);
-setInterval(updateSystemHealth, POLL_INTERVAL_STATUS);
+// Dashboard Lifecycle
+function startDashboard() {
+    // Clear any existing intervals
+    stopDashboard();
 
-// Initial call
-updateStatus();
-updateStrategies();
-updateMarketData();
-updateLoopStatus();
-updateReconciliationStatus();
-updateDailyPnL();
-updateSystemHealth();
+    // Initial calls
+    updateStatus();
+    updateStrategies();
+    updateMarketData();
+    updateLoopStatus();
+    updateReconciliationStatus();
+    updateDailyPnL();
+    updateSystemHealth();
+    loadSettings();
+    updateNotificationStatus();
+
+    // Start Polling
+    pollIntervals.push(setInterval(updateStatus, POLL_INTERVAL_STATUS));
+    pollIntervals.push(setInterval(updateStrategies, POLL_INTERVAL_STRATEGY));
+    pollIntervals.push(setInterval(updateMarketData, POLL_INTERVAL_MARKET));
+    pollIntervals.push(setInterval(updateLoopStatus, POLL_INTERVAL_LOOP));
+    pollIntervals.push(setInterval(updateReconciliationStatus, POLL_INTERVAL_STATUS));
+    pollIntervals.push(setInterval(updateDailyPnL, POLL_INTERVAL_PNL));
+    pollIntervals.push(setInterval(updateSystemHealth, POLL_INTERVAL_STATUS));
+}
+
+function stopDashboard() {
+    pollIntervals.forEach(clearInterval);
+    pollIntervals = [];
+}
 
 // P&L Functions
 async function updateDailyPnL() {
@@ -472,9 +626,7 @@ document.getElementById('reset-settings-btn').addEventListener('click', async ()
     }
 });
 
-// Initial Load
-loadSettings();
-
+// Initial Load occurs in startDashboard()
 // Control Logic
 const toggleBtn = document.getElementById('toggle-loop-btn');
 const panicBtn = document.getElementById('panic-sell-btn');
@@ -608,6 +760,4 @@ if (testNotificationBtn) {
     });
 }
 
-// Initial notification status check
-updateNotificationStatus();
-
+// Initial notification status check occurs in startDashboard()

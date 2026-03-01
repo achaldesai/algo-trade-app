@@ -10,6 +10,7 @@ interface AngelOneTickMessage {
   ltp?: number;
   lastPrice?: number;
   volume?: number;
+  avgPrice?: number;
   [key: string]: unknown;
 }
 
@@ -47,7 +48,7 @@ export class AngelOneTickerService implements TickerClient {
 
     try {
       // Load latest tokens
-      const tokenData = await loadAngelToken();
+      const tokenData = await loadAngelToken("SYSTEM_DEFAULT");
       if (!tokenData) {
         throw new Error("No Angel One tokens found. Cannot connect ticker.");
       }
@@ -284,6 +285,7 @@ export class AngelOneTickerService implements TickerClient {
           symbol: subscription.symbol,
           price: tick.ltp || tick.lastPrice || 0,
           volume: tick.volume || 0,
+          averagePrice: tick.avgPrice,
           timestamp: new Date(),
         });
 

@@ -62,6 +62,7 @@ export interface MarketTick {
   symbol: string;
   price: number;
   volume: number;
+  averagePrice?: number;
   timestamp: Date;
 }
 

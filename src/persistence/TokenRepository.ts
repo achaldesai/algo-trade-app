@@ -28,14 +28,14 @@ export interface AngelOneTokenData {
  */
 export interface TokenRepository {
   // Zerodha tokens
-  saveZerodhaToken(data: ZerodhaTokenData): Promise<void>;
-  getZerodhaToken(): Promise<ZerodhaTokenData | null>;
-  deleteZerodhaToken(): Promise<void>;
+  saveZerodhaToken(userId: string, data: ZerodhaTokenData): Promise<void>;
+  getZerodhaToken(userId: string): Promise<ZerodhaTokenData | null>;
+  deleteZerodhaToken(userId: string): Promise<void>;
 
   // Angel One tokens
-  saveAngelOneToken(data: AngelOneTokenData): Promise<void>;
-  getAngelOneToken(): Promise<AngelOneTokenData | null>;
-  deleteAngelOneToken(): Promise<void>;
+  saveAngelOneToken(userId: string, data: AngelOneTokenData): Promise<void>;
+  getAngelOneToken(userId: string): Promise<AngelOneTokenData | null>;
+  deleteAngelOneToken(userId: string): Promise<void>;
 
   // Utility
   close(): void;
@@ -66,7 +66,7 @@ export class LmdbTokenRepository implements TokenRepository {
   private readonly ZERODHA_KEY = "auth:zerodha";
   private readonly ANGELONE_KEY = "auth:angelone";
 
-  constructor(private readonly storePath: string) {}
+  constructor(private readonly storePath: string) { }
 
   /**
    * Initialize the LMDB database
@@ -107,18 +107,18 @@ export class LmdbTokenRepository implements TokenRepository {
   /**
    * Save Zerodha token
    */
-  async saveZerodhaToken(data: ZerodhaTokenData): Promise<void> {
+  async saveZerodhaToken(userId: string, data: ZerodhaTokenData): Promise<void> {
     const db = await this.ensureDb();
-    await db.put(this.ZERODHA_KEY, data);
-    logger.info({ userId: data.userId }, "Zerodha token saved to LMDB");
+    await db.put(`${userId}:${this.ZERODHA_KEY}`, data);
+    logger.info({ userId }, "Zerodha token saved to LMDB");
   }
 
   /**
    * Get Zerodha token
    */
-  async getZerodhaToken(): Promise<ZerodhaTokenData | null> {
+  async getZerodhaToken(userId: string): Promise<ZerodhaTokenData | null> {
     const db = await this.ensureDb();
-    const data = db.get(this.ZERODHA_KEY);
+    const data = db.get(`${userId}:${this.ZERODHA_KEY}`);
 
     if (!isZerodhaTokenData(data)) {
       return null;
@@ -127,8 +127,8 @@ export class LmdbTokenRepository implements TokenRepository {
     // Check if token is expired
     const expiresAt = new Date(data.expiresAt);
     if (expiresAt < new Date()) {
-      logger.warn("Stored Zerodha token has expired");
-      await this.deleteZerodhaToken();
+      logger.warn({ userId }, "Stored Zerodha token has expired");
+      await this.deleteZerodhaToken(userId);
       return null;
     }
 
@@ -138,27 +138,27 @@ export class LmdbTokenRepository implements TokenRepository {
   /**
    * Delete Zerodha token
    */
-  async deleteZerodhaToken(): Promise<void> {
+  async deleteZerodhaToken(userId: string): Promise<void> {
     const db = await this.ensureDb();
-    await db.remove(this.ZERODHA_KEY);
-    logger.info("Zerodha token deleted from LMDB");
+    await db.remove(`${userId}:${this.ZERODHA_KEY}`);
+    logger.info({ userId }, "Zerodha token deleted from LMDB");
   }
 
   /**
    * Save Angel One token
    */
-  async saveAngelOneToken(data: AngelOneTokenData): Promise<void> {
+  async saveAngelOneToken(userId: string, data: AngelOneTokenData): Promise<void> {
     const db = await this.ensureDb();
-    await db.put(this.ANGELONE_KEY, data);
-    logger.info({ clientId: data.clientId }, "Angel One token saved to LMDB");
+    await db.put(`${userId}:${this.ANGELONE_KEY}`, data);
+    logger.info({ userId, clientId: data.clientId }, "Angel One token saved to LMDB");
   }
 
   /**
    * Get Angel One token
    */
-  async getAngelOneToken(): Promise<AngelOneTokenData | null> {
+  async getAngelOneToken(userId: string): Promise<AngelOneTokenData | null> {
     const db = await this.ensureDb();
-    const data = db.get(this.ANGELONE_KEY);
+    const data = db.get(`${userId}:${this.ANGELONE_KEY}`);
 
     if (!isAngelOneTokenData(data)) {
       return null;
@@ -167,8 +167,8 @@ export class LmdbTokenRepository implements TokenRepository {
     // Check if token is expired
     const expiresAt = new Date(data.expiresAt);
     if (expiresAt < new Date()) {
-      logger.warn("Stored Angel One token has expired");
-      await this.deleteAngelOneToken();
+      logger.warn({ userId }, "Stored Angel One token has expired");
+      await this.deleteAngelOneToken(userId);
       return null;
     }
 
@@ -178,10 +178,10 @@ export class LmdbTokenRepository implements TokenRepository {
   /**
    * Delete Angel One token
    */
-  async deleteAngelOneToken(): Promise<void> {
+  async deleteAngelOneToken(userId: string): Promise<void> {
     const db = await this.ensureDb();
-    await db.remove(this.ANGELONE_KEY);
-    logger.info("Angel One token deleted from LMDB");
+    await db.remove(`${userId}:${this.ANGELONE_KEY}`);
+    logger.info({ userId }, "Angel One token deleted from LMDB");
   }
 
   /**
@@ -199,53 +199,51 @@ export class LmdbTokenRepository implements TokenRepository {
  * In-memory token repository (for testing or file-based backends)
  */
 export class InMemoryTokenRepository implements TokenRepository {
-  private zerodhaToken: ZerodhaTokenData | null = null;
-  private angelOneToken: AngelOneTokenData | null = null;
+  private zerodhaTokens = new Map<string, ZerodhaTokenData>();
+  private angelOneTokens = new Map<string, AngelOneTokenData>();
 
-  async saveZerodhaToken(data: ZerodhaTokenData): Promise<void> {
-    this.zerodhaToken = data;
+  async saveZerodhaToken(userId: string, data: ZerodhaTokenData): Promise<void> {
+    this.zerodhaTokens.set(userId, data);
   }
 
-  async getZerodhaToken(): Promise<ZerodhaTokenData | null> {
-    if (!this.zerodhaToken) {
-      return null;
-    }
+  async getZerodhaToken(userId: string): Promise<ZerodhaTokenData | null> {
+    const token = this.zerodhaTokens.get(userId);
+    if (!token) return null;
 
     // Check expiry
-    const expiresAt = new Date(this.zerodhaToken.expiresAt);
+    const expiresAt = new Date(token.expiresAt);
     if (expiresAt < new Date()) {
-      this.zerodhaToken = null;
+      this.zerodhaTokens.delete(userId);
       return null;
     }
 
-    return this.zerodhaToken;
+    return token;
   }
 
-  async deleteZerodhaToken(): Promise<void> {
-    this.zerodhaToken = null;
+  async deleteZerodhaToken(userId: string): Promise<void> {
+    this.zerodhaTokens.delete(userId);
   }
 
-  async saveAngelOneToken(data: AngelOneTokenData): Promise<void> {
-    this.angelOneToken = data;
+  async saveAngelOneToken(userId: string, data: AngelOneTokenData): Promise<void> {
+    this.angelOneTokens.set(userId, data);
   }
 
-  async getAngelOneToken(): Promise<AngelOneTokenData | null> {
-    if (!this.angelOneToken) {
-      return null;
-    }
+  async getAngelOneToken(userId: string): Promise<AngelOneTokenData | null> {
+    const token = this.angelOneTokens.get(userId);
+    if (!token) return null;
 
     // Check expiry
-    const expiresAt = new Date(this.angelOneToken.expiresAt);
+    const expiresAt = new Date(token.expiresAt);
     if (expiresAt < new Date()) {
-      this.angelOneToken = null;
+      this.angelOneTokens.delete(userId);
       return null;
     }
 
-    return this.angelOneToken;
+    return token;
   }
 
-  async deleteAngelOneToken(): Promise<void> {
-    this.angelOneToken = null;
+  async deleteAngelOneToken(userId: string): Promise<void> {
+    this.angelOneTokens.delete(userId);
   }
 
   close(): void {

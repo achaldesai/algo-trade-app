@@ -1,7 +1,10 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert";
-import { createRequest, createResponse } from "node-mocks-http";
+import { createRequest, createResponse, type RequestMethod } from "node-mocks-http";
+import express from "express";
+import { EventEmitter, once } from "node:events";
 import pnlRouter from "./pnl";
+import errorHandler from "../middleware/errorHandler";
 import { setContainer, AppContainer } from "../container";
 
 // Mock data
@@ -62,18 +65,45 @@ const mockContainer = {
     riskManager: mockRiskManager,
 } as unknown as AppContainer;
 
+interface RequestOptions {
+    method: RequestMethod;
+    url: string;
+    body?: unknown;
+}
+
+const testApp = express();
+testApp.use((req, res, next) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (req as any).user = { userId: "test-user" };
+    next();
+});
+testApp.use("/api/pnl", pnlRouter);
+testApp.use(errorHandler);
+
+const invokeApp = async ({ method, url, body }: RequestOptions) => {
+    const req = createRequest({
+        method,
+        url,
+        headers: { "content-type": "application/json" }
+    });
+    if (typeof body !== "undefined") {
+        req.body = body;
+    }
+    const res = createResponse({ eventEmitter: EventEmitter });
+    const waitForEnd = once(res, "end");
+    testApp(req, res);
+    req.emit("end");
+    await waitForEnd;
+    return res;
+};
+
 describe("PnL Routes", () => {
     beforeEach(() => {
         setContainer(mockContainer);
     });
 
     it("GET /daily should calculate daily PnL correctly", async () => {
-        const req = createRequest({ method: "GET", url: "/daily" });
-        const res = createResponse();
-        const next = mock.fn();
-
-        await pnlRouter(req, res, next);
-        await new Promise(resolve => setTimeout(resolve, 10));
+        const res = await invokeApp({ method: "GET", url: "/api/pnl/daily" });
 
         assert.strictEqual(res.statusCode, 200);
         const data = res._getJSONData().data;
@@ -88,12 +118,7 @@ describe("PnL Routes", () => {
     });
 
     it("GET /summary should return overall summary", async () => {
-        const req = createRequest({ method: "GET", url: "/summary" });
-        const res = createResponse();
-        const next = mock.fn();
-
-        await pnlRouter(req, res, next);
-        await new Promise(resolve => setTimeout(resolve, 10));
+        const res = await invokeApp({ method: "GET", url: "/api/pnl/summary" });
 
         assert.strictEqual(res.statusCode, 200);
         const data = res._getJSONData().data;
@@ -106,12 +131,7 @@ describe("PnL Routes", () => {
     });
 
     it("GET /positions should return positions with live prices", async () => {
-        const req = createRequest({ method: "GET", url: "/positions" });
-        const res = createResponse();
-        const next = mock.fn();
-
-        await pnlRouter(req, res, next);
-        await new Promise(resolve => setTimeout(resolve, 10));
+        const res = await invokeApp({ method: "GET", url: "/api/pnl/positions" });
 
         assert.strictEqual(res.statusCode, 200);
         const positions = res._getJSONData().data.positions;

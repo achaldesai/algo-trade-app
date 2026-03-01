@@ -2,18 +2,22 @@ import { Router } from "express";
 import { z } from "zod";
 import { resolvePortfolioService } from "../container";
 import { validateBody } from "../middleware/validateRequest";
+import { userAuthMiddleware } from "../middleware/userAuth";
+import type { AuthSession } from "../types/user";
 
 const router = Router();
+router.use(userAuthMiddleware);
 
 const createStockSchema = z.object({
   symbol: z.string().min(1, "Symbol is required"),
   name: z.string().min(1, "Name is required"),
 });
 
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
     const portfolioService = resolvePortfolioService();
-    const stocks = await portfolioService.listStocks();
+    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const stocks = await portfolioService.listStocks(userId);
     res.json({
       data: stocks.map((stock) => ({
         ...stock,
@@ -28,7 +32,8 @@ router.get("/", async (_req, res, next) => {
 router.post("/", validateBody(createStockSchema), async (req, res, next) => {
   try {
     const portfolioService = resolvePortfolioService();
-    const stock = await portfolioService.addStock(req.body);
+    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const stock = await portfolioService.addStock(userId, req.body);
     res.status(201).json({
       data: {
         ...stock,

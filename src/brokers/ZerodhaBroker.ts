@@ -119,7 +119,7 @@ export class ZerodhaBroker implements BrokerClient {
 
             try {
               const tokenRepo = getTokenRepository(env.portfolioStorePath);
-              await tokenRepo.saveZerodhaToken(tokenData);
+              await tokenRepo.saveZerodhaToken(env.zerodhaUserId, tokenData);
               process.env.ZERODHA_ACCESS_TOKEN = session.access_token;
             } catch (saveError) {
               logger.warn({ err: saveError }, "Failed to save Zerodha token to repository (non-fatal)");

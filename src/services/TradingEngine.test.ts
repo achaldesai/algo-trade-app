@@ -193,7 +193,7 @@ describe("TradingEngine broker fallback", () => {
     const riskManager = resolveRiskManager();
 
     const engine = new TradingEngine({
-      broker: failingBroker,
+      brokerFactory: async () => failingBroker,
       fallbackBroker,
       portfolioService,
       marketData,
@@ -203,7 +203,7 @@ describe("TradingEngine broker fallback", () => {
     const strategy = new TestStrategy(fallbackBroker);
     engine.registerStrategy(strategy);
 
-    const result = await engine.evaluate(strategy.id);
+    const result = await engine.evaluate(strategy.id, "test-user");
 
     assert.equal(failingBroker.connectAttempts, 1);
     assert.equal(fallbackBroker.connectCalls, 1);
@@ -225,7 +225,7 @@ describe("TradingEngine broker fallback", () => {
     const riskManager = resolveRiskManager();
 
     const engine = new TradingEngine({
-      broker: failingBroker,
+      brokerFactory: async () => failingBroker,
       fallbackBroker,
       portfolioService,
       marketData,
@@ -234,7 +234,7 @@ describe("TradingEngine broker fallback", () => {
 
     engine.registerStrategy(new GuardStrategy());
 
-    const result = await engine.evaluate("guard-strategy");
+    const result = await engine.evaluate("guard-strategy", "test-user");
 
     assert.equal(failingBroker.connectAttempts, 1);
     assert.equal(fallbackBroker.connectAttempts, 1);

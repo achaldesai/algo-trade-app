@@ -10,9 +10,63 @@
 </head>
 
 <body>
-    <div class="container">
+    <!-- Auth Container Overlay -->
+    <div id="auth-container" class="auth-wrapper">
+        <div class="auth-card">
+            <div class="auth-tabs">
+                <button type="button" class="auth-tab active" id="tab-login">Sign In</button>
+                <button type="button" class="auth-tab" id="tab-register">Sign Up</button>
+            </div>
+            
+            <div id="auth-error-message" class="auth-error hidden"></div>
+
+            <!-- Login Form -->
+            <form id="login-form" class="auth-form active">
+                <h2>Welcome Back</h2>
+                <p class="auth-subtitle">Sign in to your dashboard</p>
+                <div class="form-group">
+                    <label for="login-username">Username</label>
+                    <input type="text" id="login-username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" name="password" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+            </form>
+
+            <!-- Register Form -->
+            <form id="register-form" class="auth-form">
+                <h2>Create Account</h2>
+                <p class="auth-subtitle">Join to start trading</p>
+                <div class="form-group">
+                    <label for="register-username">Username</label>
+                    <input type="text" id="register-username" name="username" required minlength="3" maxlength="50">
+                </div>
+                <div class="form-group">
+                    <label for="register-password">Password</label>
+                    <input type="password" id="register-password" name="password" required minlength="8">
+                    <small class="help-text">Minimum 8 characters</small>
+                </div>
+                <div class="form-group">
+                    <label for="register-role">Role (Optional)</label>
+                    <select id="register-role" name="role" class="input-modern">
+                        <option value="USER" selected>USER</option>
+                        <option value="ADMIN">ADMIN (Dev Only)</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Create Account</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Dashboard Container -->
+    <div id="main-container" class="container hidden">
         <header>
-            <h1>Algo Trade Dashboard</h1>
+            <div class="header-title">
+                <h1>Algo Trade Dashboard</h1>
+                <span id="current-user-badge" class="user-badge hidden"></span>
+            </div>
             <div class="status-bar">
                 <div class="status-item health-indicator">
                     <span id="health-dot" class="health-dot pending"></span>
@@ -33,6 +87,9 @@
                 <div class="status-item">
                     <span class="label">Positions:</span>
                     <span id="recon-status" class="status-value pending">Checking...</span>
+                </div>
+                <div class="status-item logout-wrapper">
+                    <button id="logout-btn" class="btn btn-danger btn-sm">Logout</button>
                 </div>
             </div>
         </header>
@@ -175,7 +232,7 @@
                 </div>
             </section>
         </main>
-    </div>
+    </div> <!-- /#main-container -->
     <script src="dashboard.js"></script>
 </body>
 

@@ -14,6 +14,8 @@ import stopLossRouter from "./routes/stopLoss";
 import pnlRouter from "./routes/pnl";
 import auditLogsRouter from "./routes/auditLogs";
 import notificationsRouter from "./routes/notifications";
+import scannerRouter from "./routes/scanner";
+import usersRouter from "./routes/users";
 
 import { rateLimit } from "express-rate-limit";
 
@@ -60,6 +62,7 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
+app.use("/api/users", usersRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/stocks", stocksRouter);
 app.use("/api/trades", tradesRouter);
@@ -74,6 +77,7 @@ app.use("/api/stop-loss", stopLossRouter);
 app.use("/api/pnl", pnlRouter);
 app.use("/api/audit-logs", auditLogsRouter);
 app.use("/api/notifications", notificationsRouter);
+app.use("/api/scanner", scannerRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

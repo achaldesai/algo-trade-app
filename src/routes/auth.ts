@@ -7,18 +7,20 @@ import logger from "../utils/logger";
 import { HttpError } from "../utils/HttpError";
 import { getTokenRepository } from "../persistence/TokenRepository";
 import type { ZerodhaTokenData, AngelOneTokenData } from "../persistence/TokenRepository";
+import { userAuthMiddleware } from "../middleware/userAuth";
+import type { AuthSession } from "../types/user";
 
 const router = Router();
 
 /**
  * Save Zerodha access token to LMDB
  */
-async function saveToken(tokenData: ZerodhaTokenData): Promise<void> {
+async function saveToken(userId: string, tokenData: ZerodhaTokenData): Promise<void> {
   try {
     const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    await tokenRepo.saveZerodhaToken(tokenData);
+    await tokenRepo.saveZerodhaToken(userId, tokenData);
   } catch (error) {
-    logger.error({ err: error }, "Failed to save Zerodha token");
+    logger.error({ err: error, userId }, "Failed to save Zerodha token");
     throw error;
   }
 }
@@ -26,12 +28,12 @@ async function saveToken(tokenData: ZerodhaTokenData): Promise<void> {
 /**
  * Load Zerodha access token from LMDB
  */
-async function loadToken(): Promise<ZerodhaTokenData | null> {
+async function loadToken(userId: string): Promise<ZerodhaTokenData | null> {
   try {
     const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    return await tokenRepo.getZerodhaToken();
+    return await tokenRepo.getZerodhaToken(userId);
   } catch (error) {
-    logger.error({ err: error }, "Failed to load Zerodha token");
+    logger.error({ err: error, userId }, "Failed to load Zerodha token");
     return null;
   }
 }
@@ -40,7 +42,7 @@ async function loadToken(): Promise<ZerodhaTokenData | null> {
  * GET /auth/zerodha/login
  * Redirect user to Zerodha login page
  */
-router.get("/zerodha/login", (req: Request, res: Response) => {
+router.get("/zerodha/login", userAuthMiddleware, (req: Request, res: Response) => {
   try {
     if (!env.brokerApiKey) {
       throw new HttpError(400, "Zerodha API key not configured");
@@ -74,8 +76,10 @@ router.get("/zerodha/login", (req: Request, res: Response) => {
  * Automatic redirect handler from Zerodha
  * Query: ?request_token=...&status=success
  */
-router.get("/zerodha/callback", async (req: Request, res: Response) => {
+router.get("/zerodha/callback", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
+    const sessionUser = (req as unknown as { user: AuthSession }).user;
+    const userId = sessionUser.userId;
     const { request_token: requestToken } = req.query as { request_token?: string };
 
     if (!requestToken) {
@@ -104,14 +108,14 @@ router.get("/zerodha/callback", async (req: Request, res: Response) => {
     const tokenData: ZerodhaTokenData = {
       accessToken: session.access_token,
       expiresAt: expiryDate.toISOString(),
-      userId: session.user_id,
+      userId: session.user_id, // Zerodha's external user ID, keeping it in data
       apiKey: env.brokerApiKey,
     };
 
-    await saveToken(tokenData);
-    process.env.ZERODHA_ACCESS_TOKEN = session.access_token;
+    await saveToken(userId, tokenData);
+    // process.env.ZERODHA_ACCESS_TOKEN = session.access_token; // Removed global mutation
 
-    logger.info({ userId: session.user_id }, "Zerodha automatic authentication successful");
+    logger.info({ userId, zerodhaUserId: session.user_id }, "Zerodha automatic authentication successful");
 
     res.redirect("/");
   } catch (error) {
@@ -125,8 +129,10 @@ router.get("/zerodha/callback", async (req: Request, res: Response) => {
  * Exchange request token for access token
  * Body: { requestToken: string }
  */
-router.post("/zerodha/callback", async (req: Request, res: Response) => {
+router.post("/zerodha/callback", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
+    const sessionUser = (req as unknown as { user: AuthSession }).user;
+    const userId = sessionUser.userId;
     const { requestToken } = req.body as { requestToken?: string };
 
     if (!requestToken) {
@@ -162,13 +168,12 @@ router.post("/zerodha/callback", async (req: Request, res: Response) => {
       apiKey: env.brokerApiKey,
     };
 
-    await saveToken(tokenData);
-
-    process.env.ZERODHA_ACCESS_TOKEN = session.access_token;
+    await saveToken(userId, tokenData);
 
     logger.info(
       {
-        userId: session.user_id,
+        userId,
+        zerodhaUserId: session.user_id,
         expiresAt: expiryDate.toISOString(),
       },
       "Zerodha authentication successful"
@@ -203,20 +208,13 @@ router.post("/zerodha/callback", async (req: Request, res: Response) => {
  * GET /auth/zerodha/status
  * Check authentication status
  */
-router.get("/zerodha/status", async (req: Request, res: Response) => {
+router.get("/zerodha/status", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const tokenData = await loadToken();
+    const sessionUser = (req as unknown as { user: AuthSession }).user;
+    const userId = sessionUser.userId;
+    const tokenData = await loadToken(userId);
 
-    if (!tokenData && process.env.ZERODHA_ACCESS_TOKEN) {
-      res.json({
-        authenticated: true,
-        isActive: true,
-        userId: "ENV_USER",
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        message: "Zerodha session active via environment variable",
-      });
-      return;
-    }
+    // Removed the "ENV_USER" check as it's legacy and unsafe for multi-tenant
 
     if (!tokenData) {
       res.json({
@@ -226,15 +224,12 @@ router.get("/zerodha/status", async (req: Request, res: Response) => {
       return;
     }
 
-    const currentToken = env.brokerAccessToken || process.env.ZERODHA_ACCESS_TOKEN;
-    const isActive = currentToken === tokenData.accessToken;
-
     res.json({
       authenticated: true,
-      isActive,
-      userId: tokenData.userId,
+      isActive: true,
+      zerodhaUserId: tokenData.userId,
       expiresAt: tokenData.expiresAt,
-      message: isActive ? "Zerodha session is active" : "Token found but not currently active",
+      message: "Zerodha session is active",
     });
   } catch (error) {
     logger.error({ err: error }, "Failed to check auth status");
@@ -246,14 +241,14 @@ router.get("/zerodha/status", async (req: Request, res: Response) => {
  * POST /auth/zerodha/logout
  * Clear stored access token
  */
-router.post("/zerodha/logout", async (req: Request, res: Response) => {
+router.post("/zerodha/logout", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
+    const sessionUser = (req as unknown as { user: AuthSession }).user;
+    const userId = sessionUser.userId;
     const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    await tokenRepo.deleteZerodhaToken();
+    await tokenRepo.deleteZerodhaToken(userId);
 
-    delete process.env.ZERODHA_ACCESS_TOKEN;
-
-    logger.info("Zerodha session terminated");
+    logger.info({ userId }, "Zerodha session terminated");
 
     res.json({
       success: true,
@@ -269,9 +264,11 @@ router.post("/zerodha/logout", async (req: Request, res: Response) => {
  * GET /auth/zerodha/token
  * Get current access token (for debugging/manual use)
  */
-router.get("/zerodha/token", async (req: Request, res: Response) => {
+router.get("/zerodha/token", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const tokenData = await loadToken();
+    const sessionUser = (req as unknown as { user: AuthSession }).user;
+    const userId = sessionUser.userId;
+    const tokenData = await loadToken(userId);
 
     if (!tokenData) {
       throw new HttpError(404, "No access token found");
@@ -297,12 +294,12 @@ router.get("/zerodha/token", async (req: Request, res: Response) => {
 /**
  * Save Angel One token to LMDB
  */
-async function saveAngelToken(tokenData: AngelOneTokenData): Promise<void> {
+async function saveAngelToken(userId: string, tokenData: AngelOneTokenData): Promise<void> {
   try {
     const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    await tokenRepo.saveAngelOneToken(tokenData);
+    await tokenRepo.saveAngelOneToken(userId, tokenData);
   } catch (error) {
-    logger.error({ err: error }, "Failed to save Angel One token");
+    logger.error({ err: error, userId }, "Failed to save Angel One token");
     throw error;
   }
 }
@@ -310,12 +307,12 @@ async function saveAngelToken(tokenData: AngelOneTokenData): Promise<void> {
 /**
  * Load Angel One token from LMDB
  */
-async function loadAngelToken(): Promise<AngelOneTokenData | null> {
+async function loadAngelToken(userId: string): Promise<AngelOneTokenData | null> {
   try {
     const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    return await tokenRepo.getAngelOneToken();
+    return await tokenRepo.getAngelOneToken(userId);
   } catch (error) {
-    logger.error({ err: error }, "Failed to load Angel One token");
+    logger.error({ err: error, userId }, "Failed to load Angel One token");
     return null;
   }
 }
@@ -325,8 +322,10 @@ async function loadAngelToken(): Promise<AngelOneTokenData | null> {
  * Authenticate with Angel One SmartAPI
  * Body: { totp?: string }
  */
-router.post("/angelone/login", async (req: Request, res: Response) => {
+router.post("/angelone/login", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
+    const sessionUser = (req as unknown as { user: AuthSession }).user;
+    const userId = sessionUser.userId;
     const { totp } = req.body as { totp?: string };
 
     if (!env.angelOneApiKey || !env.angelOneClientId || !env.angelOnePassword) {
@@ -383,10 +382,11 @@ router.post("/angelone/login", async (req: Request, res: Response) => {
       expiresAt: expiryDate.toISOString(),
     };
 
-    await saveAngelToken(tokenData);
+    await saveAngelToken(userId, tokenData);
 
     logger.info(
       {
+        userId,
         clientId: env.angelOneClientId,
         expiresAt: expiryDate.toISOString(),
       },
@@ -421,9 +421,11 @@ router.post("/angelone/login", async (req: Request, res: Response) => {
  * GET /auth/angelone/status
  * Check Angel One authentication status
  */
-router.get("/angelone/status", async (req: Request, res: Response) => {
+router.get("/angelone/status", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const tokenData = await loadAngelToken();
+    const sessionUser = (req as unknown as { user: AuthSession }).user;
+    const userId = sessionUser.userId;
+    const tokenData = await loadAngelToken(userId);
 
     if (!tokenData) {
       res.json({
@@ -449,12 +451,14 @@ router.get("/angelone/status", async (req: Request, res: Response) => {
  * POST /auth/angelone/logout
  * Clear stored Angel One token
  */
-router.post("/angelone/logout", async (req: Request, res: Response) => {
+router.post("/angelone/logout", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
+    const sessionUser = (req as unknown as { user: AuthSession }).user;
+    const userId = sessionUser.userId;
     const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    await tokenRepo.deleteAngelOneToken();
+    await tokenRepo.deleteAngelOneToken(userId);
 
-    logger.info("Angel One session terminated");
+    logger.info({ userId }, "Angel One session terminated");
 
     res.json({
       success: true,
@@ -474,9 +478,11 @@ router.post("/angelone/logout", async (req: Request, res: Response) => {
  * This is useful for recovering from mid-session disconnections but won't extend the session.
  * For a fresh session after expiry, use POST /api/auth/angelone/login
  */
-router.post("/angelone/refresh", async (req: Request, res: Response) => {
+router.post("/angelone/refresh", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const tokenData = await loadAngelToken();
+    const sessionUser = (req as unknown as { user: AuthSession }).user;
+    const userId = sessionUser.userId;
+    const tokenData = await loadAngelToken(userId);
 
     if (!tokenData) {
       throw new HttpError(404, "No Angel One session found");
@@ -518,10 +524,11 @@ router.post("/angelone/refresh", async (req: Request, res: Response) => {
       expiresAt: tokenData.expiresAt, // Same expiry as original
     };
 
-    await saveAngelToken(updatedTokenData);
+    await saveAngelToken(userId, updatedTokenData);
 
     logger.info(
       {
+        userId,
         clientId: tokenData.clientId,
         expiresAt: tokenData.expiresAt,
       },

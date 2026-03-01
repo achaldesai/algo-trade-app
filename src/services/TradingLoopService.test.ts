@@ -23,7 +23,9 @@ describe("TradingLoopService", () => {
         TradingLoopService.instance = undefined;
         service = new TradingLoopService(
             mockMarketDataService as MarketDataService,
-            mockTradingEngine as TradingEngine
+            mockTradingEngine as TradingEngine,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            {} as any // Mock UserRepository
         );
     });
 

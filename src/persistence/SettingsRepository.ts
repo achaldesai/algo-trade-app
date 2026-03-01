@@ -3,8 +3,8 @@ import { EventEmitter } from "events";
 
 export interface SettingsRepository extends EventEmitter {
     initialize(): Promise<void>;
-    getRiskLimits(): RiskLimits;
-    saveRiskLimits(limits: RiskLimits): Promise<void>;
-    resetToDefaults(): Promise<RiskLimits>;
+    getRiskLimits(userId: string): RiskLimits;
+    saveRiskLimits(userId: string, limits: RiskLimits): Promise<void>;
+    resetToDefaults(userId: string): Promise<RiskLimits>;
     close(): Promise<void>;
 }

@@ -1,9 +1,13 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert";
-import { createRequest, createResponse } from "node-mocks-http";
+import { createRequest, createResponse, type RequestMethod } from "node-mocks-http";
+import express from "express";
+import { EventEmitter, once } from "node:events";
 import controlRouter from "./control";
+import errorHandler from "../middleware/errorHandler";
 import { TradingLoopService } from "../services/TradingLoopService";
 import { setContainer, AppContainer } from "../container";
+import * as persistenceModule from "../persistence";
 
 // Mock middleware is tricky without mock.module if we rely on imports.
 // However, since controlRouter imports middleware directly, we can't easily swap it without mock.module.
@@ -55,10 +59,59 @@ const mockContainer = {
 // Mock TradingLoopService static getInstance
 TradingLoopService.getInstance = mock.fn(() => mockLoopService as unknown as TradingLoopService);
 
+const testApp = express();
+// Mock admin auth logic just by setting headers, but the router does check env.adminApiKey.
+// Since env.adminApiKey is set in this file, we can bypass manually or let real adminAuthMiddleware run
+testApp.use(express.json());
+testApp.use("/api/control", controlRouter);
+testApp.use(errorHandler);
+
+interface RequestOptions {
+    method: RequestMethod;
+    url: string;
+    body?: unknown;
+    headers?: Record<string, string>;
+}
+
+const invokeApp = async ({ method, url, body, headers }: RequestOptions) => {
+    const req = createRequest({
+        method,
+        url,
+        headers: {
+            "content-type": "application/json",
+            ...headers
+        }
+    });
+
+    if (typeof body !== "undefined") {
+        req.body = body;
+    }
+
+    const res = createResponse({ eventEmitter: EventEmitter });
+    const waitForEnd = once(res, "end");
+    testApp(req, res);
+
+    // For sync handlers that don't await, they call res.json right away and emit end.
+    // However, fast rendering in express might need req to close.
+    // node-mocks-http sometimes requires explicitly ending the request stream.
+    req.emit("end");
+
+    await waitForEnd;
+    return res;
+};
+
 describe("Control Routes", () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         setContainer(mockContainer);
 
+        // Ensure at least one test user exists for panic-sell to process
+        await persistenceModule.ensureUserStore();
+        const userRepo = persistenceModule.getUserRepository();
+        try {
+            await userRepo.createUser({ username: "test_panic_user", passwordHash: "password", role: "USER" });
+        } catch (_e) {
+            // Might already exist if tests run in same process
+        }
         // Reset mocks
         mockLoopService.start.mock.resetCalls();
         mockLoopService.stop.mock.resetCalls();
@@ -68,15 +121,11 @@ describe("Control Routes", () => {
     });
 
     it("GET /status should return combined status", async () => {
-        const req = createRequest({
+        const res = await invokeApp({
             method: "GET",
-            url: "/status",
+            url: "/api/control/status",
             headers: { "x-admin-api-key": "test-key" }
         });
-        const res = createResponse();
-        const next = mock.fn();
-
-        await controlRouter(req, res, next);
 
         assert.strictEqual(res.statusCode, 200);
         const data = res._getJSONData();
@@ -86,15 +135,11 @@ describe("Control Routes", () => {
     });
 
     it("POST /start should start loop and monitor", async () => {
-        const req = createRequest({
+        const res = await invokeApp({
             method: "POST",
-            url: "/start",
+            url: "/api/control/start",
             headers: { "x-admin-api-key": "test-key" }
         });
-        const res = createResponse();
-        const next = mock.fn();
-
-        await controlRouter(req, res, next);
 
         assert.strictEqual(res.statusCode, 200);
         assert.strictEqual(mockLoopService.start.mock.callCount(), 1);
@@ -102,15 +147,11 @@ describe("Control Routes", () => {
     });
 
     it("POST /stop should stop loop and monitor", async () => {
-        const req = createRequest({
+        const res = await invokeApp({
             method: "POST",
-            url: "/stop",
+            url: "/api/control/stop",
             headers: { "x-admin-api-key": "test-key" }
         });
-        const res = createResponse();
-        const next = mock.fn();
-
-        await controlRouter(req, res, next);
 
         assert.strictEqual(res.statusCode, 200);
         assert.strictEqual(mockLoopService.stop.mock.callCount(), 1);
@@ -118,16 +159,12 @@ describe("Control Routes", () => {
     });
 
     it("POST /panic-sell should fail without confirmation token", async () => {
-        const req = createRequest({
+        const res = await invokeApp({
             method: "POST",
-            url: "/panic-sell",
+            url: "/api/control/panic-sell",
             body: {},
             headers: { "x-admin-api-key": "test-key" }
         });
-        const res = createResponse();
-        const next = mock.fn();
-
-        await controlRouter(req, res, next);
 
         assert.strictEqual(res.statusCode, 400);
         assert.match(res._getJSONData().message, /Invalid confirmation/);
@@ -135,32 +172,17 @@ describe("Control Routes", () => {
     });
 
     it("POST /panic-sell should execute with valid token", async () => {
-        const req = createRequest({
+        const res = await invokeApp({
             method: "POST",
-            url: "/panic-sell",
+            url: "/api/control/panic-sell",
             body: { confirmToken: "PANIC-CONFIRM" },
             headers: { "x-admin-api-key": "test-key" }
         });
-        const res = createResponse();
-        const next = mock.fn();
-
-        await controlRouter(req, res, next);
-
-        // Handler is async, ensure we await logic. 
-        // Actually controlRouter returns void, but the handler logic is async.
-        // We can't easily await the internal handler completion via router call unless we promisify it?
-        // OR we just wait a tick?
-        // Since panic-sell is async, calling it via router() might return before result if not careful.
-        // However, standard testing often just awaits.
-        // Let's rely on node-mocks-http EventEmitter if needed, or simply wait small timeout if flaky.
-        // For now, assume await works enough or verify mocks.
-
-        // Wait for async execution
-        await new Promise(resolve => setTimeout(resolve, 10));
 
         assert.strictEqual(res.statusCode, 200);
         assert.strictEqual(mockLoopService.stop.mock.callCount(), 1);
         assert.strictEqual(mockStopLossMonitor.stop.mock.callCount(), 1);
-        assert.strictEqual(mockTradingEngine.sellAllPositions.mock.callCount(), 1);
+        const users = await persistenceModule.getUserRepository().listUsers();
+        assert.strictEqual(mockTradingEngine.sellAllPositions.mock.callCount(), users.length);
     });
 });

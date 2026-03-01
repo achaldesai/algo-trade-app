@@ -34,7 +34,7 @@ class MockTradingEngine extends EventEmitter {
         return this.activeBroker;
     }
 
-    async executeSignal(_broker: unknown, signal: unknown) {
+    async executeSignal(_userId: string, _broker: unknown, signal: unknown) {
         return {
             signal,
             executions: [
@@ -51,8 +51,8 @@ class MockTradingEngine extends EventEmitter {
         };
     }
 
-    emitTrade(trade: Trade) {
-        this.emit("trade-executed", trade);
+    emitTrade(trade: Trade, userId = "test-user") {
+        this.emit("trade-executed", { trade, userId });
     }
 }
 
@@ -61,21 +61,28 @@ class MockStopLossRepository extends EventEmitter implements StopLossRepository 
 
     async initialize() { }
 
-    getAll(): StopLossConfig[] {
+    getBySymbol(symbol: string): StopLossConfig[] {
+        return Array.from(this.configs.values()).filter(c => c.symbol === symbol.toUpperCase());
+    }
+
+    getAll(userId?: string): StopLossConfig[] {
+        if (userId) {
+            return Array.from(this.configs.values()).filter(c => c.userId === userId);
+        }
         return Array.from(this.configs.values());
     }
 
-    get(symbol: string): StopLossConfig | undefined {
-        return this.configs.get(symbol.toUpperCase());
+    get(userId: string, symbol: string): StopLossConfig | undefined {
+        return this.configs.get(`${userId}:${symbol.toUpperCase()}`);
     }
 
     async save(config: StopLossConfig) {
-        this.configs.set(config.symbol.toUpperCase(), config);
+        this.configs.set(`${config.userId}:${config.symbol.toUpperCase()}`, config);
         this.emit("saved", config);
     }
 
-    async delete(symbol: string) {
-        this.configs.delete(symbol.toUpperCase());
+    async delete(userId: string, symbol: string) {
+        this.configs.delete(`${userId}:${symbol.toUpperCase()}`);
         this.emit("deleted", symbol);
     }
 
@@ -116,6 +123,7 @@ describe("StopLossMonitor", () => {
             tradingEngine: mockTradingEngine as unknown as TradingEngine,
             stopLossRepository: mockRepository,
             riskManager: mockRiskManager as unknown as RiskManager,
+            brokerFactory: async () => mockTradingEngine.activeBroker as unknown as import("../brokers/BrokerClient").default,
         });
     });
 
@@ -138,7 +146,7 @@ describe("StopLossMonitor", () => {
 
     describe("setStopLoss", () => {
         it("should create a fixed stop-loss at default 3%", async () => {
-            const config = await monitor.setStopLoss("RELIANCE", {
+            const config = await monitor.setStopLoss("test-user", "RELIANCE", {
                 entryPrice: 100,
                 quantity: 10,
             });
@@ -151,7 +159,7 @@ describe("StopLossMonitor", () => {
         });
 
         it("should create a trailing stop-loss", async () => {
-            const config = await monitor.setStopLoss("TCS", {
+            const config = await monitor.setStopLoss("test-user", "TCS", {
                 entryPrice: 200,
                 quantity: 5,
                 type: "TRAILING",
@@ -167,7 +175,7 @@ describe("StopLossMonitor", () => {
         });
 
         it("should allow custom stop-loss price", async () => {
-            const config = await monitor.setStopLoss("INFY", {
+            const config = await monitor.setStopLoss("test-user", "INFY", {
                 entryPrice: 150,
                 quantity: 20,
                 stopLossPrice: 140,
@@ -193,7 +201,7 @@ describe("StopLossMonitor", () => {
             // Wait for async handler
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            const stopLoss = monitor.get("HDFC");
+            const stopLoss = monitor.get("test-user", "HDFC");
             assert.ok(stopLoss, "Stop-loss should be created");
             assert.strictEqual(stopLoss.entryPrice, 100);
             assert.strictEqual(stopLoss.quantity, 10);
@@ -202,7 +210,7 @@ describe("StopLossMonitor", () => {
 
         it("should update stop-loss on additional BUY trade", async () => {
             // First trade
-            await monitor.setStopLoss("HDFC", {
+            await monitor.setStopLoss("test-user", "HDFC", {
                 entryPrice: 100,
                 quantity: 10,
             });
@@ -219,7 +227,7 @@ describe("StopLossMonitor", () => {
             mockTradingEngine.emitTrade(trade);
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            const stopLoss = monitor.get("HDFC");
+            const stopLoss = monitor.get("test-user", "HDFC");
             assert.ok(stopLoss);
             assert.strictEqual(stopLoss.quantity, 20);
             // Average price: (100*10 + 110*10) / 20 = 105
@@ -227,7 +235,7 @@ describe("StopLossMonitor", () => {
         });
 
         it("should reduce quantity on SELL trade", async () => {
-            await monitor.setStopLoss("RELIANCE", {
+            await monitor.setStopLoss("test-user", "RELIANCE", {
                 entryPrice: 100,
                 quantity: 20,
             });
@@ -244,13 +252,13 @@ describe("StopLossMonitor", () => {
             mockTradingEngine.emitTrade(trade);
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            const stopLoss = monitor.get("RELIANCE");
+            const stopLoss = monitor.get("test-user", "RELIANCE");
             assert.ok(stopLoss);
             assert.strictEqual(stopLoss.quantity, 15);
         });
 
         it("should remove stop-loss when position fully closed", async () => {
-            await monitor.setStopLoss("TCS", {
+            await monitor.setStopLoss("test-user", "TCS", {
                 entryPrice: 100,
                 quantity: 10,
             });
@@ -267,7 +275,7 @@ describe("StopLossMonitor", () => {
             mockTradingEngine.emitTrade(trade);
             await new Promise(resolve => setTimeout(resolve, 50));
 
-            const stopLoss = monitor.get("TCS");
+            const stopLoss = monitor.get("test-user", "TCS");
             assert.strictEqual(stopLoss, undefined, "Stop-loss should be removed");
         });
     });
@@ -276,7 +284,7 @@ describe("StopLossMonitor", () => {
         it("should trigger stop-loss when price breaches", async () => {
             monitor.start();
 
-            await monitor.setStopLoss("INFY", {
+            await monitor.setStopLoss("test-user", "INFY", {
                 entryPrice: 100,
                 quantity: 10,
             });
@@ -302,7 +310,7 @@ describe("StopLossMonitor", () => {
         it("should NOT trigger stop-loss when price is above threshold", async () => {
             monitor.start();
 
-            await monitor.setStopLoss("INFY", {
+            await monitor.setStopLoss("test-user", "INFY", {
                 entryPrice: 100,
                 quantity: 10,
             });
@@ -328,7 +336,7 @@ describe("StopLossMonitor", () => {
         it("should update trailing stop on price increase", async () => {
             monitor.start();
 
-            await monitor.setStopLoss("TCS", {
+            await monitor.setStopLoss("test-user", "TCS", {
                 entryPrice: 100,
                 quantity: 5,
                 type: "TRAILING",
@@ -336,7 +344,7 @@ describe("StopLossMonitor", () => {
             });
 
             // Initial stop-loss at 97
-            let stopLoss = monitor.get("TCS");
+            let stopLoss = monitor.get("test-user", "TCS");
             assert.strictEqual(stopLoss?.stopLossPrice, 97);
 
             // Price goes up to 110
@@ -350,7 +358,7 @@ describe("StopLossMonitor", () => {
             await new Promise(resolve => setTimeout(resolve, 50));
 
             // Stop-loss should trail up to 110 - 3% = 106.7
-            stopLoss = monitor.get("TCS");
+            stopLoss = monitor.get("test-user", "TCS");
             assert.ok(stopLoss);
             assert.strictEqual(stopLoss.highWaterMark, 110);
             assert.ok(stopLoss.stopLossPrice > 106, `Stop-loss should be above 106, got ${stopLoss.stopLossPrice}`);
@@ -359,10 +367,10 @@ describe("StopLossMonitor", () => {
 
     describe("getStatus", () => {
         it("should return correct status", async () => {
-            await monitor.setStopLoss("A", { entryPrice: 100, quantity: 10 });
-            await monitor.setStopLoss("B", { entryPrice: 200, quantity: 5 });
+            await monitor.setStopLoss("test-user", "A", { entryPrice: 100, quantity: 10 });
+            await monitor.setStopLoss("test-user", "B", { entryPrice: 200, quantity: 5 });
 
-            const status = monitor.getStatus();
+            const status = monitor.getStatus("test-user");
 
             assert.strictEqual(status.monitoring, false);
             assert.strictEqual(status.activeStopLosses, 2);
@@ -372,7 +380,7 @@ describe("StopLossMonitor", () => {
     describe("race conditions and edge cases", () => {
         it("should prevent double execution for the same symbol", async () => {
             monitor.start();
-            await monitor.setStopLoss("WIPRO", {
+            await monitor.setStopLoss("test-user", "WIPRO", {
                 entryPrice: 400,
                 quantity: 100,
             });
@@ -423,7 +431,7 @@ describe("StopLossMonitor", () => {
             // But let's test simpler: ensure updateTrailingStop -> save -> subsequent check sees new SL.
 
             monitor.start();
-            await monitor.setStopLoss("SBI", {
+            await monitor.setStopLoss("test-user", "SBI", {
                 entryPrice: 500,
                 quantity: 10,
                 type: "TRAILING",
@@ -437,7 +445,7 @@ describe("StopLossMonitor", () => {
 
             await (monitor as unknown as { handleTick: (t: MarketTick) => Promise<void> }).handleTick({ symbol: "SBI", price: 550, volume: 10, timestamp: new Date() });
 
-            const sl = monitor.get("SBI");
+            const sl = monitor.get("test-user", "SBI");
             assert.strictEqual(sl?.stopLossPrice, 495);
 
             // Now test the specific code path: "updateTrailingStop" is called, then check.
@@ -449,7 +457,7 @@ describe("StopLossMonitor", () => {
             await (monitor as unknown as { handleTick: (t: MarketTick) => Promise<void> }).handleTick({ symbol: "SBI", price: 400, volume: 10, timestamp: new Date() });
 
             await new Promise(resolve => setTimeout(resolve, 50));
-            assert.strictEqual(monitor.get("SBI"), undefined, "Should be sold");
+            assert.strictEqual(monitor.get("test-user", "SBI"), undefined, "Should be sold");
         });
     });
 });

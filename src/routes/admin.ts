@@ -71,8 +71,8 @@ router.get("/db-stats", async (req: Request, res: Response) => {
       });
     } else {
       // Fallback for file-based repository
-      const stocks = await repo.listStocks();
-      const trades = await repo.listTrades();
+      const stocks = await repo.listStocks("SYSTEM_DEFAULT");
+      const trades = await repo.listTrades("SYSTEM_DEFAULT");
 
       res.json({
         backend: env.portfolioBackend,
@@ -194,8 +194,8 @@ router.get("/export", async (req: Request, res: Response) => {
       res.json(data);
     } else {
       // Fallback: manually export
-      const stocks = await repo.listStocks();
-      const trades = await repo.listTrades();
+      const stocks = await repo.listStocks("SYSTEM_DEFAULT");
+      const trades = await repo.listTrades("SYSTEM_DEFAULT");
 
       const data = {
         stocks,

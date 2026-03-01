@@ -7,6 +7,7 @@ export interface UpdateTickInput {
   symbol: string;
   price: number;
   volume: number;
+  averagePrice?: number;
   timestamp?: Date | string;
 }
 
@@ -39,6 +40,7 @@ export class MarketDataService extends EventEmitter {
       symbol,
       price: Number(input.price.toFixed(4)),
       volume: Number(input.volume.toFixed(2)),
+      averagePrice: input.averagePrice ? Number(input.averagePrice.toFixed(4)) : undefined,
       timestamp,
     };
 

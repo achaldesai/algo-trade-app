@@ -15,6 +15,11 @@ interface RequestOptions {
 }
 
 const testApp = express();
+testApp.use((req, res, next) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (req as any).user = { userId: "test-user" };
+  next();
+});
 testApp.use("/api/trades", tradesRouter);
 testApp.use(errorHandler);
 
@@ -54,7 +59,7 @@ describe("/api/trades routes", () => {
   it("creates a trade for an existing stock", async () => {
     // First create the stock
     const portfolioService = resolvePortfolioService();
-    await portfolioService.addStock({ symbol: "RELIANCE", name: "Reliance Industries" });
+    await portfolioService.addStock("test-user", { symbol: "RELIANCE", name: "Reliance Industries" });
 
     const payload = {
       symbol: "RELIANCE",
@@ -87,7 +92,7 @@ describe("/api/trades routes", () => {
     assert.equal(body.data.notes, "Test trade");
     assert.equal(body.data.executedAt, "2023-01-01T10:00:00.000Z");
 
-    const trades = await portfolioService.listTrades();
+    const trades = await portfolioService.listTrades("test-user");
     const stored = trades.find((trade) => trade.id === body.data.id);
     assert(stored);
     assert.equal(stored.symbol, "RELIANCE");
@@ -113,7 +118,7 @@ describe("/api/trades routes", () => {
 
   it("summarizes trades with a flattened position", async () => {
     const portfolioService = resolvePortfolioService();
-    await portfolioService.addStock({ symbol: "NFLX", name: "Netflix" });
+    await portfolioService.addStock("test-user", { symbol: "NFLX", name: "Netflix" });
 
     await invokeApp({
       method: "POST",

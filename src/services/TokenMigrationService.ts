@@ -31,9 +31,9 @@ export class TokenMigrationService {
         return false;
       }
 
-      // Save to LMDB
+      // Save to LMDB (assign to SYSTEM_DEFAULT for migration backwards compat)
       const tokenRepo = getTokenRepository(storePath);
-      await tokenRepo.saveZerodhaToken(tokenData);
+      await tokenRepo.saveZerodhaToken("SYSTEM_DEFAULT", tokenData);
 
       logger.info({ userId: tokenData.userId }, "Migrated Zerodha token to LMDB");
 
@@ -72,9 +72,9 @@ export class TokenMigrationService {
         return false;
       }
 
-      // Save to LMDB
+      // Save to LMDB (assign to SYSTEM_DEFAULT for migration backwards compat)
       const tokenRepo = getTokenRepository(storePath);
-      await tokenRepo.saveAngelOneToken(tokenData);
+      await tokenRepo.saveAngelOneToken("SYSTEM_DEFAULT", tokenData);
 
       logger.info({ clientId: tokenData.clientId }, "Migrated Angel One token to LMDB");
 

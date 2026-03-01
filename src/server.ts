@@ -3,8 +3,7 @@ import app from "./app";
 import env from "./config/env";
 import validateEnvironment from "./config/validateEnv";
 import logger from "./utils/logger";
-import { ensurePortfolioStore, ensureSettingsStore, ensureStopLossStore, ensureAuditLogStore, getPortfolioRepository } from "./persistence";
-import { AuthService } from "./services/AuthService";
+import { ensurePortfolioStore, ensureSettingsStore, ensureStopLossStore, ensureAuditLogStore, ensureUserStore, getPortfolioRepository } from "./persistence";
 import { getInstrumentMasterService } from "./services/InstrumentMasterService";
 import { TokenMigrationService } from "./services/TokenMigrationService";
 import { TokenRefreshService } from "./services/TokenRefreshService";
@@ -52,14 +51,16 @@ const start = async () => {
     await ensureSettingsStore();
     await ensureStopLossStore();
     await ensureAuditLogStore();
+    await ensureUserStore();
 
     // Migrate tokens from file-based storage to LMDB (one-time operation)
     const migrationService = new TokenMigrationService();
     await migrationService.migrate(env.portfolioStorePath);
 
-    const authService = AuthService.getInstance();
-    await authService.initialize();
+    // Initialize auth state (now per-user, we don't do this globally on startup anymore)
+    // AuthService.getInstance().initialize() is removed.
 
+    // Check initial position sync (you may want to scope this per active user later)
     if (env.brokerProvider !== "paper") {
       const { resolveBrokerClient } = await import("./container");
       const broker = resolveBrokerClient();
@@ -81,14 +82,14 @@ const start = async () => {
       const { loadAngelToken } = await import("./routes/auth");
       const { TokenRefreshService } = await import("./services/TokenRefreshService");
       const refreshService = TokenRefreshService.getInstance();
-      let angelTokens = await loadAngelToken();
+      let angelTokens = await loadAngelToken("SYSTEM_DEFAULT");
 
       if (!angelTokens) {
         if (env.angelOneTotpSecret) {
           logger.info("Angel One tokens missing or expired. Attempting automatic re-authentication...");
           try {
-            await refreshService.refreshToken();
-            angelTokens = await loadAngelToken();
+            await refreshService.refreshToken("SYSTEM_DEFAULT");
+            angelTokens = await loadAngelToken("SYSTEM_DEFAULT");
           } catch (error) {
             logger.warn({ err: error }, "Automatic Angel One re-authentication failed");
           }
@@ -124,6 +125,36 @@ const start = async () => {
         logger.error({ err }, "Failed to connect ticker on startup");
       });
       logger.info("Ticker service initialized");
+
+      // Subscribe to watchlist symbols
+      if (env.watchlist.length > 0) {
+        // Ensure instrument master is loaded
+        const instrumentService = getInstrumentMasterService();
+        if (!instrumentService.isReady()) {
+          await instrumentService.loadInstrumentMaster();
+        }
+
+        const exchange = env.angelOneDefaultExchange;
+        let subscribedCount = 0;
+
+        for (const symbol of env.watchlist) {
+          const token = instrumentService.getToken(symbol, exchange);
+          if (token) {
+            tickerClient.subscribe({
+              exchange,
+              symbol,
+              symbolToken: token,
+            });
+            subscribedCount++;
+          } else {
+            logger.warn({ symbol, exchange }, "Skipping watchlist subscription: Instrument token not found");
+          }
+        }
+
+        if (subscribedCount > 0) {
+          logger.info({ count: subscribedCount, symbols: env.watchlist }, "Subscribed to watchlist symbols");
+        }
+      }
     } else if (tickerClient && !tickerTokensValid) {
       logger.info("Ticker service not started - authenticate first");
     }
@@ -151,10 +182,34 @@ const start = async () => {
     }
 
     // Initialize Trading Loop Service (but don't start it yet)
-    const { resolveMarketDataService, resolveTradingEngine, resolveStopLossMonitor, resolveRiskManager, resolveNotificationService } = await import("./container");
+    const {
+      resolveMarketDataService,
+      resolveTradingEngine,
+      resolveStopLossMonitor,
+      resolveRiskManager,
+      resolveNotificationService,
+      resolveMarketScannerService,
+      resolveTickerClient: resTicker,
+      resolvePortfolioService,
+      resolveUserRepository
+    } = await import("./container");
     const { TradingLoopService } = await import("./services/TradingLoopService");
-    TradingLoopService.getInstance(resolveMarketDataService(), resolveTradingEngine());
+    const { AutoTradingService } = await import("./services/AutoTradingService");
+
+    const userRepository = await resolveUserRepository();
+    TradingLoopService.getInstance(resolveMarketDataService(), resolveTradingEngine(), userRepository);
     logger.info("Trading loop service initialized");
+
+    const stopLossMonitor = resolveStopLossMonitor();
+    const autoTradingService = AutoTradingService.getInstance(
+      resolveMarketScannerService(),
+      resTicker(),
+      stopLossMonitor,
+      resolvePortfolioService(),
+      userRepository
+    );
+    autoTradingService.start();
+    logger.info("Auto-trading service started");
 
     const riskManager = resolveRiskManager();
     const notificationService = resolveNotificationService();
@@ -167,8 +222,7 @@ const start = async () => {
     });
 
     // Initialize Stop-Loss Monitor (starts automatically with trading loop)
-    const stopLossMonitor = resolveStopLossMonitor();
-    logger.info({ activeStopLosses: stopLossMonitor.getAll().length }, "Stop-loss monitor initialized");
+    logger.info("Stop-loss monitor initialized");
 
     const { resolveDiscordBotService } = await import("./container");
     const discordBotService = resolveDiscordBotService();
@@ -197,6 +251,15 @@ const shutdown = (signal: string) => {
   // Stop token refresh scheduler
   const tokenRefreshService = TokenRefreshService.getInstance();
   tokenRefreshService.stop();
+
+  // Stop auto-trading service
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AutoTradingService } = require("./services/AutoTradingService");
+    AutoTradingService.getInstance().stop();
+  } catch (_err) {
+    // Service might not be initialized
+  }
 
   server.close((error) => {
     if (error) {

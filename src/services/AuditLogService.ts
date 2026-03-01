@@ -40,25 +40,28 @@ export class AuditLogService {
 
         // Subscribe to TradingEngine events
         if (options.tradingEngine) {
-            options.tradingEngine.on("trade-executed", (trade: Trade) => {
-                this.safeLog(() => this.logTradeExecuted(trade));
+            options.tradingEngine.on("trade-executed", (data: { trade: Trade; userId: string }) => {
+                this.safeLog(() => this.logTradeExecuted(data.userId, data.trade));
             });
         }
 
         // Subscribe to StopLossMonitor events
         if (options.stopLossMonitor) {
-            options.stopLossMonitor.on("stop-loss-triggered", (event: { config: { symbol: string; stopLossPrice: number }; triggerPrice: number }) => {
-                this.safeLog(() => this.logStopLossTriggered(event));
+            options.stopLossMonitor.on("stop-loss-triggered", (event: { config: { symbol: string; stopLossPrice: number; userId?: string }; triggerPrice: number }) => {
+                const userId = event.config.userId || "SYSTEM_DEFAULT";
+                this.safeLog(() => this.logStopLossTriggered(userId, event));
             });
-            options.stopLossMonitor.on("stop-loss-executed", (event: { config: { symbol: string }; execution: unknown }) => {
-                this.safeLog(() => this.logStopLossExecuted(event));
+            options.stopLossMonitor.on("stop-loss-executed", (event: { config: { symbol: string; userId?: string }; execution: unknown }) => {
+                const userId = event.config.userId || "SYSTEM_DEFAULT";
+                this.safeLog(() => this.logStopLossExecuted(userId, event));
             });
         }
 
         // Subscribe to Settings changes
         if (options.settingsRepository) {
             options.settingsRepository.on("updated", (limits: RiskLimits) => {
-                this.safeLog(() => this.logSettingsChanged(limits));
+                // Settings changed is system-wide for now
+                this.safeLog(() => this.logSettingsChanged("SYSTEM_DEFAULT", limits));
             });
         }
     }
@@ -85,8 +88,8 @@ export class AuditLogService {
     /**
      * Log a trade execution
      */
-    async logTradeExecuted(trade: Trade): Promise<void> {
-        await this.log({
+    async logTradeExecuted(userId: string, trade: Trade): Promise<void> {
+        await this.log(userId, {
             eventType: "TRADE_EXECUTED",
             category: "trade",
             symbol: trade.symbol,
@@ -106,8 +109,8 @@ export class AuditLogService {
     /**
      * Log a trade failure
      */
-    async logTradeFailed(symbol: string, side: string, reason: string, details?: Record<string, unknown>): Promise<void> {
-        await this.log({
+    async logTradeFailed(userId: string, symbol: string, side: string, reason: string, details?: Record<string, unknown>): Promise<void> {
+        await this.log(userId, {
             eventType: "TRADE_FAILED",
             category: "trade",
             symbol,
@@ -120,8 +123,8 @@ export class AuditLogService {
     /**
      * Log stop-loss triggered
      */
-    async logStopLossTriggered(event: { config: { symbol: string; stopLossPrice: number }; triggerPrice: number }): Promise<void> {
-        await this.log({
+    async logStopLossTriggered(userId: string, event: { config: { symbol: string; stopLossPrice: number; userId?: string }; triggerPrice: number }): Promise<void> {
+        await this.log(userId, {
             eventType: "STOP_LOSS_TRIGGERED",
             category: "risk",
             symbol: event.config.symbol,
@@ -137,8 +140,8 @@ export class AuditLogService {
     /**
      * Log stop-loss executed
      */
-    async logStopLossExecuted(event: { config: { symbol: string }; execution: unknown }): Promise<void> {
-        await this.log({
+    async logStopLossExecuted(userId: string, event: { config: { symbol: string; userId?: string }; execution: unknown }): Promise<void> {
+        await this.log(userId, {
             eventType: "STOP_LOSS_EXECUTED",
             category: "risk",
             symbol: event.config.symbol,
@@ -151,8 +154,8 @@ export class AuditLogService {
     /**
      * Log stop-loss creation
      */
-    async logStopLossCreated(symbol: string, stopLossPrice: number, type: string): Promise<void> {
-        await this.log({
+    async logStopLossCreated(userId: string, symbol: string, stopLossPrice: number, type: string): Promise<void> {
+        await this.log(userId, {
             eventType: "STOP_LOSS_CREATED",
             category: "risk",
             symbol,
@@ -165,8 +168,8 @@ export class AuditLogService {
     /**
      * Log settings change
      */
-    async logSettingsChanged(limits: RiskLimits): Promise<void> {
-        await this.log({
+    async logSettingsChanged(userId: string, limits: RiskLimits): Promise<void> {
+        await this.log(userId, {
             eventType: "SETTINGS_CHANGED",
             category: "system",
             message: "Risk settings updated",
@@ -178,8 +181,8 @@ export class AuditLogService {
     /**
      * Log circuit breaker triggered
      */
-    async logCircuitBreaker(reason: string, details?: Record<string, unknown>): Promise<void> {
-        await this.log({
+    async logCircuitBreaker(userId: string, reason: string, details?: Record<string, unknown>): Promise<void> {
+        await this.log(userId, {
             eventType: "CIRCUIT_BREAKER_TRIGGERED",
             category: "risk",
             message: `Circuit breaker activated: ${reason}`,
@@ -192,7 +195,7 @@ export class AuditLogService {
      * Log trading loop started
      */
     async logTradingStarted(): Promise<void> {
-        await this.log({
+        await this.log("SYSTEM_DEFAULT", {
             eventType: "TRADING_STARTED",
             category: "system",
             message: "Trading loop started",
@@ -204,7 +207,7 @@ export class AuditLogService {
      * Log trading loop stopped
      */
     async logTradingStopped(): Promise<void> {
-        await this.log({
+        await this.log("SYSTEM_DEFAULT", {
             eventType: "TRADING_STOPPED",
             category: "system",
             message: "Trading loop stopped",
@@ -215,8 +218,8 @@ export class AuditLogService {
     /**
      * Log panic sell
      */
-    async logPanicSell(executedCount: number, failedCount: number): Promise<void> {
-        await this.log({
+    async logPanicSell(userId: string, executedCount: number, failedCount: number): Promise<void> {
+        await this.log(userId, {
             eventType: "PANIC_SELL",
             category: "system",
             message: `PANIC SELL executed: ${executedCount} sold, ${failedCount} failed`,
@@ -228,8 +231,8 @@ export class AuditLogService {
     /**
      * Log strategy signal
      */
-    async logStrategySignal(strategyId: string, description: string, symbol?: string): Promise<void> {
-        await this.log({
+    async logStrategySignal(userId: string, strategyId: string, description: string, symbol?: string): Promise<void> {
+        await this.log(userId, {
             eventType: "STRATEGY_SIGNAL",
             category: "strategy",
             symbol,
@@ -242,8 +245,8 @@ export class AuditLogService {
     /**
      * Log reconciliation event
      */
-    async logReconciliation(hasDiscrepancies: boolean, details?: Record<string, unknown>): Promise<void> {
-        await this.log({
+    async logReconciliation(userId: string, hasDiscrepancies: boolean, details?: Record<string, unknown>): Promise<void> {
+        await this.log(userId, {
             eventType: "RECONCILIATION",
             category: "system",
             message: hasDiscrepancies ? "Reconciliation found discrepancies" : "Reconciliation complete - synced",
@@ -255,9 +258,10 @@ export class AuditLogService {
     /**
      * Generic log method
      */
-    async log(entry: Omit<AuditLogEntry, "id" | "timestamp">): Promise<void> {
+    async log(userId: string, entry: Omit<AuditLogEntry, "id" | "timestamp" | "userId">): Promise<void> {
         const fullEntry: AuditLogEntry = {
             id: randomUUID(),
+            userId,
             timestamp: new Date(),
             ...entry,
             details: this.redactSensitiveData(entry.details) as Record<string, unknown> | undefined,
