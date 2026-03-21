@@ -1,19 +1,19 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert";
 import { RiskManager, type RiskLimits } from "./RiskManager";
-import type { SettingsRepository } from "../persistence/SettingsRepository";
+import type { SettingsRepo } from "../db/repositories/SettingsRepo";
 import type { BrokerOrderRequest } from "../types";
 
 describe("RiskManager", () => {
     let riskManager: RiskManager;
-    let mockSettingsRepo: SettingsRepository;
+    let mockSettingsRepo: SettingsRepo;
 
     const defaultLimits: RiskLimits = {
         maxDailyLoss: 1000,
         maxDailyLossPercent: 2,
         maxPositionSize: 5000,
         maxOpenPositions: 3,
-        stopLossPercent: 1.5
+        stopLossPercent: 1.5,
     };
 
     beforeEach(() => {
@@ -22,7 +22,7 @@ describe("RiskManager", () => {
             on: mock.fn(),
             saveRiskLimits: mock.fn(() => Promise.resolve()),
             resetToDefaults: mock.fn(),
-        } as unknown as SettingsRepository;
+        } as unknown as SettingsRepo;
 
         riskManager = new RiskManager(mockSettingsRepo);
     });
@@ -35,7 +35,7 @@ describe("RiskManager", () => {
                 quantity: 10,
                 type: "LIMIT",
                 price: 100,
-                tag: "test"
+                tag: "test",
             };
 
             const result = riskManager.checkOrderAllowed("test-user", order, 0, 0);
@@ -48,7 +48,7 @@ describe("RiskManager", () => {
                 side: "BUY",
                 quantity: 0,
                 type: "MARKET",
-                tag: "test"
+                tag: "test",
             };
 
             const result = riskManager.checkOrderAllowed("test-user", order, 0, 0);
@@ -62,8 +62,8 @@ describe("RiskManager", () => {
                 side: "BUY",
                 quantity: 100,
                 type: "LIMIT",
-                price: 100, // Value = 10000 > 5000 (limit)
-                tag: "test"
+                price: 100,
+                tag: "test",
             };
 
             const result = riskManager.checkOrderAllowed("test-user", order, 0, 0);
@@ -78,10 +78,9 @@ describe("RiskManager", () => {
                 quantity: 10,
                 type: "LIMIT",
                 price: 100,
-                tag: "test"
+                tag: "test",
             };
 
-            // Current open positions = 3 (limit is 3)
             const result = riskManager.checkOrderAllowed("test-user", order, 0, 3);
             assert.strictEqual(result.allowed, false);
             assert.ok(result.reason?.includes("Max open positions limit reached"));
@@ -94,10 +93,9 @@ describe("RiskManager", () => {
                 quantity: 10,
                 type: "LIMIT",
                 price: 105,
-                tag: "test"
+                tag: "test",
             };
 
-            // Current open positions = 3 (limit is 3), but this is SELL
             const result = riskManager.checkOrderAllowed("test-user", order, 0, 3);
             assert.strictEqual(result.allowed, true);
         });
@@ -109,13 +107,9 @@ describe("RiskManager", () => {
                 quantity: 10,
                 type: "LIMIT",
                 price: 100,
-                tag: "test"
+                tag: "test",
             };
 
-            // Realized PnL = -900, Unrealized = -200 => Total -1100 (limit is 1000)
-            // We don't use updatePnL here to avoid triggering circuit breaker immediately
-            // Instead we rely on the PnL passed to checkOrderAllowed logic 
-            // strict unit test of the checkOrderAllowed logic
             await riskManager.updatePnL("test-user", -900, 0);
 
             const result = riskManager.checkOrderAllowed("test-user", order, -200, 0);
@@ -130,11 +124,10 @@ describe("RiskManager", () => {
                 quantity: 10,
                 type: "LIMIT",
                 price: 100,
-                tag: "test"
+                tag: "test",
             };
 
-            // Trigger circuit breaker
-            await riskManager.updatePnL("test-user", -1500, 0); // Exceeds limit significantly
+            await riskManager.updatePnL("test-user", -1500, 0);
 
             assert.strictEqual(riskManager.isCircuitBroken("test-user"), true);
 
@@ -151,7 +144,7 @@ describe("RiskManager", () => {
                 circuitEventTriggered = true;
             });
 
-            await riskManager.updatePnL("test-user", -1001, 0); // Limit is 1000
+            await riskManager.updatePnL("test-user", -1001, 0);
 
             assert.strictEqual(riskManager.isCircuitBroken("test-user"), true);
             assert.strictEqual(circuitEventTriggered, true);

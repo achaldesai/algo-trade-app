@@ -5,7 +5,7 @@ import express from "express";
 import { EventEmitter, once } from "node:events";
 import pnlRouter from "./pnl";
 import errorHandler from "../middleware/errorHandler";
-import { setContainer, AppContainer } from "../container";
+import type { AppContainer } from "../container";
 
 // Mock data
 const mockTrades = [
@@ -24,7 +24,7 @@ const mockTrades = [
         quantity: 5,
         price: 110, // Profit 50
         executedAt: new Date(),
-    }
+    },
 ];
 
 const mockSnapshot = {
@@ -36,22 +36,22 @@ const mockSnapshot = {
             realizedPnl: 50,
             unrealizedPnl: 0,
             name: "Tata Consultancy Services",
-            position: 1000 // Sample value
-        }
+            position: 1000,
+        },
     ],
     totalTrades: 2,
 };
 
 // Mock Dependencies
 const mockPortfolioService = {
-    listTrades: mock.fn(async () => mockTrades),
-    getSnapshot: mock.fn(async () => mockSnapshot),
-    getTradeSummaries: mock.fn(async () => mockSnapshot.positions),
-    getRealizedPnl: mock.fn(async () => 50),
+    listTrades: mock.fn(() => mockTrades),
+    getSnapshot: mock.fn(() => mockSnapshot),
+    getTradeSummaries: mock.fn(() => mockSnapshot.positions),
+    getRealizedPnl: mock.fn(() => 50),
 };
 
 const mockMarketDataService = {
-    getTick: mock.fn((symbol: string) => ({ symbol, price: 120 })), // Current price 120
+    getTick: mock.fn((symbol: string) => ({ symbol, price: 120 })),
 };
 
 const mockRiskManager = {
@@ -72,11 +72,12 @@ interface RequestOptions {
 }
 
 const testApp = express();
-testApp.use((req, res, next) => {
+testApp.use((req, _res, next) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (req as any).user = { userId: "test-user" };
     next();
 });
+testApp.locals.container = mockContainer;
 testApp.use("/api/pnl", pnlRouter);
 testApp.use(errorHandler);
 
@@ -84,7 +85,7 @@ const invokeApp = async ({ method, url, body }: RequestOptions) => {
     const req = createRequest({
         method,
         url,
-        headers: { "content-type": "application/json" }
+        headers: { "content-type": "application/json" },
     });
     if (typeof body !== "undefined") {
         req.body = body;
@@ -99,7 +100,11 @@ const invokeApp = async ({ method, url, body }: RequestOptions) => {
 
 describe("PnL Routes", () => {
     beforeEach(() => {
-        setContainer(mockContainer);
+        // Reset mocks
+        mockPortfolioService.listTrades.mock.resetCalls();
+        mockPortfolioService.getSnapshot.mock.resetCalls();
+        mockPortfolioService.getTradeSummaries.mock.resetCalls();
+        mockPortfolioService.getRealizedPnl.mock.resetCalls();
     });
 
     it("GET /daily should calculate daily PnL correctly", async () => {
@@ -123,7 +128,6 @@ describe("PnL Routes", () => {
         assert.strictEqual(res.statusCode, 200);
         const data = res._getJSONData().data;
 
-        // Based on snapshot + live price
         assert.strictEqual(data.totalRealizedPnL, 50);
         assert.strictEqual(data.totalUnrealizedPnL, 100);
         assert.strictEqual(data.totalPnL, 150);

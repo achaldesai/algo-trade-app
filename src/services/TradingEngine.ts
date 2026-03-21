@@ -78,7 +78,7 @@ export class TradingEngine extends EventEmitter {
     return this.strategies.get(id);
   }
 
-  async evaluate(strategyId: string, userId: string): Promise<StrategyEvaluationResult> {
+  async evaluate(strategyId: string, userId: string, paramsOverride?: Record<string, unknown>): Promise<StrategyEvaluationResult> {
     const strategy = this.strategies.get(strategyId);
     if (!strategy) {
       throw new HttpError(404, `Unknown strategy ${strategyId}`);
@@ -133,12 +133,17 @@ export class TradingEngine extends EventEmitter {
 
     const broker = activeBroker;
 
+    // Merge strategy defaults with user overrides
+    const strategyDefaults = strategy.getDefaultParams();
+    const mergedParams = { ...strategyDefaults, ...paramsOverride };
+
     let signals: StrategySignal[] = [];
     try {
       signals = await strategy.generateSignals({
         market: marketSnapshot,
         portfolio: portfolioSnapshot,
         broker,
+        params: mergedParams,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to generate strategy signals";

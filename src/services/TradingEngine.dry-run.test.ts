@@ -1,10 +1,40 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert";
 import TradingEngine from "./TradingEngine";
-import { resolvePortfolioService, resolveMarketDataService, resolveRiskManager } from "../container";
+import MarketDataService from "./MarketDataService";
+import { RiskManager } from "./RiskManager";
+import type { SettingsRepo } from "../db/repositories/SettingsRepo";
 import PaperBroker from "../brokers/PaperBroker";
-import type { BrokerOrderRequest, StrategySignal } from "../types";
+import type { BrokerOrderRequest, StrategySignal, Trade } from "../types";
 import env from "../config/env";
+
+function createTestRiskManager(): RiskManager {
+  const mockSettings = {
+    getRiskLimits: () => ({
+      maxDailyLoss: 100000,
+      maxDailyLossPercent: 10,
+      maxPositionSize: 100000,
+      maxOpenPositions: 50,
+      stopLossPercent: 3,
+    }),
+    on: () => { },
+    saveRiskLimits: async () => { },
+  } as unknown as SettingsRepo;
+  return new RiskManager(mockSettings);
+}
+
+function createMockPortfolioService() {
+  const recorded: Trade[] = [];
+  return {
+    service: {
+      listStocks: () => [],
+      addStock: mock.fn(async () => ({ symbol: "AAPL", name: "Apple Inc.", createdAt: new Date() })),
+      getSnapshot: async () => ({ generatedAt: new Date(), positions: [], totalTrades: 0 }),
+      recordExternalTrade: async (_userId: string, trade: Trade) => { recorded.push(trade); },
+    },
+    recorded,
+  };
+}
 
 const setDryRunFlag = (value: boolean): void => {
   Reflect.set(env, "dryRun", value);
@@ -14,31 +44,30 @@ describe("TradingEngine - Dry Run Mode", () => {
   let engine: TradingEngine;
   let broker: PaperBroker;
   let originalDryRun: boolean;
+  let mockPortfolio: ReturnType<typeof createMockPortfolioService>;
 
-  beforeEach(async () => {
-    // Save original dry-run setting
+  beforeEach(() => {
     originalDryRun = env.dryRun;
 
-    const portfolioService = resolvePortfolioService();
-    const marketData = resolveMarketDataService();
-    const riskManager = resolveRiskManager();
+    mockPortfolio = createMockPortfolioService();
+    const marketData = new MarketDataService();
+    const riskManager = createTestRiskManager();
     broker = new PaperBroker();
 
     engine = new TradingEngine({
       brokerFactory: async () => broker,
-      portfolioService,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      portfolioService: mockPortfolio.service as any,
       marketData,
       riskManager,
     });
   });
 
   afterEach(() => {
-    // Restore original setting
     setDryRunFlag(originalDryRun);
   });
 
   it("should not execute orders when dry-run mode is enabled", async () => {
-    // Enable dry-run mode
     setDryRunFlag(true);
 
     const signal: StrategySignal = {
@@ -49,7 +78,7 @@ describe("TradingEngine - Dry Run Mode", () => {
           symbol: "AAPL",
           side: "BUY",
           quantity: 10,
-          price: 150.00,
+          price: 150.0,
           type: "LIMIT",
           exchange: "NSE",
         } as BrokerOrderRequest,
@@ -58,34 +87,14 @@ describe("TradingEngine - Dry Run Mode", () => {
 
     const result = await engine.executeSignal("test-user", broker, signal);
 
-    // Should return executions
     assert.strictEqual(result.executions.length, 1);
-
-    // But with zero filled quantity (no actual execution)
     assert.strictEqual(result.executions[0].filledQuantity, 0);
-
-    // And ID should indicate dry-run
     assert.ok(result.executions[0].id.startsWith("dry-run-"));
-
-    // No failures
     assert.strictEqual(result.failures.length, 0);
-
-    // Check that no trades were recorded (can't check this easily without access to portfolioService)
-    // Just verify dry-run behavior worked
   });
 
   it("should execute orders normally when dry-run mode is disabled", async () => {
-    // Disable dry-run mode
     setDryRunFlag(false);
-
-    const portfolioService = resolvePortfolioService();
-
-    // Ensure stock exists (ignore if already exists)
-    try {
-      await portfolioService.addStock("test-user", { symbol: "AAPL", name: "Apple Inc." });
-    } catch {
-      // Stock already exists, that's fine
-    }
 
     const signal: StrategySignal = {
       strategyId: "test-strategy",
@@ -95,7 +104,7 @@ describe("TradingEngine - Dry Run Mode", () => {
           symbol: "AAPL",
           side: "BUY",
           quantity: 10,
-          price: 150.00,
+          price: 150.0,
           type: "LIMIT",
           exchange: "NSE",
         } as BrokerOrderRequest,
@@ -104,29 +113,16 @@ describe("TradingEngine - Dry Run Mode", () => {
 
     const result = await engine.executeSignal("test-user", broker, signal);
 
-    // Should return executions
     assert.ok(result.executions.length >= 0, "Should return executions array");
 
-    // In dry-run mode, filled quantity will be 0; in normal mode it should be > 0
     if (!env.dryRun && result.executions.length > 0) {
       assert.ok(result.executions[0].filledQuantity > 0, "Should have filled quantity when not in dry-run");
     }
   });
 
   it("should validate order limits before execution", async () => {
-    // Disable dry-run mode to test validation
     setDryRunFlag(false);
 
-    const portfolioService = resolvePortfolioService();
-
-    // Ensure stock exists (ignore if already exists)
-    try {
-      await portfolioService.addStock("test-user", { symbol: "AAPL", name: "Apple Inc." });
-    } catch {
-      // Stock already exists, that's fine
-    }
-
-    // Create order that exceeds max position size
     const largeOrder: StrategySignal = {
       strategyId: "test-strategy",
       description: "Test large order",
@@ -134,8 +130,8 @@ describe("TradingEngine - Dry Run Mode", () => {
         {
           symbol: "AAPL",
           side: "BUY",
-          quantity: 10000, // Large quantity
-          price: 150.00,   // Total: 1,500,000 > default limit (100,000)
+          quantity: 10000,
+          price: 150.0,
           type: "LIMIT",
           exchange: "NSE",
         } as BrokerOrderRequest,
@@ -144,20 +140,12 @@ describe("TradingEngine - Dry Run Mode", () => {
 
     const result = await engine.executeSignal("test-user", broker, largeOrder);
 
-    // Should have failures due to position size limit
     assert.strictEqual(result.failures.length, 1);
     assert.ok(result.failures[0].error.includes("max position size"));
   });
 
   it("should reject orders with invalid price", async () => {
     setDryRunFlag(false);
-
-    const portfolioService = resolvePortfolioService();
-    try {
-      await portfolioService.addStock("test-user", { symbol: "AAPL", name: "Apple Inc." });
-    } catch {
-      // Stock already exists, that's fine
-    }
 
     const invalidOrder: StrategySignal = {
       strategyId: "test-strategy",
@@ -167,7 +155,7 @@ describe("TradingEngine - Dry Run Mode", () => {
           symbol: "AAPL",
           side: "BUY",
           quantity: 10,
-          price: -50.00, // Invalid negative price
+          price: -50.0,
           type: "LIMIT",
           exchange: "NSE",
         } as BrokerOrderRequest,
@@ -183,13 +171,6 @@ describe("TradingEngine - Dry Run Mode", () => {
   it("should reject orders with invalid quantity", async () => {
     setDryRunFlag(false);
 
-    const portfolioService = resolvePortfolioService();
-    try {
-      await portfolioService.addStock("test-user", { symbol: "AAPL", name: "Apple Inc." });
-    } catch {
-      // Stock already exists, that's fine
-    }
-
     const invalidOrder: StrategySignal = {
       strategyId: "test-strategy",
       description: "Test invalid quantity",
@@ -197,8 +178,8 @@ describe("TradingEngine - Dry Run Mode", () => {
         {
           symbol: "AAPL",
           side: "BUY",
-          quantity: 0, // Invalid zero quantity
-          price: 150.00,
+          quantity: 0,
+          price: 150.0,
           type: "LIMIT",
           exchange: "NSE",
         } as BrokerOrderRequest,

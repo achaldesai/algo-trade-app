@@ -1,64 +1,43 @@
 import { Router } from "express";
-import { resolvePortfolioService, resolveMarketDataService, resolveRiskManager } from "../container";
-
-
+import { getContainer } from "../util/getContainer";
 import { userAuthMiddleware } from "../middleware/userAuth";
 import type { AuthSession } from "../types/user";
+import type { Trade, TradeSummary, PortfolioPositionSnapshot } from "../types";
 
 const router = Router();
 router.use(userAuthMiddleware);
 
-/**
- * GET /api/pnl/daily
- * Get today's P&L summary
- */
 const CACHE_TTL_MS = 5000;
-// Using unknown as the data structure is complex and validated at runtime/construction
-let dailyPnLCache: {
-    data: unknown;
-    timestamp: number;
-} | null = null;
+let dailyPnLCache: { data: unknown; timestamp: number } | null = null;
 
-/**
- * GET /api/pnl/daily
- * Get today's P&L summary
- */
 router.get("/daily", async (req, res, next) => {
     try {
-        // Check cache
         if (dailyPnLCache && (Date.now() - dailyPnLCache.timestamp < CACHE_TTL_MS)) {
             res.json(dailyPnLCache.data);
             return;
         }
 
-        const portfolioService = resolvePortfolioService();
-        const marketDataService = resolveMarketDataService();
-        const riskManager = resolveRiskManager();
+        const { portfolioService, marketDataService, riskManager } = getContainer(req);
         const userId = (req as unknown as { user: AuthSession }).user.userId;
 
-        // Get all trades
-        const allTrades = await portfolioService.listTrades(userId);
+        const allTrades = portfolioService.listTrades(userId);
 
-        // Filter to today's trades
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const todayEnd = new Date(today);
         todayEnd.setHours(23, 59, 59, 999);
 
-        const todaysTrades = allTrades.filter(trade => {
+        const todaysTrades = allTrades.filter((trade: Trade) => {
             const tradeDate = new Date(trade.executedAt);
             return tradeDate >= today && tradeDate <= todayEnd;
         });
 
-        // Calculate daily realized P&L from today's trades
-        const dailyRealizedPnL = await portfolioService.getRealizedPnl(userId, today);
+        const dailyRealizedPnL = portfolioService.getRealizedPnl(userId, today);
 
-        // Get current positions for unrealized P&L
-        const snapshot = await portfolioService.getSnapshot(userId);
+        const snapshot = portfolioService.getSnapshot(userId);
 
-        // Update unrealized P&L with live market prices if available
         let totalUnrealizedPnL = 0;
-        const positionsWithLivePrices = snapshot.positions.map(pos => {
+        const positionsWithLivePrices = snapshot.positions.map((pos: PortfolioPositionSnapshot) => {
             const liveTick = marketDataService.getTick(pos.symbol);
             let unrealizedPnl = pos.unrealizedPnl;
             let currentPrice = pos.averageEntryPrice;
@@ -82,9 +61,7 @@ router.get("/daily", async (req, res, next) => {
             };
         });
 
-        // Risk manager status
         const riskStatus = riskManager.getStatus(userId);
-
         const totalPnL = dailyRealizedPnL + totalUnrealizedPnL;
 
         const responseData = {
@@ -98,8 +75,8 @@ router.get("/daily", async (req, res, next) => {
                     tradeCount: todaysTrades.length,
                     circuitBroken: riskStatus.circuitBroken,
                 },
-                positions: positionsWithLivePrices.filter(p => p.quantity !== 0),
-                trades: todaysTrades.map(t => ({
+                positions: positionsWithLivePrices.filter((p: { quantity: number }) => p.quantity !== 0),
+                trades: todaysTrades.map((t: Trade) => ({
                     id: t.id,
                     symbol: t.symbol,
                     side: t.side,
@@ -112,34 +89,24 @@ router.get("/daily", async (req, res, next) => {
             },
         };
 
-        // Update cache
-        dailyPnLCache = {
-            data: responseData,
-            timestamp: Date.now()
-        };
-
+        dailyPnLCache = { data: responseData, timestamp: Date.now() };
         res.json(responseData);
     } catch (error) {
         next(error);
     }
 });
 
-/**
- * GET /api/pnl/summary
- * Get overall P&L summary (all time)
- */
 router.get("/summary", async (req, res, next) => {
     try {
-        const portfolioService = resolvePortfolioService();
-        const marketDataService = resolveMarketDataService();
+        const { portfolioService, marketDataService } = getContainer(req);
         const userId = (req as unknown as { user: AuthSession }).user.userId;
 
-        const snapshot = await portfolioService.getSnapshot(userId);
+        const snapshot = portfolioService.getSnapshot(userId);
 
         let totalRealizedPnL = 0;
         let totalUnrealizedPnL = 0;
 
-        const positions = snapshot.positions.map(pos => {
+        const positions = snapshot.positions.map((pos: PortfolioPositionSnapshot) => {
             const liveTick = marketDataService.getTick(pos.symbol);
             let unrealizedPnl = pos.unrealizedPnl;
             let currentPrice = pos.averageEntryPrice;
@@ -172,7 +139,7 @@ router.get("/summary", async (req, res, next) => {
                 totalUnrealizedPnL: Number(totalUnrealizedPnL.toFixed(2)),
                 totalPnL: Number((totalRealizedPnL + totalUnrealizedPnL).toFixed(2)),
                 totalTrades: snapshot.totalTrades,
-                openPositions: positions.filter(p => p.quantity !== 0).length,
+                openPositions: positions.filter((p: { quantity: number }) => p.quantity !== 0).length,
                 positions,
                 generatedAt: new Date().toISOString(),
             },
@@ -182,20 +149,15 @@ router.get("/summary", async (req, res, next) => {
     }
 });
 
-/**
- * GET /api/pnl/positions
- * Get current positions with live prices
- */
 router.get("/positions", async (req, res, next) => {
     try {
-        const portfolioService = resolvePortfolioService();
-        const marketDataService = resolveMarketDataService();
+        const { portfolioService, marketDataService } = getContainer(req);
         const userId = (req as unknown as { user: AuthSession }).user.userId;
-        const summaries = await portfolioService.getTradeSummaries(userId);
+        const summaries = portfolioService.getTradeSummaries(userId);
 
         const positions = summaries
-            .filter(s => s.netQuantity !== 0)
-            .map(pos => {
+            .filter((s: TradeSummary) => s.netQuantity !== 0)
+            .map((pos: TradeSummary) => {
                 const liveTick = marketDataService.getTick(pos.symbol);
                 const currentPrice = liveTick?.price ?? pos.averageEntryPrice;
                 const unrealizedPnl = pos.netQuantity * (currentPrice - pos.averageEntryPrice);
@@ -220,8 +182,8 @@ router.get("/positions", async (req, res, next) => {
                 };
             });
 
-        const totalMarketValue = positions.reduce((sum, p) => sum + p.marketValue, 0);
-        const totalUnrealizedPnL = positions.reduce((sum, p) => sum + p.unrealizedPnl, 0);
+        const totalMarketValue = positions.reduce((sum: number, p: { marketValue: number }) => sum + p.marketValue, 0);
+        const totalUnrealizedPnL = positions.reduce((sum: number, p: { unrealizedPnl: number }) => sum + p.unrealizedPnl, 0);
 
         res.json({
             success: true,
@@ -239,7 +201,5 @@ router.get("/positions", async (req, res, next) => {
         next(error);
     }
 });
-
-
 
 export default router;

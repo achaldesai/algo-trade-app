@@ -1,6 +1,6 @@
 import { EventEmitter } from "events";
 
-import type { SettingsRepository } from "../persistence/SettingsRepository"; // Will create this next
+import type { SettingsRepo } from "../db/repositories/SettingsRepo";
 import type { BrokerOrderExecution, BrokerOrderRequest } from "../types";
 import logger from "../utils/logger";
 
@@ -30,7 +30,7 @@ export class RiskManager extends EventEmitter {
     private userStates = new Map<string, UserRiskState>();
     private processingLock = Promise.resolve(); // Async mutex for state updates
 
-    constructor(private readonly settingsRepo: SettingsRepository) {
+    constructor(private readonly settingsRepo: SettingsRepo) {
         super();
 
         // Listen for setting changes
@@ -159,7 +159,7 @@ export class RiskManager extends EventEmitter {
 
         // Persist broken state
         state.limits.circuitBroken = true;
-        this.settingsRepo.saveRiskLimits(userId, state.limits).catch(err => {
+        this.settingsRepo.saveRiskLimits(userId, state.limits).catch((err: Error) => {
             logger.error({ err, userId }, "CRITICAL: Failed to persist circuit breaker state");
             this.emit("critical_error", { type: "persistence_failure", error: err, userId });
         });

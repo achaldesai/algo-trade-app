@@ -23,7 +23,7 @@ describe("ReconciliationService", () => {
             async () => mockBroker as BrokerClient,
             mockPortfolioService as PortfolioService,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            { listUsers: async () => [{ id: "test-user" }] } as any
+            { listUsers: () => [{ id: "test-user" }] } as any
         );
     });
 

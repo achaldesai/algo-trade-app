@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { resolvePortfolioService } from "../container";
+import { getContainer } from "../util/getContainer";
 import { validateBody } from "../middleware/validateRequest";
 import { userAuthMiddleware } from "../middleware/userAuth";
 import type { AuthSession } from "../types/user";
@@ -19,9 +19,9 @@ const createTradeSchema = z.object({
 
 router.get("/", async (req, res, next) => {
   try {
-    const portfolioService = resolvePortfolioService();
+    const { portfolioService } = getContainer(req);
     const userId = (req as unknown as { user: AuthSession }).user.userId;
-    const trades = await portfolioService.listTrades(userId);
+    const trades = portfolioService.listTrades(userId);
     res.json({
       data: trades.map((trade) => ({
         ...trade,
@@ -35,7 +35,7 @@ router.get("/", async (req, res, next) => {
 
 router.post("/", validateBody(createTradeSchema), async (req, res, next) => {
   try {
-    const portfolioService = resolvePortfolioService();
+    const { portfolioService } = getContainer(req);
     const userId = (req as unknown as { user: AuthSession }).user.userId;
     const { executedAt, ...rest } = req.body as z.infer<typeof createTradeSchema>;
     const trade = await portfolioService.addTrade(userId, {
@@ -56,9 +56,9 @@ router.post("/", validateBody(createTradeSchema), async (req, res, next) => {
 
 router.get("/summary", async (req, res, next) => {
   try {
-    const portfolioService = resolvePortfolioService();
+    const { portfolioService } = getContainer(req);
     const userId = (req as unknown as { user: AuthSession }).user.userId;
-    const summaries = await portfolioService.getTradeSummaries(userId);
+    const summaries = portfolioService.getTradeSummaries(userId);
     res.json({ data: summaries });
   } catch (error) {
     next(error);
@@ -67,9 +67,9 @@ router.get("/summary", async (req, res, next) => {
 
 router.get("/portfolio", async (req, res, next) => {
   try {
-    const portfolioService = resolvePortfolioService();
+    const { portfolioService } = getContainer(req);
     const userId = (req as unknown as { user: AuthSession }).user.userId;
-    const snapshot = await portfolioService.getSnapshot(userId);
+    const snapshot = portfolioService.getSnapshot(userId);
     res.json({
       data: {
         ...snapshot,

@@ -1,19 +1,12 @@
 import assert from "node:assert/strict";
 import express from "express";
 import { EventEmitter, once } from "node:events";
-import { before, beforeEach, describe, it } from "node:test";
+import { describe, it, mock, beforeEach } from "node:test";
 import { createRequest, createResponse, type RequestMethod } from "node-mocks-http";
-import env from "../config/env";
-
-env.brokerProvider = "paper";
-
 import errorHandler from "../middleware/errorHandler";
 import strategiesRouter from "./strategies";
-import { ensurePortfolioStore, resetPortfolioStore } from "../persistence";
-import { ensureUserStore, getUserRepository } from "../persistence";
-import { resetContainer } from "../container";
-
-let testUserId = "test-user";
+import type { AppContainer } from "../container";
+import { HttpError } from "../utils/HttpError";
 
 interface RequestOptions {
   method: RequestMethod;
@@ -21,12 +14,62 @@ interface RequestOptions {
   body?: unknown;
 }
 
+const mockStrategies = [
+  {
+    id: "vwap",
+    name: "VWAP Mean Reversion",
+    description: "Buy low / sell high relative to VWAP",
+    getParamSchema: () => [
+      { key: "threshold", label: "Threshold", type: "number" as const, default: 0.01, min: 0.001, max: 0.1 },
+      { key: "orderSize", label: "Order Size", type: "number" as const, default: 10, min: 1, max: 1000 },
+    ],
+    getDefaultParams: () => ({ threshold: 0.01, orderSize: 10 }),
+  },
+];
+
+const mockTradingEngine = {
+  getStrategies: mock.fn(() => mockStrategies),
+  getStrategy: mock.fn((id: string) => mockStrategies.find((s) => s.id === id) ?? undefined),
+  evaluate: mock.fn(async (strategyId: string, _userId: string) => {
+    if (!mockStrategies.find((s) => s.id === strategyId)) {
+      throw new HttpError(404, `Unknown strategy ${strategyId}`);
+    }
+    return {
+      strategyId,
+      executions: [],
+      errors: [],
+    };
+  }),
+};
+
+const mockMarketDataService = {
+  updateTick: mock.fn((tick: { symbol: string; price: number; volume: number }) => ({
+    ...tick,
+    symbol: tick.symbol.toUpperCase(),
+    timestamp: new Date(),
+  })),
+};
+
+const mockStrategyConfigRepo = {
+  getConfig: mock.fn(() => null),
+  getAllConfigs: mock.fn(() => []),
+  getActiveStrategies: mock.fn(() => []),
+  saveConfig: mock.fn(async () => { }),
+  deleteConfig: mock.fn(async () => true),
+};
+
 const testApp = express();
-testApp.use((req, res, next) => {
+testApp.use(express.json());
+testApp.use((req, _res, next) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (req as any).user = { userId: testUserId };
+  (req as any).user = { userId: "test-user" };
   next();
 });
+testApp.locals.container = {
+  tradingEngine: mockTradingEngine,
+  marketDataService: mockMarketDataService,
+  strategyConfigRepo: mockStrategyConfigRepo,
+} as unknown as AppContainer;
 testApp.use("/api/strategies", strategiesRouter);
 testApp.use(errorHandler);
 
@@ -34,90 +77,45 @@ const invokeApp = async ({ method, url, body }: RequestOptions) => {
   const req = createRequest({
     method,
     url,
-    headers: {
-      "content-type": "application/json",
-    },
+    headers: { "content-type": "application/json" },
   });
-
-  const res = createResponse({ eventEmitter: EventEmitter });
-  const waitForEnd = once(res, "end");
   if (typeof body !== "undefined") {
     req.body = body;
   }
-
+  const res = createResponse({ eventEmitter: EventEmitter });
+  const waitForEnd = once(res, "end");
   testApp(req, res);
-
   req.emit("end");
-
   await waitForEnd;
   return res;
 };
 
 describe("/api/strategies routes", () => {
-  before(async () => {
-    await ensurePortfolioStore();
-  });
-
-  beforeEach(async () => {
-    await resetPortfolioStore();
-    resetContainer();
-
-    await ensureUserStore();
-    const userRepo = getUserRepository();
-    let user = await userRepo.findUserByUsername("test_strategies_user");
-    if (!user) {
-      user = await userRepo.createUser({ username: "test_strategies_user", passwordHash: "password", role: "USER" });
-    }
-    testUserId = user.id;
+  beforeEach(() => {
+    mockTradingEngine.getStrategies.mock.resetCalls();
+    mockTradingEngine.getStrategy.mock.resetCalls();
+    mockTradingEngine.evaluate.mock.resetCalls();
+    mockMarketDataService.updateTick.mock.resetCalls();
+    mockStrategyConfigRepo.getConfig.mock.resetCalls();
   });
 
   it("evaluates a strategy and returns execution details", async () => {
-    // Send tick with significant price deviation to trigger VWAP strategy
-    // VWAP strategy requires >1% deviation from volume-weighted average
     const res = await invokeApp({
       method: "POST",
       url: "/api/strategies/vwap/evaluate",
       body: {
         ticks: [
-          {
-            symbol: "RELIANCE",
-            price: 150,   // High price with low volume
-            volume: 10,
-            timestamp: new Date().toISOString(),
-          },
-          {
-            symbol: "RELIANCE",
-            price: 100,   // Low price with high volume
-            volume: 1000, // Creates VWAP ≈ 100, so second tick has ~0% deviation
-            timestamp: new Date().toISOString(),
-          },
-          {
-            symbol: "RELIANCE",
-            price: 103,   // Price 3% above VWAP - triggers signal
-            volume: 100,
-            timestamp: new Date().toISOString(),
-          },
+          { symbol: "RELIANCE", price: 150, volume: 10, timestamp: new Date().toISOString() },
         ],
       },
     });
 
     assert.equal(res.statusCode, 200);
-
     const payload = res._getJSONData() as {
-      data: {
-        strategyId: string;
-        executions: Array<{
-          signal: { description: string };
-          executions: Array<{ status: string }>;
-          failures: unknown[];
-        }>;
-        errors: unknown[];
-      };
+      data: { strategyId: string; executions: unknown[]; errors: unknown[] };
     };
 
     assert.equal(payload.data.strategyId, "vwap");
-    // Strategy may or may not generate signals depending on deviation threshold
-    // Just verify the response structure is correct
     assert(Array.isArray(payload.data.executions));
     assert(Array.isArray(payload.data.errors));
     assert.equal(payload.data.errors.length, 0);
@@ -128,13 +126,7 @@ describe("/api/strategies routes", () => {
       method: "POST",
       url: "/api/strategies/vwap/evaluate",
       body: {
-        ticks: [
-          {
-            symbol: "RELIANCE",
-            price: -1,  // Invalid: negative price
-            volume: 0,  // Invalid: zero volume
-          },
-        ],
+        ticks: [{ symbol: "RELIANCE", price: -1, volume: 0 }],
       },
     });
 
@@ -148,14 +140,7 @@ describe("/api/strategies routes", () => {
       method: "POST",
       url: "/api/strategies/unknown/evaluate",
       body: {
-        ticks: [
-          {
-            symbol: "RELIANCE",
-            price: 150,
-            volume: 10,
-            timestamp: new Date().toISOString(),
-          },
-        ],
+        ticks: [{ symbol: "RELIANCE", price: 150, volume: 10, timestamp: new Date().toISOString() }],
       },
     });
 
@@ -163,5 +148,22 @@ describe("/api/strategies routes", () => {
     const payload = res._getJSONData() as { error: string; message: string };
     assert.equal(payload.error, "HttpError");
     assert.equal(payload.message, "Unknown strategy unknown");
+  });
+
+  it("lists strategies with param schemas", async () => {
+    const res = await invokeApp({
+      method: "GET",
+      url: "/api/strategies",
+    });
+
+    assert.equal(res.statusCode, 200);
+    const payload = res._getJSONData() as {
+      data: { id: string; paramSchema: unknown[]; defaultParams: Record<string, unknown> }[];
+    };
+    assert.equal(payload.data.length, 1);
+    assert.equal(payload.data[0].id, "vwap");
+    assert(Array.isArray(payload.data[0].paramSchema));
+    assert.equal(payload.data[0].paramSchema.length, 2);
+    assert.deepEqual(payload.data[0].defaultParams, { threshold: 0.01, orderSize: 10 });
   });
 });

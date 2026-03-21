@@ -1,23 +1,19 @@
 import { Router, type Request, type Response } from "express";
-import { resolveNotificationService } from "../container";
+import { getContainer } from "../util/getContainer";
 import logger from "../utils/logger";
 
 const router = Router();
 
-/**
- * GET /api/notifications/status
- * Check if notifications are configured
- */
-router.get("/status", (_req: Request, res: Response) => {
+router.get("/status", (req: Request, res: Response) => {
     try {
-        const notificationService = resolveNotificationService();
+        const { notificationService } = getContainer(req);
         const configured = notificationService.isConfigured();
 
         res.json({
             configured,
             message: configured
                 ? "Notifications are configured and active"
-                : "No webhook URL configured. Set DISCORD_WEBHOOK_URL or WEBHOOK_URL environment variable."
+                : "No webhook URL configured. Set DISCORD_WEBHOOK_URL or WEBHOOK_URL environment variable.",
         });
     } catch (error) {
         logger.error({ err: error }, "Failed to check notification status");
@@ -25,13 +21,9 @@ router.get("/status", (_req: Request, res: Response) => {
     }
 });
 
-/**
- * POST /api/notifications/test
- * Send a test notification
- */
-router.post("/test", async (_req: Request, res: Response) => {
+router.post("/test", async (req: Request, res: Response) => {
     try {
-        const notificationService = resolveNotificationService();
+        const { notificationService } = getContainer(req);
         const result = await notificationService.sendTestNotification();
 
         if (result.success) {

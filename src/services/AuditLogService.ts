@@ -1,18 +1,19 @@
 import { randomUUID } from "crypto";
-import type { AuditLogEntry, AuditLogQuery, AuditLogRepository, AuditEventType } from "../persistence/AuditLogRepository";
+import type { AuditLogEntry, AuditLogQuery, AuditEventType } from "../persistence/AuditLogRepository";
+import type { AuditLogRepo } from "../db/repositories/AuditLogRepo";
 import env from "../config/env";
 import type TradingEngine from "./TradingEngine";
 import type { StopLossMonitor } from "./StopLossMonitor";
-import type { SettingsRepository } from "../persistence/SettingsRepository";
+import type { SettingsRepo } from "../db/repositories/SettingsRepo";
 import type { RiskLimits } from "./RiskManager";
 import type { Trade } from "../types";
 import logger from "../utils/logger";
 
 export interface AuditLogServiceOptions {
-    repository: AuditLogRepository;
+    repository: AuditLogRepo;
     tradingEngine?: TradingEngine;
     stopLossMonitor?: StopLossMonitor;
-    settingsRepository?: SettingsRepository;
+    settingsRepository?: SettingsRepo;
 }
 
 /**
@@ -25,7 +26,7 @@ export interface AuditLogServiceOptions {
  * - System events (trading start/stop, panic sell)
  */
 export class AuditLogService {
-    private readonly repository: AuditLogRepository;
+    private readonly repository: AuditLogRepo;
     private static instance: AuditLogService | null = null;
 
     // Retry queue for failed logs

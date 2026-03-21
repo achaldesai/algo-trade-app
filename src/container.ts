@@ -4,7 +4,15 @@ import ZerodhaBroker from "./brokers/ZerodhaBroker";
 import AngelOneBroker from "./brokers/AngelOneBroker";
 import { BrokerFactory } from "./brokers/BrokerFactory";
 import env from "./config/env";
-import { getPortfolioRepository, getSettingsRepository, getStopLossRepository, getAuditLogRepository, getUserRepository } from "./persistence";
+import { DatabaseManager } from "./db/DatabaseManager";
+import { PortfolioRepo } from "./db/repositories/PortfolioRepo";
+import { SettingsRepo } from "./db/repositories/SettingsRepo";
+import { StopLossRepo } from "./db/repositories/StopLossRepo";
+import { AuditLogRepo } from "./db/repositories/AuditLogRepo";
+import { TokenRepo } from "./db/repositories/TokenRepo";
+import { UserRepo } from "./db/repositories/UserRepo";
+import { StrategyConfigRepo } from "./db/repositories/StrategyConfigRepo";
+import type { RiskLimits } from "./db/repositories/SettingsRepo";
 import MarketDataService from "./services/MarketDataService";
 import PortfolioService from "./services/PortfolioService";
 import TradingEngine from "./services/TradingEngine";
@@ -24,11 +32,33 @@ import { NotificationService } from "./services/NotificationService";
 import { TunnelService } from "./services/TunnelService";
 import { DiscordBotService } from "./services/DiscordBotService";
 import { MarketScannerService } from "./services/MarketScannerService";
-import type { SettingsRepository } from "./persistence/SettingsRepository";
-import type { StopLossRepository } from "./persistence/StopLossRepository";
-import type { AuditLogRepository } from "./persistence/AuditLogRepository";
+import { TradingLoopService } from "./services/TradingLoopService";
+import { AutoTradingService } from "./services/AutoTradingService";
+
+// PostgreSQL & Redis (optional)
+import { PostgresManager } from "./db/postgres/PostgresManager";
+import { PgUserRepo } from "./db/postgres/PgUserRepo";
+import { PgTradeRepo } from "./db/postgres/PgTradeRepo";
+import { PgAuditLogRepo } from "./db/postgres/PgAuditLogRepo";
+import { RedisManager } from "./db/redis/RedisManager";
+import { RedisCacheService } from "./db/redis/RedisCacheService";
+import { RedisSessionStore } from "./db/redis/RedisSessionStore";
+import logger from "./utils/logger";
+
+// ─── Container Interface ─────────────────────────────────────────────────────
 
 export interface AppContainer {
+  // Database
+  dbManager: DatabaseManager;
+  portfolioRepo: PortfolioRepo;
+  settingsRepo: SettingsRepo;
+  stopLossRepo: StopLossRepo;
+  auditLogRepo: AuditLogRepo;
+  tokenRepo: TokenRepo;
+  userRepo: UserRepo;
+  strategyConfigRepo: StrategyConfigRepo;
+
+  // Services
   portfolioService: PortfolioService;
   marketDataService: MarketDataService;
   historicalDataService: HistoricalDataService;
@@ -39,9 +69,6 @@ export interface AppContainer {
   tradingEngine: TradingEngine;
   tickerClient: TickerClient | null;
   reconciliationService: ReconciliationService;
-  settingsRepository: SettingsRepository;
-  stopLossRepository: StopLossRepository;
-  auditLogRepository: AuditLogRepository;
   riskManager: RiskManager;
   stopLossMonitor: StopLossMonitor;
   auditLogService: AuditLogService;
@@ -49,15 +76,31 @@ export interface AppContainer {
   notificationService: NotificationService;
   tunnelService: TunnelService;
   discordBotService: DiscordBotService;
+  tradingLoopService: TradingLoopService;
+  autoTradingService: AutoTradingService;
+
+  // Optional: PostgreSQL layer (available when DATABASE_URL is set)
+  postgresManager?: PostgresManager;
+  pgUserRepo?: PgUserRepo;
+  pgTradeRepo?: PgTradeRepo;
+  pgAuditLogRepo?: PgAuditLogRepo;
+
+  // Optional: Redis layer (available when REDIS_URL is set)
+  redisManager?: RedisManager;
+  cacheService?: RedisCacheService;
+  sessionStore?: RedisSessionStore;
 }
 
-const buildBroker = (): BrokerClient => {
+// ─── Factory Functions ───────────────────────────────────────────────────────
+
+function buildBroker(): BrokerClient {
   switch (env.brokerProvider) {
     case "zerodha":
       return new ZerodhaBroker({
         apiKey: env.brokerApiKey,
         apiSecret: env.brokerApiSecret,
-        accessToken: env.brokerAccessToken || process.env.ZERODHA_ACCESS_TOKEN,
+        accessToken:
+          env.brokerAccessToken || process.env.ZERODHA_ACCESS_TOKEN,
         requestToken: env.brokerRequestToken,
         defaultExchange: env.brokerDefaultExchange,
         product: env.brokerProduct,
@@ -74,10 +117,9 @@ const buildBroker = (): BrokerClient => {
     default:
       return new PaperBroker();
   }
-};
+}
 
-const buildHistoricalDataService = (): HistoricalDataService => {
-  // Use Angel One provider if broker is set to angelone
+function buildHistoricalDataService(): HistoricalDataService {
   if (env.brokerProvider === "angelone" && env.angelOneApiKey) {
     const provider = new AngelOneHistoricalProvider({
       apiKey: env.angelOneApiKey,
@@ -87,34 +129,68 @@ const buildHistoricalDataService = (): HistoricalDataService => {
     });
     return new HistoricalDataService(undefined, provider);
   }
-
-  // Default to mock provider
   return new HistoricalDataService();
-};
+}
 
-/**
- * Build ticker service based on DATA_PROVIDER config
- * Uses Angel One's free WebSocket ticker for real-time market data
- */
-const buildTicker = (marketData: MarketDataService): TickerClient | null => {
-  // Use Angel One ticker if data provider is set to angelone
+function buildTicker(
+  marketData: MarketDataService
+): TickerClient | null {
   if (env.dataProvider === "angelone" && env.angelOneApiKey) {
     return new AngelOneTickerService(marketData);
   }
   return null;
-};
+}
 
-export const createContainer = (): AppContainer => {
-  const portfolioService = new PortfolioService(getPortfolioRepository());
-  const settingsRepository = getSettingsRepository();
-  const stopLossRepository = getStopLossRepository();
+// ─── Container Creation ──────────────────────────────────────────────────────
+
+/**
+ * Create the application's dependency container.
+ *
+ * All dependencies are created eagerly and wired together.
+ * No singletons, no static getInstance() — everything is explicit.
+ *
+ * @param dbManager - The open DatabaseManager instance
+ */
+export function createContainer(dbManager: DatabaseManager): AppContainer {
+  // ── Repositories ─────────────────────────────────────────────────────────
+
+  const portfolioRepo = new PortfolioRepo(dbManager);
+
+  const defaultRiskLimits: RiskLimits = {
+    maxDailyLoss: env.maxDailyLoss,
+    maxDailyLossPercent: env.maxDailyLossPercent,
+    maxPositionSize: env.maxPositionSize,
+    maxOpenPositions: env.maxOpenPositions,
+    stopLossPercent: env.stopLossPercent,
+  };
+
+  const settingsRepo = new SettingsRepo(dbManager, defaultRiskLimits);
+  settingsRepo.load(); // Populate cache from LMDB
+
+  const stopLossRepo = new StopLossRepo(dbManager);
+  stopLossRepo.load(); // Populate cache from LMDB
+
+  const auditLogRepo = new AuditLogRepo(dbManager);
+  const tokenRepo = new TokenRepo(dbManager);
+  const userRepo = new UserRepo(dbManager);
+
+  const strategyConfigRepo = new StrategyConfigRepo(dbManager);
+  strategyConfigRepo.load(); // Populate cache from LMDB
+
+  // ── Core Services ────────────────────────────────────────────────────────
+
+  const portfolioService = new PortfolioService(portfolioRepo);
   const marketDataService = new MarketDataService();
   const historicalDataService = buildHistoricalDataService();
-  const marketScannerService = new MarketScannerService(historicalDataService);
+  const marketScannerService = new MarketScannerService(
+    historicalDataService
+  );
   const portfolioRebalancer = new PortfolioRebalancer();
   const executionPlanner = new ExecutionPlanner();
   const brokerClient = buildBroker();
-  const riskManager = new RiskManager(settingsRepository);
+
+  const riskManager = new RiskManager(settingsRepo);
+
   const tradingEngine = new TradingEngine({
     brokerFactory: (userId: string) => BrokerFactory.getBroker(userId),
     fallbackBroker: new PaperBroker(),
@@ -125,42 +201,32 @@ export const createContainer = (): AppContainer => {
 
   tradingEngine.registerStrategy(new VWAPStrategy());
 
-  // Build ticker for real-time market data (uses DATA_PROVIDER config)
   const tickerClient = buildTicker(marketDataService);
 
-  // Build reconciliation service for syncing with broker
   const reconciliationService = new ReconciliationService(
     (userId: string) => BrokerFactory.getBroker(userId),
     portfolioService,
-    getUserRepository()
+    userRepo
   );
 
-  // Build stop-loss monitor
+  // ── Monitors & Safety ────────────────────────────────────────────────────
+
   const stopLossMonitor = new StopLossMonitor({
     marketDataService,
     tradingEngine,
-    stopLossRepository,
+    stopLossRepository: stopLossRepo,
     riskManager,
   });
 
-  // Build audit log service
-  const auditLogRepository = getAuditLogRepository();
+  // ── Audit & Observability ────────────────────────────────────────────────
+
   const auditLogService = new AuditLogService({
-    repository: auditLogRepository,
+    repository: auditLogRepo,
     tradingEngine,
     stopLossMonitor,
-    settingsRepository,
+    settingsRepository: settingsRepo,
   });
 
-  // Build health service
-  const healthService = new HealthService({
-    brokerClient,
-    tickerClient: tickerClient || undefined,
-    marketDataService,
-    stopLossMonitor,
-  });
-
-  // Build notification service (only if webhook configured)
   const notificationService = new NotificationService({
     discordWebhookUrl: env.discordWebhookUrl,
     webhookUrl: env.webhookUrl,
@@ -168,23 +234,64 @@ export const createContainer = (): AppContainer => {
     stopLossMonitor,
   });
 
-  // Wire RiskManager critical errors to notifications
-  riskManager.on("critical_error", (event: { type: string; error: Error }) => {
-    void notificationService.notifyCriticalError(
-      event.type,
-      event.error?.message || "Unknown error"
-    );
-  });
+  // ── Risk → Notification Wiring ───────────────────────────────────────────
 
-  // Build remote access services
+  riskManager.on(
+    "critical_error",
+    (event: { type: string; error: Error }) => {
+      void notificationService.notifyCriticalError(
+        event.type,
+        event.error?.message || "Unknown error"
+      );
+    }
+  );
+
+  // ── Remote Access ────────────────────────────────────────────────────────
+
   const tunnelService = new TunnelService();
-
   const discordBotService = new DiscordBotService({
     token: env.discordBotToken,
     tunnelService,
   });
 
+  // ── Trading Automation ───────────────────────────────────────────────────
+
+  const tradingLoopService = new TradingLoopService(
+    marketDataService,
+    tradingEngine,
+    userRepo,
+    strategyConfigRepo
+  );
+
+  const autoTradingService = new AutoTradingService(
+    marketScannerService,
+    tickerClient,
+    stopLossMonitor,
+    portfolioService,
+    userRepo,
+    tradingLoopService
+  );
+
+  // ── Health (created after tradingLoopService) ────────────────────────────
+
+  const healthService = new HealthService({
+    brokerClient,
+    tickerClient: tickerClient || undefined,
+    marketDataService,
+    stopLossMonitor,
+    tradingLoopService,
+    portfolioRepo: portfolioRepo,
+  });
+
   return {
+    dbManager,
+    portfolioRepo,
+    settingsRepo,
+    stopLossRepo,
+    auditLogRepo,
+    tokenRepo,
+    userRepo,
+    strategyConfigRepo,
     portfolioService,
     marketDataService,
     historicalDataService,
@@ -195,9 +302,6 @@ export const createContainer = (): AppContainer => {
     tradingEngine,
     tickerClient,
     reconciliationService,
-    settingsRepository,
-    stopLossRepository,
-    auditLogRepository,
     riskManager,
     stopLossMonitor,
     auditLogService,
@@ -205,65 +309,61 @@ export const createContainer = (): AppContainer => {
     notificationService,
     tunnelService,
     discordBotService,
+    tradingLoopService,
+    autoTradingService,
   };
-};
+}
 
-let activeContainer: AppContainer | null = null;
+/**
+ * Initialize optional PostgreSQL and Redis connections on the container.
+ * Call after createContainer() during server startup.
+ */
+export async function initOptionalStores(container: AppContainer): Promise<void> {
+  // PostgreSQL
+  if (env.databaseUrl) {
+    try {
+      const postgresManager = new PostgresManager(env.databaseUrl, {
+        min: env.pgPoolMin,
+        max: env.pgPoolMax,
+      });
+      await postgresManager.connect();
 
-export const getContainer = (): AppContainer => {
-  if (!activeContainer) {
-    activeContainer = createContainer();
+      container.postgresManager = postgresManager;
+      container.pgUserRepo = new PgUserRepo(postgresManager.pool);
+      container.pgTradeRepo = new PgTradeRepo(postgresManager.pool);
+      container.pgAuditLogRepo = new PgAuditLogRepo(postgresManager.pool);
+
+      logger.info("PostgreSQL layer initialized");
+    } catch (err) {
+      logger.error({ err }, "PostgreSQL initialization failed — falling back to LMDB");
+    }
   }
 
-  return activeContainer;
-};
+  // Redis
+  if (env.redisUrl) {
+    try {
+      const redisManager = new RedisManager(env.redisUrl);
+      await redisManager.connect();
 
-export const resetContainer = (): AppContainer => {
-  activeContainer = createContainer();
-  return activeContainer;
-};
+      container.redisManager = redisManager;
+      container.cacheService = new RedisCacheService(redisManager);
+      container.sessionStore = new RedisSessionStore(redisManager);
 
-// For testing purposes
-export const setContainer = (container: AppContainer): void => {
-  activeContainer = container;
-};
+      logger.info("Redis layer initialized");
+    } catch (err) {
+      logger.error({ err }, "Redis initialization failed — falling back to in-memory");
+    }
+  }
+}
 
-export const resolvePortfolioService = (): PortfolioService => getContainer().portfolioService;
-
-export const resolveMarketDataService = (): MarketDataService => getContainer().marketDataService;
-
-export const resolveHistoricalDataService = (): HistoricalDataService => getContainer().historicalDataService;
-
-export const resolveMarketScannerService = (): MarketScannerService => getContainer().marketScannerService;
-
-export const resolvePortfolioRebalancer = (): PortfolioRebalancer => getContainer().portfolioRebalancer;
-
-export const resolveExecutionPlanner = (): ExecutionPlanner => getContainer().executionPlanner;
-
-export const resolveBrokerClient = (): BrokerClient => getContainer().brokerClient;
-
-export const resolveTradingEngine = (): TradingEngine => getContainer().tradingEngine;
-
-export const resolveTickerClient = (): TickerClient | null => getContainer().tickerClient;
-
-export const resolveReconciliationService = (): ReconciliationService => getContainer().reconciliationService;
-
-export const resolveSettingsRepository = (): SettingsRepository => getContainer().settingsRepository;
-
-export const resolveStopLossRepository = (): StopLossRepository => getContainer().stopLossRepository;
-
-export const resolveAuditLogRepository = (): AuditLogRepository => getContainer().auditLogRepository;
-
-export const resolveRiskManager = (): RiskManager => getContainer().riskManager;
-
-export const resolveStopLossMonitor = (): StopLossMonitor => getContainer().stopLossMonitor;
-
-export const resolveAuditLogService = (): AuditLogService => getContainer().auditLogService;
-
-export const resolveHealthService = (): HealthService => getContainer().healthService;
-
-export const resolveNotificationService = (): NotificationService => getContainer().notificationService;
-
-export const resolveDiscordBotService = (): DiscordBotService => getContainer().discordBotService;
-
-export const resolveUserRepository = () => import("./persistence/UserRepository").then(m => m.getUserRepository());
+/**
+ * Gracefully shut down optional stores.
+ */
+export async function closeOptionalStores(container: AppContainer): Promise<void> {
+  if (container.redisManager) {
+    await container.redisManager.close();
+  }
+  if (container.postgresManager) {
+    await container.postgresManager.close();
+  }
+}

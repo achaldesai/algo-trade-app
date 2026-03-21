@@ -31,7 +31,7 @@ export interface ReconciliationResult {
  * Service to reconcile local portfolio state with broker positions.
  * Ensures consistency between what the app thinks and what the broker has.
  */
-import type { UserRepository } from "../persistence/UserRepository";
+import type { UserRepo } from "../db/repositories/UserRepo";
 
 export class ReconciliationService {
     private lastReconciliation: ReconciliationResult | null = null;
@@ -40,7 +40,7 @@ export class ReconciliationService {
     constructor(
         private readonly brokerFactory: (userId: string) => Promise<BrokerClient>,
         private readonly portfolioService: PortfolioService,
-        private readonly userRepository: UserRepository
+        private readonly userRepository: UserRepo
     ) { }
 
     /**
@@ -70,7 +70,7 @@ export class ReconciliationService {
         this.isReconciling = true;
 
         try {
-            const users = await this.userRepository.listUsers();
+            const users = this.userRepository.listUsers();
             const discrepancies: PositionDiscrepancy[] = [];
             const syncedSymbols: { userId: string; symbol: string }[] = [];
             let totalBrokerCount = 0;

@@ -11,12 +11,27 @@ import type {
 import MarketDataService from "./MarketDataService";
 import type PortfolioService from "./PortfolioService";
 import TradingEngine from "./TradingEngine";
-import BaseStrategy, { type StrategyContext } from "../strategies/BaseStrategy";
-import { resolveRiskManager } from "../container";
+import BaseStrategy, { type StrategyContext, type StrategyParamDefinition } from "../strategies/BaseStrategy";
+import { RiskManager } from "./RiskManager";
+import type { SettingsRepo } from "../db/repositories/SettingsRepo";
+
+function createTestRiskManager(): RiskManager {
+  const mockSettings = {
+    getRiskLimits: () => ({
+      maxDailyLoss: 100000,
+      maxDailyLossPercent: 10,
+      maxPositionSize: 100000,
+      maxOpenPositions: 50,
+      stopLossPercent: 3,
+    }),
+    on: () => { },
+    saveRiskLimits: async () => { },
+  } as unknown as SettingsRepo;
+  return new RiskManager(mockSettings);
+}
 
 class FailingBroker implements BrokerClient {
   public readonly name = "failing";
-
   public connectAttempts = 0;
 
   async connect(): Promise<void> {
@@ -24,9 +39,7 @@ class FailingBroker implements BrokerClient {
     throw new Error("connect failed");
   }
 
-  async disconnect(): Promise<void> {
-    // no-op for tests
-  }
+  async disconnect(): Promise<void> { }
 
   isConnected(): boolean {
     return false;
@@ -40,9 +53,7 @@ class FailingBroker implements BrokerClient {
     throw new Error("primary broker should not execute orders");
   }
 
-  async cancelOrder(_orderId: string): Promise<void> {
-    // no-op for tests
-  }
+  async cancelOrder(_orderId: string): Promise<void> { }
 
   async getQuote(): Promise<null> {
     return null;
@@ -51,11 +62,8 @@ class FailingBroker implements BrokerClient {
 
 class RecordingBroker implements BrokerClient {
   public readonly name = "recording";
-
   public connectCalls = 0;
-
   private connected = false;
-
   public readonly orders: BrokerOrderRequest[] = [];
 
   async connect(): Promise<void> {
@@ -87,9 +95,7 @@ class RecordingBroker implements BrokerClient {
     } satisfies BrokerOrderExecution;
   }
 
-  async cancelOrder(_orderId: string): Promise<void> {
-    // no-op for tests
-  }
+  async cancelOrder(_orderId: string): Promise<void> { }
 
   async getQuote(): Promise<null> {
     return null;
@@ -105,9 +111,7 @@ class AlwaysFailingBroker implements BrokerClient {
     throw new Error("connect failed");
   }
 
-  async disconnect(): Promise<void> {
-    // no-op
-  }
+  async disconnect(): Promise<void> { }
 
   isConnected(): boolean {
     return false;
@@ -135,6 +139,9 @@ class TestStrategy extends BaseStrategy {
     super("test-strategy", "Test Strategy", "Exercise broker fallback");
   }
 
+  getParamSchema(): StrategyParamDefinition[] { return []; }
+  getDefaultParams(): Record<string, unknown> { return {}; }
+
   async generateSignals(context: StrategyContext): Promise<StrategySignal[]> {
     assert.equal(context.broker, this.expectedBroker);
     return [
@@ -146,7 +153,7 @@ class TestStrategy extends BaseStrategy {
             symbol: "AAPL",
             side: "BUY",
             quantity: 1,
-            price: 150,  // Include price for validation
+            price: 150,
             type: "MARKET",
           },
         ],
@@ -159,6 +166,9 @@ class GuardStrategy extends BaseStrategy {
   constructor() {
     super("guard-strategy", "Guard Strategy", "Should never execute when brokers are unavailable");
   }
+
+  getParamSchema(): StrategyParamDefinition[] { return []; }
+  getDefaultParams(): Record<string, unknown> { return {}; }
 
   async generateSignals(): Promise<StrategySignal[]> {
     throw new Error("generateSignals should not run when both brokers fail");
@@ -190,7 +200,7 @@ describe("TradingEngine broker fallback", () => {
     const fallbackBroker = new RecordingBroker();
     const { service: portfolioService, recorded } = createPortfolioServiceStub();
     const marketData = new MarketDataService();
-    const riskManager = resolveRiskManager();
+    const riskManager = createTestRiskManager();
 
     const engine = new TradingEngine({
       brokerFactory: async () => failingBroker,
@@ -222,7 +232,7 @@ describe("TradingEngine broker fallback", () => {
     const fallbackBroker = new AlwaysFailingBroker();
     const { service: portfolioService } = createPortfolioServiceStub();
     const marketData = new MarketDataService();
-    const riskManager = resolveRiskManager();
+    const riskManager = createTestRiskManager();
 
     const engine = new TradingEngine({
       brokerFactory: async () => failingBroker,
@@ -243,4 +253,3 @@ describe("TradingEngine broker fallback", () => {
     assert(result.errors.every((error) => error.stage === "BROKER_CONNECTION"));
   });
 });
-

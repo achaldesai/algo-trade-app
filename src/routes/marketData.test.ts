@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import express from "express";
 import { EventEmitter, once } from "node:events";
-import { before, beforeEach, describe, it } from "node:test";
+import { describe, it, beforeEach } from "node:test";
 import { createRequest, createResponse, type RequestMethod } from "node-mocks-http";
 import errorHandler from "../middleware/errorHandler";
 import marketDataRouter from "./marketData";
-import { resolveMarketDataService, resetContainer } from "../container";
-import { ensurePortfolioStore, resetPortfolioStore } from "../persistence";
+import type { AppContainer } from "../container";
+import { MarketDataService } from "../services/MarketDataService";
 
 interface RequestOptions {
   method: RequestMethod;
@@ -14,7 +14,10 @@ interface RequestOptions {
   body?: unknown;
 }
 
+let marketDataService: MarketDataService;
+
 const testApp = express();
+testApp.use(express.json());
 testApp.use("/api/market-data", marketDataRouter);
 testApp.use(errorHandler);
 
@@ -42,13 +45,9 @@ const invokeApp = async ({ method, url, body }: RequestOptions) => {
 };
 
 describe("/api/market-data routes", () => {
-  before(async () => {
-    await ensurePortfolioStore();
-  });
-
-  beforeEach(async () => {
-    await resetPortfolioStore();
-    resetContainer();
+  beforeEach(() => {
+    marketDataService = new MarketDataService();
+    testApp.locals.container = { marketDataService } as unknown as AppContainer;
   });
 
   it("stores ticks through the batch ingestion endpoint", async () => {
@@ -89,7 +88,6 @@ describe("/api/market-data routes", () => {
     const symbols = snapshot.data.ticks.map((tick) => tick.symbol);
     assert.deepEqual(symbols.sort(), ["AAPL", "MSFT"]);
 
-    const marketDataService = resolveMarketDataService();
     const cached = marketDataService.getSnapshot(["AAPL", "MSFT"]);
     assert.equal(cached.ticks.length, 2);
   });

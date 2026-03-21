@@ -55,14 +55,6 @@ const collectTests: FileCollector = (dir) => {
   return results;
 };
 
-const loadPersistence = async () => {
-  const mod = await import("../src/persistence/index.ts");
-  const exports = (mod as { default?: unknown }).default as Record<string, unknown> | undefined;
-  const ensurePortfolioStore = (exports?.ensurePortfolioStore ?? (mod as Record<string, unknown>).ensurePortfolioStore) as () => Promise<void>;
-  const resetPortfolioStore = (exports?.resetPortfolioStore ?? (mod as Record<string, unknown>).resetPortfolioStore) as () => Promise<void>;
-  return { ensurePortfolioStore, resetPortfolioStore };
-};
-
 const testFiles = collectTests("src");
 
 if (testFiles.length === 0) {
@@ -88,10 +80,7 @@ const runTestFile = (file: string): SpawnResult =>
   });
 
 const runTests = async (files: string[]): Promise<number | null> => {
-  const { ensurePortfolioStore, resetPortfolioStore } = await loadPersistence();
   for (const file of files) {
-    await ensurePortfolioStore();
-    await resetPortfolioStore();
     const code = await runTestFile(file);
     if (code === null) {
       return null;
@@ -105,10 +94,6 @@ const runTests = async (files: string[]): Promise<number | null> => {
 };
 
 const main = async () => {
-  const { ensurePortfolioStore, resetPortfolioStore } = await loadPersistence();
-  await ensurePortfolioStore();
-  await resetPortfolioStore();
-
   const code = await runTests(testFiles);
 
   process.exit(code ?? 0);

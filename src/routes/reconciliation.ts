@@ -1,23 +1,20 @@
 import { Router } from "express";
-import { resolveReconciliationService } from "../container";
+import { getContainer } from "../util/getContainer";
 import { HttpError } from "../utils/HttpError";
 import logger from "../utils/logger";
-
 import { userAuthMiddleware } from "../middleware/userAuth";
 import type { AuthSession } from "../types/user";
 
 const router = Router();
 router.use(userAuthMiddleware);
 
-// GET /api/reconciliation/status - Get last reconciliation result
-router.get("/status", async (_req, res, next) => {
+router.get("/status", async (req, res, next) => {
     try {
-        const service = resolveReconciliationService();
-        const result = service.getLastResult();
+        const { reconciliationService } = getContainer(req);
+        const result = reconciliationService.getLastResult();
 
-        // If no result yet (e.g. very fresh startup), trigger one non-blocking if not running
         if (!result) {
-            service.reconcilePeriodic().catch(err => {
+            reconciliationService.reconcilePeriodic().catch((err: Error) => {
                 logger.error({ err }, "Failed to trigger periodic reconciliation from status check");
             });
             res.json({ status: "pending", message: "Reconciliation pending" });
@@ -30,18 +27,16 @@ router.get("/status", async (_req, res, next) => {
     }
 });
 
-// POST /api/reconciliation/run - Manually trigger reconciliation
-router.post("/run", async (_req, res, next) => {
+router.post("/run", async (req, res, next) => {
     try {
-        const service = resolveReconciliationService();
-        const result = await service.reconcilePeriodic();
+        const { reconciliationService } = getContainer(req);
+        const result = await reconciliationService.reconcilePeriodic();
         res.json(result);
     } catch (error) {
         next(error);
     }
 });
 
-// POST /api/reconciliation/sync/:symbol - Sync specific symbol from broker
 router.post("/sync/:symbol", async (req, res, next) => {
     try {
         const { symbol } = req.params;
@@ -49,14 +44,14 @@ router.post("/sync/:symbol", async (req, res, next) => {
             throw new HttpError(400, "Symbol is required");
         }
 
-        const service = resolveReconciliationService();
+        const { reconciliationService } = getContainer(req);
         const userId = (req as unknown as { user: AuthSession }).user.userId;
-        await service.syncSymbolFromBroker(userId, symbol.toUpperCase());
+        await reconciliationService.syncSymbolFromBroker(userId, symbol.toUpperCase());
 
         res.json({
             success: true,
             message: `Synced ${symbol} from broker`,
-            result: service.getLastResult()
+            result: reconciliationService.getLastResult(),
         });
     } catch (error) {
         next(error);

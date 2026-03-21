@@ -1,29 +1,28 @@
 import type { MarketTick } from "../types";
 import type MarketDataService from "./MarketDataService";
 import type TradingEngine from "./TradingEngine";
-import type { UserRepository } from "../persistence/UserRepository";
+import type { UserRepo } from "../db/repositories/UserRepo";
+import type { StrategyConfigRepo } from "../db/repositories/StrategyConfigRepo";
 import logger from "../utils/logger";
 
 export type EvaluationMode = "parallel" | "sequential";
 
 export interface TradingLoopOptions {
-    /**
-     * How to evaluate strategies on each tick.
-     * - parallel: All strategies evaluate concurrently (default, faster)
-     * - sequential: Strategies evaluate one by one (for order-dependent strategies)
-     */
     evaluationMode?: EvaluationMode;
-
-    /**
-     * Filter strategies to specific symbols (optional optimization).
-     * If set, only strategies that care about the incoming tick symbol will evaluate.
-     */
     filterBySymbol?: boolean;
 }
 
+/**
+ * TradingLoopService evaluates strategies on every market tick.
+ *
+ * Per-user strategy filtering:
+ * - If a user has strategy configs, only enabled strategies are evaluated
+ *   with the user's custom params.
+ * - If a user has NO configs at all, ALL registered strategies are evaluated
+ *   with default params (opt-in on first config save).
+ */
 export class TradingLoopService {
     private isRunning = false;
-    private static instance: TradingLoopService;
     private evaluationMode: EvaluationMode = "parallel";
     private filterBySymbol = false;
     private evaluationInProgress = false;
@@ -31,7 +30,8 @@ export class TradingLoopService {
     constructor(
         private readonly marketDataService: MarketDataService,
         private readonly tradingEngine: TradingEngine,
-        private readonly userRepository: UserRepository,
+        private readonly userRepository: UserRepo,
+        private readonly strategyConfigRepo: StrategyConfigRepo,
         options?: TradingLoopOptions
     ) {
         if (options?.evaluationMode) {
@@ -40,26 +40,6 @@ export class TradingLoopService {
         if (options?.filterBySymbol !== undefined) {
             this.filterBySymbol = options.filterBySymbol;
         }
-    }
-
-    static getInstance(
-        marketDataService?: MarketDataService,
-        tradingEngine?: TradingEngine,
-        userRepository?: UserRepository,
-        options?: TradingLoopOptions
-    ): TradingLoopService {
-        if (!TradingLoopService.instance) {
-            if (!marketDataService || !tradingEngine || !userRepository) {
-                throw new Error("TradingLoopService not initialized");
-            }
-            TradingLoopService.instance = new TradingLoopService(
-                marketDataService,
-                tradingEngine,
-                userRepository,
-                options
-            );
-        }
-        return TradingLoopService.instance;
     }
 
     start(): void {
@@ -74,9 +54,7 @@ export class TradingLoopService {
     }
 
     stop(): void {
-        if (!this.isRunning) {
-            return;
-        }
+        if (!this.isRunning) return;
 
         this.isRunning = false;
         this.marketDataService.off("tick", this.handleTick);
@@ -109,32 +87,51 @@ export class TradingLoopService {
         const startTime = performance.now();
 
         try {
-            const users = await this.userRepository.listUsers();
-            const strategies = this.tradingEngine.getStrategies();
+            const users = this.userRepository.listUsers();
+            const allStrategies = this.tradingEngine.getStrategies();
 
             if (this.evaluationMode === "parallel") {
-                // Parallel evaluation - evaluate all strategies concurrently for all users
                 const evaluations: Promise<unknown>[] = [];
                 for (const user of users) {
-                    for (const strategy of strategies) {
-                        evaluations.push(this.tradingEngine.evaluate(strategy.id, user.id));
+                    const activeConfigs = this.strategyConfigRepo.getActiveStrategies(user.id);
+
+                    if (activeConfigs.length > 0) {
+                        // User has configs — evaluate only enabled strategies with custom params
+                        for (const config of activeConfigs) {
+                            evaluations.push(
+                                this.tradingEngine.evaluate(config.strategyId, user.id, config.params)
+                            );
+                        }
+                    } else {
+                        // No configs yet — evaluate all strategies with defaults
+                        for (const strategy of allStrategies) {
+                            evaluations.push(
+                                this.tradingEngine.evaluate(strategy.id, user.id)
+                            );
+                        }
                     }
                 }
                 await Promise.all(evaluations);
             } else {
-                // Sequential evaluation - maintain order dependency
                 for (const user of users) {
-                    for (const strategy of strategies) {
-                        await this.tradingEngine.evaluate(strategy.id, user.id);
+                    const activeConfigs = this.strategyConfigRepo.getActiveStrategies(user.id);
+
+                    if (activeConfigs.length > 0) {
+                        for (const config of activeConfigs) {
+                            await this.tradingEngine.evaluate(config.strategyId, user.id, config.params);
+                        }
+                    } else {
+                        for (const strategy of allStrategies) {
+                            await this.tradingEngine.evaluate(strategy.id, user.id);
+                        }
                     }
                 }
             }
 
             const elapsed = performance.now() - startTime;
             if (elapsed > 50) {
-                // Log slow evaluations (> 50ms)
                 logger.warn(
-                    { symbol: tick.symbol, elapsedMs: elapsed.toFixed(2), strategyCount: strategies.length },
+                    { symbol: tick.symbol, elapsedMs: elapsed.toFixed(2), strategyCount: allStrategies.length },
                     "Slow strategy evaluation"
                 );
             }

@@ -1,22 +1,16 @@
 import { Router } from "express";
-import { resolveStopLossMonitor } from "../container";
-import type { StopLossConfig } from "../persistence/StopLossRepository";
+import { getContainer } from "../util/getContainer";
+import type { StopLossConfig } from "../db/repositories/StopLossRepo";
 import { userAuthMiddleware } from "../middleware/userAuth";
 import type { AuthSession } from "../types/user";
 
 const router = Router();
-
-// Apply authentication middleware to all stop-loss routes
 router.use(userAuthMiddleware);
 
-/**
- * GET /api/stop-loss
- * List all active stop-losses
- */
 router.get("/", (req, res) => {
-    const monitor = resolveStopLossMonitor();
+    const { stopLossMonitor } = getContainer(req);
     const userId = (req as unknown as { user: AuthSession }).user.userId;
-    const status = monitor.getStatus(userId);
+    const status = stopLossMonitor.getStatus(userId);
 
     res.json({
         success: true,
@@ -28,62 +22,36 @@ router.get("/", (req, res) => {
     });
 });
 
-/**
- * GET /api/stop-loss/:symbol
- * Get stop-loss for a specific symbol
- */
 router.get("/:symbol", (req, res): void => {
-    const monitor = resolveStopLossMonitor();
+    const { stopLossMonitor } = getContainer(req);
     const userId = (req as unknown as { user: AuthSession }).user.userId;
     const symbol = req.params.symbol.toUpperCase();
 
-    const stopLoss = monitor.get(userId, symbol);
+    const stopLoss = stopLossMonitor.get(userId, symbol);
 
     if (!stopLoss) {
-        res.status(404).json({
-            success: false,
-            error: `No stop-loss found for symbol ${symbol}`,
-        });
+        res.status(404).json({ success: false, error: `No stop-loss found for symbol ${symbol}` });
         return;
     }
 
-    res.json({
-        success: true,
-        data: formatStopLoss(stopLoss),
-    });
+    res.json({ success: true, data: formatStopLoss(stopLoss) });
 });
 
-/**
- * PUT /api/stop-loss/:symbol
- * Create or update stop-loss for a symbol
- * 
- * Body:
- * - stopLossPrice?: number (optional - uses default from settings if not provided)
- * - type?: 'FIXED' | 'TRAILING' (default: 'FIXED')
- * - trailingPercent?: number (required if type is 'TRAILING')
- * - entryPrice: number (required for new stop-losses)
- * - quantity: number (required for new stop-losses)
- */
 router.put("/:symbol", async (req, res): Promise<void> => {
-    const monitor = resolveStopLossMonitor();
+    const { stopLossMonitor } = getContainer(req);
     const userId = (req as unknown as { user: AuthSession }).user.userId;
     const symbol = req.params.symbol.toUpperCase();
-
     const { stopLossPrice, type, trailingPercent, entryPrice, quantity } = req.body;
 
-    // Check if we have an existing stop-loss to update
-    const existing = monitor.get(userId, symbol);
+    const existing = stopLossMonitor.get(userId, symbol);
 
     if (!existing && (entryPrice === undefined || quantity === undefined)) {
-        res.status(400).json({
-            success: false,
-            error: "entryPrice and quantity are required for new stop-losses",
-        });
+        res.status(400).json({ success: false, error: "entryPrice and quantity are required for new stop-losses" });
         return;
     }
 
     try {
-        const config = await monitor.setStopLoss(userId, symbol, {
+        const config = await stopLossMonitor.setStopLoss(userId, symbol, {
             entryPrice: entryPrice ?? existing?.entryPrice ?? 0,
             quantity: quantity ?? existing?.quantity ?? 0,
             stopLossPrice,
@@ -98,81 +66,42 @@ router.put("/:symbol", async (req, res): Promise<void> => {
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to set stop-loss";
-        res.status(500).json({
-            success: false,
-            error: message,
-        });
+        res.status(500).json({ success: false, error: message });
     }
 });
 
-/**
- * DELETE /api/stop-loss/:symbol
- * Remove stop-loss for a symbol
- */
 router.delete("/:symbol", async (req, res): Promise<void> => {
-    const monitor = resolveStopLossMonitor();
+    const { stopLossMonitor } = getContainer(req);
     const userId = (req as unknown as { user: AuthSession }).user.userId;
     const symbol = req.params.symbol.toUpperCase();
 
-    const existing = monitor.get(userId, symbol);
-
+    const existing = stopLossMonitor.get(userId, symbol);
     if (!existing) {
-        res.status(404).json({
-            success: false,
-            error: `No stop-loss found for symbol ${symbol}`,
-        });
+        res.status(404).json({ success: false, error: `No stop-loss found for symbol ${symbol}` });
         return;
     }
 
     try {
-        await monitor.removeStopLoss(userId, symbol);
-
-        res.json({
-            success: true,
-            message: `Stop-loss removed for ${symbol}`,
-        });
+        await stopLossMonitor.removeStopLoss(userId, symbol);
+        res.json({ success: true, message: `Stop-loss removed for ${symbol}` });
     } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to remove stop-loss";
-        res.status(500).json({
-            success: false,
-            error: message,
-        });
+        res.status(500).json({ success: false, error: message });
     }
 });
 
-/**
- * POST /api/stop-loss/start
- * Start the stop-loss monitor
- */
-router.post("/start", (_req, res) => {
-    const monitor = resolveStopLossMonitor();
-    monitor.start();
-
-    res.json({
-        success: true,
-        message: "Stop-loss monitor started",
-        data: monitor.getStatus(),
-    });
+router.post("/start", (req, res) => {
+    const { stopLossMonitor } = getContainer(req);
+    stopLossMonitor.start();
+    res.json({ success: true, message: "Stop-loss monitor started", data: stopLossMonitor.getStatus() });
 });
 
-/**
- * POST /api/stop-loss/stop
- * Stop the stop-loss monitor
- */
-router.post("/stop", (_req, res) => {
-    const monitor = resolveStopLossMonitor();
-    monitor.stop();
-
-    res.json({
-        success: true,
-        message: "Stop-loss monitor stopped",
-        data: monitor.getStatus(),
-    });
+router.post("/stop", (req, res) => {
+    const { stopLossMonitor } = getContainer(req);
+    stopLossMonitor.stop();
+    res.json({ success: true, message: "Stop-loss monitor stopped", data: stopLossMonitor.getStatus() });
 });
 
-/**
- * Format stop-loss config for API response
- */
 function formatStopLoss(config: StopLossConfig) {
     return {
         symbol: config.symbol,
@@ -182,9 +111,7 @@ function formatStopLoss(config: StopLossConfig) {
         type: config.type,
         trailingPercent: config.trailingPercent,
         highWaterMark: config.highWaterMark,
-        distancePercent: Number(
-            (((config.entryPrice - config.stopLossPrice) / config.entryPrice) * 100).toFixed(2)
-        ),
+        distancePercent: Number((((config.entryPrice - config.stopLossPrice) / config.entryPrice) * 100).toFixed(2)),
         createdAt: config.createdAt.toISOString(),
         updatedAt: config.updatedAt.toISOString(),
     };

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { resolvePortfolioService } from "../container";
+import { getContainer } from "../util/getContainer";
 import { validateBody } from "../middleware/validateRequest";
 import { userAuthMiddleware } from "../middleware/userAuth";
 import type { AuthSession } from "../types/user";
@@ -15,9 +15,9 @@ const createStockSchema = z.object({
 
 router.get("/", async (req, res, next) => {
   try {
-    const portfolioService = resolvePortfolioService();
+    const { portfolioService } = getContainer(req);
     const userId = (req as unknown as { user: AuthSession }).user.userId;
-    const stocks = await portfolioService.listStocks(userId);
+    const stocks = portfolioService.listStocks(userId);
     res.json({
       data: stocks.map((stock) => ({
         ...stock,
@@ -31,7 +31,7 @@ router.get("/", async (req, res, next) => {
 
 router.post("/", validateBody(createStockSchema), async (req, res, next) => {
   try {
-    const portfolioService = resolvePortfolioService();
+    const { portfolioService } = getContainer(req);
     const userId = (req as unknown as { user: AuthSession }).user.userId;
     const stock = await portfolioService.addStock(userId, req.body);
     res.status(201).json({

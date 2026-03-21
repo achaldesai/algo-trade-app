@@ -1,9 +1,9 @@
-import { getPortfolioRepository } from "../persistence";
-import { TradingLoopService } from "./TradingLoopService";
+import type { TradingLoopService } from "./TradingLoopService";
 import { MarketDataService } from "./MarketDataService";
 import type { TickerClient } from "./TickerClient";
 import type BrokerClient from "../brokers/BrokerClient";
 import type { StopLossMonitor } from "./StopLossMonitor";
+import type { PortfolioRepo } from "../db/repositories/PortfolioRepo";
 import logger from "../utils/logger";
 
 /**
@@ -41,6 +41,8 @@ export interface HealthServiceDependencies {
     tickerClient?: TickerClient;
     marketDataService: MarketDataService;
     stopLossMonitor?: StopLossMonitor;
+    tradingLoopService?: TradingLoopService;
+    portfolioRepo?: PortfolioRepo;
 }
 
 // Track server start time for uptime calculation
@@ -179,9 +181,11 @@ export class HealthService {
      */
     private async checkDatabaseHealth(): Promise<ComponentHealth> {
         try {
-            const repo = await getPortfolioRepository();
-            // Quick read test
-            await repo.listStocks("SYSTEM_DEFAULT");
+            const repo = this.dependencies.portfolioRepo;
+            if (!repo) {
+                return { name: "database", status: "degraded", message: "No portfolio repo configured", lastUpdated: new Date() };
+            }
+            repo.listStocks("SYSTEM_DEFAULT");
 
             return {
                 name: "database",
@@ -205,19 +209,21 @@ export class HealthService {
      */
     private checkTradingLoopHealth(): ComponentHealth {
         try {
-            const loopService = TradingLoopService.getInstance();
+            const loopService = this.dependencies.tradingLoopService;
+            if (!loopService) {
+                return { name: "tradingLoop", status: "healthy", message: "Not configured", lastUpdated: new Date() };
+            }
             const status = loopService.getStatus();
 
             return {
                 name: "tradingLoop",
-                status: "healthy", // Not running is still healthy, just not active
+                status: "healthy",
                 message: status.running
                     ? `Running (${status.mode} mode)`
                     : "Stopped",
                 lastUpdated: new Date(),
             };
         } catch {
-            // Service not initialized yet
             return {
                 name: "tradingLoop",
                 status: "healthy",

@@ -26,11 +26,7 @@ export class TokenRefreshService {
   private readonly REFRESH_HOUR_IST = 4;
   private readonly REFRESH_MINUTE_IST = 30;
 
-  private constructor() {
-    if (env.angelOneApiKey) {
-      this.smartApi = new SmartAPI({ api_key: env.angelOneApiKey });
-    }
-  }
+  private constructor() {}
 
   public static getInstance(): TokenRefreshService {
     if (!TokenRefreshService.instance) {
@@ -107,8 +103,10 @@ export class TokenRefreshService {
       throw new Error("Angel One TOTP secret not configured. Cannot perform automatic re-authentication.");
     }
 
-    if (!this.smartApi) {
-      this.smartApi = new SmartAPI({ api_key: apiKey });
+    this.ensureSmartApi(apiKey);
+    const smartApi = this.smartApi;
+    if (!smartApi) {
+      throw new Error("SmartAPI not initialized");
     }
 
     // Generate TOTP
@@ -117,7 +115,7 @@ export class TokenRefreshService {
     logger.info({ clientId }, "Performing automatic Angel One re-authentication");
 
     // Generate new session
-    const response = await this.smartApi.generateSession(
+    const response = await smartApi.generateSession(
       clientId,
       password,
       totp
@@ -178,13 +176,15 @@ export class TokenRefreshService {
       return;
     }
 
-    if (!this.smartApi) {
+    this.ensureSmartApi(process.env.ANGEL_ONE_API_KEY || env.angelOneApiKey);
+    const smartApi = this.smartApi;
+    if (!smartApi) {
       throw new Error("SmartAPI not initialized");
     }
 
     logger.info({ clientId: tokenData.clientId }, "Refreshing Angel One token");
 
-    const response = await this.smartApi.generateToken(tokenData.refreshToken);
+    const response = await smartApi.generateToken(tokenData.refreshToken);
 
     if (!response.status || !response.data) {
       throw new Error(response.message || "Token refresh failed");
@@ -337,6 +337,15 @@ export class TokenRefreshService {
    */
   public isRunning(): boolean {
     return this.refreshTimer !== null;
+  }
+
+  private ensureSmartApi(apiKey: string): void {
+    if (!this.smartApi) {
+      if (!apiKey) {
+        throw new Error("Angel One API key not configured");
+      }
+      this.smartApi = new SmartAPI({ api_key: apiKey });
+    }
   }
 }
 

@@ -3,7 +3,8 @@ import type { MarketTick, BrokerOrderRequest, Trade } from "../types";
 import type BrokerClient from "../brokers/BrokerClient";
 import type MarketDataService from "./MarketDataService";
 import type TradingEngine from "./TradingEngine";
-import type { StopLossConfig, StopLossRepository } from "../persistence/StopLossRepository";
+import type { StopLossConfig } from "../db/repositories/StopLossRepo";
+import type { StopLossRepo } from "../db/repositories/StopLossRepo";
 import type { RiskManager } from "./RiskManager";
 import logger from "../utils/logger";
 import env from "../config/env";
@@ -11,7 +12,7 @@ import env from "../config/env";
 export interface StopLossMonitorOptions {
     marketDataService: MarketDataService;
     tradingEngine: TradingEngine;
-    stopLossRepository: StopLossRepository;
+    stopLossRepository: StopLossRepo;
     riskManager: RiskManager;
     brokerFactory?: (userId: string) => Promise<BrokerClient>;
 }
@@ -35,7 +36,7 @@ export interface StopLossTriggeredEvent {
 export class StopLossMonitor extends EventEmitter {
     private readonly marketDataService: MarketDataService;
     private readonly tradingEngine: TradingEngine;
-    private readonly repository: StopLossRepository;
+    private readonly repository: StopLossRepo;
     private readonly riskManager: RiskManager;
     private readonly brokerFactory?: (userId: string) => Promise<BrokerClient>;
     private readonly symbolQueues = new Map<string, Promise<void>>();

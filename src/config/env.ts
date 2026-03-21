@@ -100,6 +100,14 @@ export const env = {
 
   // Watchlist
   watchlist: (process.env.WATCHLIST ?? "RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK").split(",").map(s => s.trim()).filter(s => s.length > 0),
+
+  // PostgreSQL (optional — falls back to LMDB if not set)
+  databaseUrl: process.env.DATABASE_URL ?? "",
+  pgPoolMin: parseNumberWithFallback(process.env.POSTGRES_POOL_MIN, 2),
+  pgPoolMax: parseNumberWithFallback(process.env.POSTGRES_POOL_MAX, 10),
+
+  // Redis (optional — falls back to in-memory if not set)
+  redisUrl: process.env.REDIS_URL ?? "",
 };
 
 export type EnvConfig = typeof env;

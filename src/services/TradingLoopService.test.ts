@@ -3,10 +3,12 @@ import assert from "node:assert";
 import { TradingLoopService } from "./TradingLoopService";
 import type { MarketDataService } from "./MarketDataService";
 import type { TradingEngine } from "./TradingEngine";
+import type { StrategyConfigRepo } from "../db/repositories/StrategyConfigRepo";
 
 describe("TradingLoopService", () => {
     let mockMarketDataService: unknown;
     let mockTradingEngine: unknown;
+    let mockStrategyConfigRepo: unknown;
     let service: TradingLoopService;
 
     beforeEach(() => {
@@ -18,14 +20,17 @@ describe("TradingLoopService", () => {
             getStrategies: mock.fn(() => []),
             evaluate: mock.fn(),
         };
-        // Reset instance for testing
-        // @ts-expect-error - Internal instance reset for testing
-        TradingLoopService.instance = undefined;
+        mockStrategyConfigRepo = {
+            getActiveStrategies: mock.fn(() => []),
+            getConfig: mock.fn(() => null),
+            getAllConfigs: mock.fn(() => []),
+        };
         service = new TradingLoopService(
             mockMarketDataService as MarketDataService,
             mockTradingEngine as TradingEngine,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            {} as any // Mock UserRepository
+            {} as any, // Mock UserRepository
+            mockStrategyConfigRepo as StrategyConfigRepo
         );
     });
 
