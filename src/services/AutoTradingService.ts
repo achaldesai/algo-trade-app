@@ -199,7 +199,7 @@ export class AutoTradingService {
     }
   }
 
-  private isMarketHours(date: Date): boolean {
+  isMarketHours(date: Date): boolean {
     const istOffset = 5.5 * 60 * 60 * 1000;
     const istDate = new Date(date.getTime() + istOffset);
     const day = istDate.getUTCDay();

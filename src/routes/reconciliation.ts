@@ -3,7 +3,6 @@ import { getContainer } from "../util/getContainer";
 import { HttpError } from "../utils/HttpError";
 import logger from "../utils/logger";
 import { userAuthMiddleware } from "../middleware/userAuth";
-import type { AuthSession } from "../types/user";
 
 const router = Router();
 router.use(userAuthMiddleware);
@@ -45,7 +44,7 @@ router.post("/sync/:symbol", async (req, res, next) => {
         }
 
         const { reconciliationService } = getContainer(req);
-        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        const userId = req.user!.userId;
         await reconciliationService.syncSymbolFromBroker(userId, symbol.toUpperCase());
 
         res.json({

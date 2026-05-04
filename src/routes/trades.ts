@@ -3,7 +3,6 @@ import { z } from "zod";
 import { getContainer } from "../util/getContainer";
 import { validateBody } from "../middleware/validateRequest";
 import { userAuthMiddleware } from "../middleware/userAuth";
-import type { AuthSession } from "../types/user";
 
 const router = Router();
 router.use(userAuthMiddleware);
@@ -20,7 +19,7 @@ const createTradeSchema = z.object({
 router.get("/", async (req, res, next) => {
   try {
     const { portfolioService } = getContainer(req);
-    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const userId = req.user!.userId;
     const trades = portfolioService.listTrades(userId);
     res.json({
       data: trades.map((trade) => ({
@@ -36,7 +35,7 @@ router.get("/", async (req, res, next) => {
 router.post("/", validateBody(createTradeSchema), async (req, res, next) => {
   try {
     const { portfolioService } = getContainer(req);
-    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const userId = req.user!.userId;
     const { executedAt, ...rest } = req.body as z.infer<typeof createTradeSchema>;
     const trade = await portfolioService.addTrade(userId, {
       ...rest,
@@ -57,7 +56,7 @@ router.post("/", validateBody(createTradeSchema), async (req, res, next) => {
 router.get("/summary", async (req, res, next) => {
   try {
     const { portfolioService } = getContainer(req);
-    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const userId = req.user!.userId;
     const summaries = portfolioService.getTradeSummaries(userId);
     res.json({ data: summaries });
   } catch (error) {
@@ -68,7 +67,7 @@ router.get("/summary", async (req, res, next) => {
 router.get("/portfolio", async (req, res, next) => {
   try {
     const { portfolioService } = getContainer(req);
-    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const userId = req.user!.userId;
     const snapshot = portfolioService.getSnapshot(userId);
     res.json({
       data: {

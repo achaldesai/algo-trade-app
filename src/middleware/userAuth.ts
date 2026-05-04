@@ -3,11 +3,25 @@ import jwt from "jsonwebtoken";
 import { HttpError } from "../utils/HttpError";
 import env from "../config/env";
 import logger from "../utils/logger";
-import { getUserRepository } from "../persistence/UserRepository";
+import { getContainer } from "../util/getContainer";
 
 export interface TokenPayload {
     userId: string;
     role: string;
+}
+
+function getJwtSecret(): string {
+    if (env.adminApiKey) return env.adminApiKey;
+
+    if (env.nodeEnv === "production") {
+        throw new HttpError(
+            503,
+            "Authentication is not configured. Set ADMIN_API_KEY in environment variables."
+        );
+    }
+
+    logger.warn("ADMIN_API_KEY is not set — using fallback secret for DEVELOPMENT only. DO NOT use in production.");
+    return "fallback-secret-for-dev";
 }
 
 // Extend Express Request object to include the user
@@ -34,6 +48,7 @@ export async function userAuthMiddleware(
 
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            logger.warn({ path: req.path, method: req.method, ip: req.ip }, "Missing or malformed Authorization header");
             throw new HttpError(401, "Authentication token required. Use 'Authorization: Bearer <token>' header.");
         }
 
@@ -42,7 +57,7 @@ export async function userAuthMiddleware(
             throw new HttpError(401, "Invalid authorization header format.");
         }
 
-        const secret = env.adminApiKey || "fallback-secret-for-dev";
+        const secret = getJwtSecret();
 
         let decoded: TokenPayload;
         try {
@@ -53,8 +68,8 @@ export async function userAuthMiddleware(
         }
 
         // Verify user still exists in database
-        const userRepo = getUserRepository();
-        const user = await userRepo.findUserById(decoded.userId);
+        const userRepo = getContainer(req).userRepo;
+        const user = userRepo.findUserById(decoded.userId);
         if (!user) {
             logger.warn({ userId: decoded.userId }, "Token presented for deleted or unknown user");
             throw new HttpError(401, "User no longer exists");

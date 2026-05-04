@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 
 <head>
     <meta charset="UTF-8">
@@ -64,33 +64,38 @@
     <div id="main-container" class="container hidden">
         <header>
             <div class="header-title">
-                <h1>Algo Trade Dashboard</h1>
+                <h1>Algo Trade</h1>
                 <span id="current-user-badge" class="user-badge hidden"></span>
+                <a href="/orders.html" id="console-link" class="console-link" title="Paper-mode debug console" hidden>Console →</a>
             </div>
-            <div class="status-bar">
-                <div class="status-item health-indicator">
+            <div class="status-strip">
+                <span class="status-chip" title="Service health">
                     <span id="health-dot" class="health-dot pending"></span>
-                    <span id="health-status" class="status-value pending">Checking...</span>
+                    <span id="health-status" class="status-value pending">…</span>
                     <span id="health-uptime" class="health-uptime"></span>
-                </div>
-                <div class="status-item">
-                    <span class="label">Data Provider (Angel One):</span>
-                    <span id="angel-status" class="status-value pending">Checking...</span>
-                </div>
-                <div class="status-item">
-                    <span class="label">Execution (Zerodha):</span>
-                    <span id="zerodha-status" class="status-value pending">Checking...</span>
-                </div>
-                <div class="status-item">
+                </span>
+                <span class="status-sep" aria-hidden="true"></span>
+                <span class="status-chip" title="Angel One — data provider">
+                    <span class="status-key">Data</span>
+                    <span id="angel-status" class="status-value pending">…</span>
+                </span>
+                <span class="status-chip" title="Zerodha — execution broker">
+                    <span class="status-key">Exec</span>
+                    <span id="zerodha-status" class="status-value pending">…</span>
+                </span>
+                <span class="status-sep" aria-hidden="true"></span>
+                <span class="status-chip" title="Market state">
+                    <span class="status-key">Market</span>
                     <span id="market-status" class="status-value">CLOSED</span>
-                </div>
-                <div class="status-item">
-                    <span class="label">Positions:</span>
-                    <span id="recon-status" class="status-value pending">Checking...</span>
-                </div>
-                <div class="status-item logout-wrapper">
-                    <button id="logout-btn" class="btn btn-danger btn-sm">Logout</button>
-                </div>
+                </span>
+                <span class="status-chip" title="Position reconciliation">
+                    <span class="status-key">Pos</span>
+                    <span id="recon-status" class="status-value pending">…</span>
+                </span>
+            </div>
+            <div class="header-actions">
+                <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle theme" title="Toggle theme">🌙</button>
+                <button id="logout-btn" class="btn btn-danger btn-sm">Logout</button>
             </div>
         </header>
 
@@ -183,8 +188,8 @@
                     </div>
                 </section>
             </div>
-            <section class="settings-section">
-                <h2>Risk Management Settings</h2>
+            <details class="settings-section collapsible">
+                <summary><h2>Risk Management Settings</h2></summary>
                 <form id="settings-form" class="settings-form">
                     <div class="form-group">
                         <label for="maxDailyLoss">Max Daily Loss (₹)</label>
@@ -211,10 +216,10 @@
                         <button type="button" id="reset-settings-btn" class="btn btn-danger">Reset to Defaults</button>
                     </div>
                 </form>
-            </section>
+            </details>
 
-            <section class="settings-section">
-                <h2>🔔 Notifications</h2>
+            <details class="settings-section collapsible">
+                <summary><h2>🔔 Notifications</h2></summary>
                 <div class="notification-settings">
                     <div class="notification-status">
                         <span class="label">Status:</span>
@@ -230,10 +235,58 @@
                     </div>
                     <div id="notification-result" class="notification-result hidden"></div>
                 </div>
-            </section>
+            </details>
         </main>
     </div> <!-- /#main-container -->
+    <script>
+        // Theme toggle — persists to localStorage, default dark.
+        (function () {
+            const KEY = "atd-theme";
+            const root = document.documentElement;
+            const saved = localStorage.getItem(KEY);
+            if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+            const syncBtn = () => {
+                const btn = document.getElementById("theme-toggle");
+                if (btn) btn.textContent = root.getAttribute("data-theme") === "light" ? "☀️" : "🌙";
+            };
+            const onClick = () => {
+                const next = root.getAttribute("data-theme") === "light" ? "dark" : "light";
+                root.setAttribute("data-theme", next);
+                localStorage.setItem(KEY, next);
+                syncBtn();
+            };
+            const wire = () => {
+                const btn = document.getElementById("theme-toggle");
+                if (btn) btn.addEventListener("click", onClick);
+                syncBtn();
+            };
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", wire);
+            } else { wire(); }
+        })();
+    </script>
     <script src="dashboard.js"></script>
+    <script>
+        // Reveal the paper-mode Console link when the server is in paper mode.
+        // /api/paper/pnl 404s outside paper mode, so a successful probe is the signal.
+        (function () {
+            const showLink = () => {
+                const el = document.getElementById('console-link');
+                if (el) el.hidden = false;
+            };
+            const tryProbe = async () => {
+                try {
+                    const res = await fetch('/api/paper/pnl');
+                    if (res.ok) showLink();
+                } catch (_e) { /* ignore */ }
+            };
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', tryProbe);
+            } else {
+                tryProbe();
+            }
+        })();
+    </script>
 </body>
 
 </html>

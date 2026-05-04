@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import logger from "../utils/logger";
 import type { EnvConfig } from "./env";
 
-const SUPPORTED_BROKERS = new Set(["paper", "zerodha"]);
+const SUPPORTED_BROKERS = new Set(["paper", "zerodha", "angelone"]);
 const SUPPORTED_EXCHANGES = new Set(["NSE", "BSE", "NFO", "BFO", "CDS", "MCX", "BCD"]);
 const SUPPORTED_PRODUCTS = new Set(["CNC", "MIS", "NRML"]);
 
@@ -37,6 +37,25 @@ export const validateEnvironment = async (env: EnvConfig): Promise<void> => {
     if (!SUPPORTED_PRODUCTS.has(env.brokerProduct.toUpperCase())) {
       warnings.push(`BROKER_PRODUCT '${env.brokerProduct}' is not in {${Array.from(SUPPORTED_PRODUCTS).join(", ")}}.`);
     }
+  }
+
+  if (env.brokerProvider === "angelone") {
+    if (!env.angelOneApiKey) {
+      errors.push("Angel One broker selected but ANGEL_ONE_API_KEY is missing.");
+    }
+    if (!env.angelOneClientId) {
+      errors.push("Angel One broker selected but ANGEL_ONE_CLIENT_ID is missing.");
+    }
+    if (!env.angelOnePassword) {
+      errors.push("Angel One broker selected but ANGEL_ONE_PASSWORD is missing.");
+    }
+    if (!env.angelOneTotpSecret) {
+      warnings.push("ANGEL_ONE_TOTP_SECRET is not set. Automatic TOTP login and daily token refresh will be unavailable.");
+    }
+  }
+
+  if (env.dataProvider === "angelone" && !env.angelOneApiKey) {
+    errors.push("Angel One data provider selected but ANGEL_ONE_API_KEY is missing.");
   }
 
   try {

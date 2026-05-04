@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getContainer } from "../util/getContainer";
 import { userAuthMiddleware } from "../middleware/userAuth";
-import type { AuthSession } from "../types/user";
+import env from "../config/env";
 import type { Trade, TradeSummary, PortfolioPositionSnapshot } from "../types";
 
 const router = Router();
@@ -18,7 +18,7 @@ router.get("/daily", async (req, res, next) => {
         }
 
         const { portfolioService, marketDataService, riskManager } = getContainer(req);
-        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        const userId = req.user!.userId;
 
         const allTrades = portfolioService.listTrades(userId);
 
@@ -68,6 +68,10 @@ router.get("/daily", async (req, res, next) => {
             success: true,
             data: {
                 date: today.toISOString().split('T')[0],
+                mode: {
+                    paperTrading: env.paperTrading,
+                    brokerProvider: env.brokerProvider,
+                },
                 summary: {
                     realizedPnL: Number(dailyRealizedPnL.toFixed(2)),
                     unrealizedPnL: Number(totalUnrealizedPnL.toFixed(2)),
@@ -99,7 +103,7 @@ router.get("/daily", async (req, res, next) => {
 router.get("/summary", async (req, res, next) => {
     try {
         const { portfolioService, marketDataService } = getContainer(req);
-        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        const userId = req.user!.userId;
 
         const snapshot = portfolioService.getSnapshot(userId);
 
@@ -152,7 +156,7 @@ router.get("/summary", async (req, res, next) => {
 router.get("/positions", async (req, res, next) => {
     try {
         const { portfolioService, marketDataService } = getContainer(req);
-        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        const userId = req.user!.userId;
         const summaries = portfolioService.getTradeSummaries(userId);
 
         const positions = summaries

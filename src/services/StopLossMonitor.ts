@@ -43,7 +43,6 @@ export class StopLossMonitor extends EventEmitter {
     private readonly tickQueues = new Map<string, Promise<void>>();
 
     private isMonitoring = false;
-    private static instance: StopLossMonitor | null = null;
     private readonly DEFAULT_TRAILING_PERCENT = env.defaultTrailingStopPercent;
 
     constructor(options: StopLossMonitorOptions) {
@@ -93,18 +92,8 @@ export class StopLossMonitor extends EventEmitter {
         }
     }
 
-    static getInstance(options?: StopLossMonitorOptions): StopLossMonitor {
-        if (!StopLossMonitor.instance) {
-            if (!options) {
-                throw new Error("StopLossMonitor not initialized");
-            }
-            StopLossMonitor.instance = new StopLossMonitor(options);
-        }
-        return StopLossMonitor.instance;
-    }
-
     /**
-     * Start monitoring for stop-losses
+     * Start monitoring
      */
     start(): void {
         if (this.isMonitoring) {
@@ -114,6 +103,7 @@ export class StopLossMonitor extends EventEmitter {
 
         this.isMonitoring = true;
         this.marketDataService.on("tick", this.handleTick);
+        this.tradingEngine.on("trade-executed", this.handleTradeExecuted);
         logger.info("StopLossMonitor started");
     }
 
@@ -125,6 +115,7 @@ export class StopLossMonitor extends EventEmitter {
 
         this.isMonitoring = false;
         this.marketDataService.off("tick", this.handleTick);
+        this.tradingEngine.off("trade-executed", this.handleTradeExecuted);
         logger.info("StopLossMonitor stopped");
     }
 
@@ -384,14 +375,10 @@ export class StopLossMonitor extends EventEmitter {
         }
 
         try {
-            // Fetch the user's broker to execute the system signal
-            let broker: BrokerClient;
-            if (this.brokerFactory) {
-                broker = await this.brokerFactory(config.userId);
-            } else {
-                const { BrokerFactory } = await import("../brokers/BrokerFactory");
-                broker = await BrokerFactory.getBroker(config.userId);
+            if (!this.brokerFactory) {
+                throw new Error("StopLossMonitor: brokerFactory not configured");
             }
+            const broker: BrokerClient = await this.brokerFactory(config.userId);
 
             // Execute via TradingEngine (bypasses normal risk checks for emergency exit)
             const signal = {

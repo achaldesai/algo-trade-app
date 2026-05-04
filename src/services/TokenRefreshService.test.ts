@@ -2,6 +2,7 @@
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert";
 import TokenRefreshService from "./TokenRefreshService";
+import type { TokenRepo } from "../db/repositories/TokenRepo";
 
 describe("TokenRefreshService", () => {
   let originalSetTimeout: typeof setTimeout;
@@ -36,7 +37,15 @@ describe("TokenRefreshService", () => {
 
   beforeEach(() => {
     mockTimerCallbacks = [];
-    service = TokenRefreshService.getInstance();
+    const fakeTokenRepo = {
+      saveAngelOneToken: async () => {},
+      getAngelOneToken: () => null,
+      deleteAngelOneToken: async () => {},
+      saveZerodhaToken: async () => {},
+      getZerodhaToken: () => null,
+      deleteZerodhaToken: async () => {},
+    } as unknown as TokenRepo;
+    service = new TokenRefreshService(fakeTokenRepo);
     service.stop();
     // Reset retry count
     (service as any).retryCount = 0;

@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import type { AuditLogEntry, AuditLogQuery, AuditEventType } from "../persistence/AuditLogRepository";
+import type { AuditLogEntry, AuditLogQuery, AuditEventType } from "../types/audit";
 import type { AuditLogRepo } from "../db/repositories/AuditLogRepo";
 import env from "../config/env";
 import type TradingEngine from "./TradingEngine";
@@ -27,7 +27,6 @@ export interface AuditLogServiceOptions {
  */
 export class AuditLogService {
     private readonly repository: AuditLogRepo;
-    private static instance: AuditLogService | null = null;
 
     // Retry queue for failed logs
     private logQueue: AuditLogEntry[] = [];
@@ -76,18 +75,8 @@ export class AuditLogService {
         });
     }
 
-    static getInstance(options?: AuditLogServiceOptions): AuditLogService {
-        if (!AuditLogService.instance) {
-            if (!options) {
-                throw new Error("AuditLogService not initialized");
-            }
-            AuditLogService.instance = new AuditLogService(options);
-        }
-        return AuditLogService.instance;
-    }
-
     /**
-     * Log a trade execution
+     * Redact sensitive fields from any object
      */
     async logTradeExecuted(userId: string, trade: Trade): Promise<void> {
         await this.log(userId, {

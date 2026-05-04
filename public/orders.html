@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Console — Orders & P&L</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        :root {
+            --color-buy: #22a06b;
+            --color-sell: #e64a19;
+            --color-pnl-pos: #22a06b;
+            --color-pnl-neg: #e64a19;
+            --color-fg: #1f2937;
+            --color-fg-muted: #6b7280;
+            --color-border: #e5e7eb;
+            --color-bg-card: #ffffff;
+            --color-bg-page: #f9fafb;
+            --color-bg-row: #ffffff;
+            --color-bg-row-alt: #fafafa;
+            --color-bg-header: #f3f4f6;
+        }
+
+        body {
+            background: var(--color-bg-page);
+            color: var(--color-fg);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        .console-shell {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .console-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .console-title {
+            font-size: 22px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .console-meta {
+            font-size: 13px;
+            color: var(--color-fg-muted);
+        }
+
+        .console-top-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .mode-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .mode-badge.paper {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .mode-badge.live {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .summary-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        .summary-card {
+            background: var(--color-bg-card);
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            padding: 16px 18px;
+        }
+
+        .summary-card .label {
+            font-size: 12px;
+            color: var(--color-fg-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .summary-card .value {
+            font-size: 22px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .pnl-pos { color: var(--color-pnl-pos); }
+        .pnl-neg { color: var(--color-pnl-neg); }
+
+        .console-section {
+            background: var(--color-bg-card);
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+
+        .section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--color-border);
+            background: var(--color-bg-header);
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .section-count {
+            font-size: 12px;
+            color: var(--color-fg-muted);
+        }
+
+        .console-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .console-table th,
+        .console-table td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--color-border);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .console-table th {
+            background: var(--color-bg-header);
+            color: var(--color-fg-muted);
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .console-table tr:nth-child(even) td {
+            background: var(--color-bg-row-alt);
+        }
+
+        .console-table .num { text-align: right; }
+
+        .side-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+
+        .side-badge.buy {
+            background: #dcfce7;
+            color: var(--color-buy);
+        }
+
+        .side-badge.sell {
+            background: #fee2e2;
+            color: var(--color-sell);
+        }
+
+        .empty-row {
+            text-align: center;
+            color: var(--color-fg-muted);
+            padding: 32px;
+            font-size: 13px;
+        }
+
+        .nav-link {
+            color: #2563eb;
+            text-decoration: none;
+            font-size: 13px;
+        }
+        .nav-link:hover { text-decoration: underline; }
+
+    </style>
+</head>
+<body>
+    <div id="console-app" class="console-shell" hidden>
+        <header class="console-header">
+            <div>
+                <h1 class="console-title">Console</h1>
+                <div class="console-meta">
+                    Today <span id="today-date"></span> · Last updated <span id="last-updated">—</span>
+                </div>
+            </div>
+            <div class="console-top-actions">
+                <span id="mode-badge" class="mode-badge live">Live</span>
+                <a class="nav-link" href="/">← Back to dashboard</a>
+            </div>
+        </header>
+
+        <section class="summary-grid" aria-label="P&L summary">
+            <div class="summary-card">
+                <div class="label">Total P&L</div>
+                <div id="total-pnl" class="value">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Realized</div>
+                <div id="realized-pnl" class="value">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Unrealized</div>
+                <div id="unrealized-pnl" class="value">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Trades Today</div>
+                <div id="trade-count" class="value">—</div>
+            </div>
+        </section>
+
+        <section class="console-section">
+            <div class="section-head">
+                <h2 class="section-title">Positions</h2>
+                <span id="positions-count" class="section-count">0 open</span>
+            </div>
+            <table class="console-table" id="positions-table">
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th class="num">Qty</th>
+                        <th class="num">Avg</th>
+                        <th class="num">LTP</th>
+                        <th class="num">P&L</th>
+                        <th class="num">Realized</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="positions-tbody">
+                    <tr><td colspan="7" class="empty-row">Loading…</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="console-section">
+            <div class="section-head">
+                <h2 class="section-title">Orders Today</h2>
+                <span id="orders-count" class="section-count">0 orders</span>
+            </div>
+            <table class="console-table" id="orders-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th class="num">Qty</th>
+                        <th class="num">Price</th>
+                        <th class="num">Value</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody id="orders-tbody">
+                    <tr><td colspan="7" class="empty-row">Loading…</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </div>
+
+    <script src="orders.js"></script>
+</body>
+</html>

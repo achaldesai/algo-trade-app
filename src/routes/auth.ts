@@ -5,37 +5,15 @@ import { authenticator } from "otplib";
 import env from "../config/env";
 import logger from "../utils/logger";
 import { HttpError } from "../utils/HttpError";
-import { getTokenRepository } from "../persistence/TokenRepository";
-import type { ZerodhaTokenData, AngelOneTokenData } from "../persistence/TokenRepository";
+import type { ZerodhaTokenData, AngelOneTokenData } from "../types/tokens";
 import { userAuthMiddleware } from "../middleware/userAuth";
-import type { AuthSession } from "../types/user";
+import { getContainer } from "../util/getContainer";
 
 const router = Router();
 
-/**
- * Save Zerodha access token to LMDB
- */
-async function saveToken(userId: string, tokenData: ZerodhaTokenData): Promise<void> {
-  try {
-    const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    await tokenRepo.saveZerodhaToken(userId, tokenData);
-  } catch (error) {
-    logger.error({ err: error, userId }, "Failed to save Zerodha token");
-    throw error;
-  }
-}
-
-/**
- * Load Zerodha access token from LMDB
- */
-async function loadToken(userId: string): Promise<ZerodhaTokenData | null> {
-  try {
-    const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    return await tokenRepo.getZerodhaToken(userId);
-  } catch (error) {
-    logger.error({ err: error, userId }, "Failed to load Zerodha token");
-    return null;
-  }
+function maskToken(token: string): string {
+  if (token.length <= 8) return "****";
+  return token.slice(0, 4) + "****" + token.slice(-4);
 }
 
 /**
@@ -78,8 +56,7 @@ router.get("/zerodha/login", userAuthMiddleware, (req: Request, res: Response) =
  */
 router.get("/zerodha/callback", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const sessionUser = (req as unknown as { user: AuthSession }).user;
-    const userId = sessionUser.userId;
+    const userId = req.user!.userId;
     const { request_token: requestToken } = req.query as { request_token?: string };
 
     if (!requestToken) {
@@ -112,7 +89,7 @@ router.get("/zerodha/callback", userAuthMiddleware, async (req: Request, res: Re
       apiKey: env.brokerApiKey,
     };
 
-    await saveToken(userId, tokenData);
+    await getContainer(req).tokenRepo.saveZerodhaToken(userId, tokenData);
     // process.env.ZERODHA_ACCESS_TOKEN = session.access_token; // Removed global mutation
 
     logger.info({ userId, zerodhaUserId: session.user_id }, "Zerodha automatic authentication successful");
@@ -131,8 +108,7 @@ router.get("/zerodha/callback", userAuthMiddleware, async (req: Request, res: Re
  */
 router.post("/zerodha/callback", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const sessionUser = (req as unknown as { user: AuthSession }).user;
-    const userId = sessionUser.userId;
+    const userId = req.user!.userId;
     const { requestToken } = req.body as { requestToken?: string };
 
     if (!requestToken) {
@@ -168,7 +144,7 @@ router.post("/zerodha/callback", userAuthMiddleware, async (req: Request, res: R
       apiKey: env.brokerApiKey,
     };
 
-    await saveToken(userId, tokenData);
+    await getContainer(req).tokenRepo.saveZerodhaToken(userId, tokenData);
 
     logger.info(
       {
@@ -207,14 +183,17 @@ router.post("/zerodha/callback", userAuthMiddleware, async (req: Request, res: R
 /**
  * GET /auth/zerodha/status
  * Check authentication status
+ * Falls back to SYSTEM_DEFAULT token since the broker client uses it globally
  */
 router.get("/zerodha/status", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const sessionUser = (req as unknown as { user: AuthSession }).user;
-    const userId = sessionUser.userId;
-    const tokenData = await loadToken(userId);
+    const container = getContainer(req);
+    const userId = req.user!.userId;
+    let tokenData = container.tokenRepo.getZerodhaToken(userId);
 
-    // Removed the "ENV_USER" check as it's legacy and unsafe for multi-tenant
+    if (!tokenData) {
+      tokenData = container.tokenRepo.getZerodhaToken("SYSTEM_DEFAULT");
+    }
 
     if (!tokenData) {
       res.json({
@@ -243,10 +222,8 @@ router.get("/zerodha/status", userAuthMiddleware, async (req: Request, res: Resp
  */
 router.post("/zerodha/logout", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const sessionUser = (req as unknown as { user: AuthSession }).user;
-    const userId = sessionUser.userId;
-    const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    await tokenRepo.deleteZerodhaToken(userId);
+    const userId = req.user!.userId;
+    await getContainer(req).tokenRepo.deleteZerodhaToken(userId);
 
     logger.info({ userId }, "Zerodha session terminated");
 
@@ -266,16 +243,15 @@ router.post("/zerodha/logout", userAuthMiddleware, async (req: Request, res: Res
  */
 router.get("/zerodha/token", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const sessionUser = (req as unknown as { user: AuthSession }).user;
-    const userId = sessionUser.userId;
-    const tokenData = await loadToken(userId);
+    const userId = req.user!.userId;
+    const tokenData = getContainer(req).tokenRepo.getZerodhaToken(userId);
 
     if (!tokenData) {
       throw new HttpError(404, "No access token found");
     }
 
     res.json({
-      accessToken: tokenData.accessToken,
+      accessToken: maskToken(tokenData.accessToken),
       expiresAt: tokenData.expiresAt,
       userId: tokenData.userId,
     });
@@ -292,40 +268,13 @@ router.get("/zerodha/token", userAuthMiddleware, async (req: Request, res: Respo
 // ============================================================================
 
 /**
- * Save Angel One token to LMDB
- */
-async function saveAngelToken(userId: string, tokenData: AngelOneTokenData): Promise<void> {
-  try {
-    const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    await tokenRepo.saveAngelOneToken(userId, tokenData);
-  } catch (error) {
-    logger.error({ err: error, userId }, "Failed to save Angel One token");
-    throw error;
-  }
-}
-
-/**
- * Load Angel One token from LMDB
- */
-async function loadAngelToken(userId: string): Promise<AngelOneTokenData | null> {
-  try {
-    const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    return await tokenRepo.getAngelOneToken(userId);
-  } catch (error) {
-    logger.error({ err: error, userId }, "Failed to load Angel One token");
-    return null;
-  }
-}
-
-/**
  * POST /auth/angelone/login
  * Authenticate with Angel One SmartAPI
  * Body: { totp?: string }
  */
 router.post("/angelone/login", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const sessionUser = (req as unknown as { user: AuthSession }).user;
-    const userId = sessionUser.userId;
+    const userId = req.user!.userId;
     const { totp } = req.body as { totp?: string };
 
     if (!env.angelOneApiKey || !env.angelOneClientId || !env.angelOnePassword) {
@@ -382,7 +331,7 @@ router.post("/angelone/login", userAuthMiddleware, async (req: Request, res: Res
       expiresAt: expiryDate.toISOString(),
     };
 
-    await saveAngelToken(userId, tokenData);
+    await getContainer(req).tokenRepo.saveAngelOneToken(userId, tokenData);
 
     logger.info(
       {
@@ -399,8 +348,8 @@ router.post("/angelone/login", userAuthMiddleware, async (req: Request, res: Res
       data: {
         clientId: env.angelOneClientId,
         expiresAt: expiryDate.toISOString(),
-        jwtToken,
-        feedToken,
+        jwtToken: maskToken(jwtToken),
+        feedToken: maskToken(feedToken),
       },
     });
   } catch (error) {
@@ -420,12 +369,17 @@ router.post("/angelone/login", userAuthMiddleware, async (req: Request, res: Res
 /**
  * GET /auth/angelone/status
  * Check Angel One authentication status
+ * Falls back to SYSTEM_DEFAULT token since the ticker service uses it globally
  */
 router.get("/angelone/status", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const sessionUser = (req as unknown as { user: AuthSession }).user;
-    const userId = sessionUser.userId;
-    const tokenData = await loadAngelToken(userId);
+    const container = getContainer(req);
+    const userId = req.user!.userId;
+    let tokenData = container.tokenRepo.getAngelOneToken(userId);
+
+    if (!tokenData) {
+      tokenData = container.tokenRepo.getAngelOneToken("SYSTEM_DEFAULT");
+    }
 
     if (!tokenData) {
       res.json({
@@ -435,8 +389,11 @@ router.get("/angelone/status", userAuthMiddleware, async (req: Request, res: Res
       return;
     }
 
+    const tickerConnected = container.tickerClient?.isConnected() ?? false;
+
     res.json({
       authenticated: true,
+      tickerConnected,
       clientId: tokenData.clientId,
       expiresAt: tokenData.expiresAt,
       message: "Angel One session is active",
@@ -453,10 +410,8 @@ router.get("/angelone/status", userAuthMiddleware, async (req: Request, res: Res
  */
 router.post("/angelone/logout", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const sessionUser = (req as unknown as { user: AuthSession }).user;
-    const userId = sessionUser.userId;
-    const tokenRepo = getTokenRepository(env.portfolioStorePath);
-    await tokenRepo.deleteAngelOneToken(userId);
+    const userId = req.user!.userId;
+    await getContainer(req).tokenRepo.deleteAngelOneToken(userId);
 
     logger.info({ userId }, "Angel One session terminated");
 
@@ -480,9 +435,8 @@ router.post("/angelone/logout", userAuthMiddleware, async (req: Request, res: Re
  */
 router.post("/angelone/refresh", userAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const sessionUser = (req as unknown as { user: AuthSession }).user;
-    const userId = sessionUser.userId;
-    const tokenData = await loadAngelToken(userId);
+    const userId = req.user!.userId;
+    const tokenData = getContainer(req).tokenRepo.getAngelOneToken(userId);
 
     if (!tokenData) {
       throw new HttpError(404, "No Angel One session found");
@@ -524,7 +478,7 @@ router.post("/angelone/refresh", userAuthMiddleware, async (req: Request, res: R
       expiresAt: tokenData.expiresAt, // Same expiry as original
     };
 
-    await saveAngelToken(userId, updatedTokenData);
+    await getContainer(req).tokenRepo.saveAngelOneToken(userId, updatedTokenData);
 
     logger.info(
       {
@@ -541,8 +495,8 @@ router.post("/angelone/refresh", userAuthMiddleware, async (req: Request, res: R
       data: {
         clientId: tokenData.clientId,
         expiresAt: tokenData.expiresAt,
-        jwtToken,
-        feedToken,
+        jwtToken: maskToken(jwtToken),
+        feedToken: maskToken(feedToken),
       },
       note: "Refreshed token maintains the same expiry time as the original token",
     });
@@ -562,6 +516,4 @@ router.post("/angelone/refresh", userAuthMiddleware, async (req: Request, res: R
 
 export default router;
 
-// Export helper functions for use in other services
-export { loadToken, saveToken, loadAngelToken, saveAngelToken };
 export type { ZerodhaTokenData, AngelOneTokenData };

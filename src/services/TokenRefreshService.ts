@@ -2,8 +2,8 @@ import { SmartAPI } from "smartapi-javascript";
 import { authenticator } from "otplib";
 import logger from "../utils/logger";
 import env from "../config/env";
-import { loadAngelToken, saveAngelToken } from "../routes/auth";
-import type { AngelOneTokenData } from "../persistence/TokenRepository";
+import type { AngelOneTokenData } from "../types/tokens";
+import type { TokenRepo } from "../db/repositories/TokenRepo";
 
 /**
  * Service to manage automatic token refresh for Angel One
@@ -14,25 +14,20 @@ import type { AngelOneTokenData } from "../persistence/TokenRepository";
  * - TOTP-based authentication (no manual intervention required)
  */
 export class TokenRefreshService {
-  private static instance: TokenRefreshService;
   private refreshTimer: NodeJS.Timeout | null = null;
   private smartApi: SmartAPI | null = null;
   private retryCount = 0;
   private readonly MAX_RETRIES = 5;
   private readonly BASE_RETRY_DELAY_MS = 60000; // 1 minute
+  private readonly tokenRepo: TokenRepo;
 
   // Angel One tokens expire at 5 AM IST (23:30 UTC previous day)
   // We'll refresh at 4:30 AM IST (23:00 UTC previous day) to be safe
   private readonly REFRESH_HOUR_IST = 4;
   private readonly REFRESH_MINUTE_IST = 30;
 
-  private constructor() {}
-
-  public static getInstance(): TokenRefreshService {
-    if (!TokenRefreshService.instance) {
-      TokenRefreshService.instance = new TokenRefreshService();
-    }
-    return TokenRefreshService.instance;
+  constructor(tokenRepo: TokenRepo) {
+    this.tokenRepo = tokenRepo;
   }
 
   /**
@@ -144,7 +139,7 @@ export class TokenRefreshService {
       expiresAt: expiryDate.toISOString(),
     };
 
-    await saveAngelToken(userId, tokenData);
+    await this.tokenRepo.saveAngelOneToken(userId, tokenData);
 
     logger.info(
       {
@@ -160,7 +155,7 @@ export class TokenRefreshService {
    * (useful for mid-session reconnections)
    */
   public async refreshToken(userId: string): Promise<void> {
-    const tokenData = await loadAngelToken(userId);
+    const tokenData = this.tokenRepo.getAngelOneToken(userId);
 
     if (!tokenData) {
       logger.info("No persisted Angel One token found, performing full re-authentication");
@@ -205,7 +200,7 @@ export class TokenRefreshService {
       expiresAt: tokenData.expiresAt,
     };
 
-    await saveAngelToken(userId, updatedTokenData);
+    await this.tokenRepo.saveAngelOneToken(userId, updatedTokenData);
 
     logger.info({ clientId: tokenData.clientId }, "Angel One token refreshed successfully");
   }

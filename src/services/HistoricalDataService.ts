@@ -79,10 +79,11 @@ class ZerodhaHistoricalProvider implements HistoricalDataProvider {
   async fetchHistoricalData(request: HistoricalDataRequest): Promise<HistoricalCandle[]> {
     logger.info({ symbol: request.symbol, interval: request.interval }, "Fetching historical data from Zerodha");
 
-    // TODO: Implement actual Zerodha historical data API call
-    // This would use KiteConnect.getHistoricalData()
+    // Zerodha's historical data API is a paid service (₹2000/month).
+    // When Zerodha is the broker, use the Angel One free API for historical data
+    // by setting DATA_PROVIDER=angelone or configuring ANGEL_ONE_API_KEY in .env.
+    // This fallback generates mock data for development/testing.
 
-    // Mock implementation for now
     const mockData: HistoricalCandle[] = [];
     const startDate = new Date(request.fromDate);
     const endDate = new Date(request.toDate);

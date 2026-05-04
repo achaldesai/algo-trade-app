@@ -1,5 +1,6 @@
 /**
- * Audit log types and repository interface
+ * Audit log types — domain-level shape used by services and routes.
+ * The persisted shape lives in `db/DatabaseManager.ts` (AuditLogRecord).
  */
 
 export type AuditEventType =
@@ -42,35 +43,4 @@ export interface AuditLogQuery {
     severity?: string;
     limit?: number;
     offset?: number;
-}
-
-export interface AuditLogRepository {
-    initialize(): Promise<void>;
-
-    /**
-     * Add a new audit log entry
-     */
-    append(entry: AuditLogEntry): Promise<void>;
-
-    /**
-     * Query audit logs with filters
-     */
-    query(query: AuditLogQuery): Promise<AuditLogEntry[]>;
-
-    /**
-     * Get entries from today
-     */
-    getToday(userId?: string): Promise<AuditLogEntry[]>;
-
-    /**
-     * Get count of entries by event type
-     */
-    getStats(): Promise<Record<AuditEventType, number>>;
-
-    /**
-     * Clear old entries (retention policy)
-     */
-    cleanup(olderThan: Date): Promise<number>;
-
-    close(): Promise<void>;
 }

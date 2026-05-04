@@ -4,7 +4,6 @@ import { HttpError } from "../utils/HttpError";
 import logger from "../utils/logger";
 import type { RiskLimits } from "../db/repositories/SettingsRepo";
 import { userAuthMiddleware } from "../middleware/userAuth";
-import type { AuthSession } from "../types/user";
 import { riskLimitsSchema } from "../schemas/settings";
 
 const router = Router();
@@ -13,7 +12,7 @@ router.use(userAuthMiddleware);
 router.get("/", async (req, res, next) => {
     try {
         const { settingsRepo } = getContainer(req);
-        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        const userId = req.user!.userId;
         const limits = settingsRepo.getRiskLimits(userId);
         res.json(limits);
     } catch (error) {
@@ -24,7 +23,7 @@ router.get("/", async (req, res, next) => {
 router.post("/", async (req, res, next) => {
     try {
         const { settingsRepo } = getContainer(req);
-        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        const userId = req.user!.userId;
         const currentLimits = settingsRepo.getRiskLimits(userId);
 
         const validationResult = riskLimitsSchema.safeParse(req.body);
@@ -53,7 +52,7 @@ router.post("/", async (req, res, next) => {
 router.post("/reset", async (req, res, next) => {
     try {
         const { settingsRepo } = getContainer(req);
-        const userId = (req as unknown as { user: AuthSession }).user.userId;
+        const userId = req.user!.userId;
         const defaults = await settingsRepo.resetToDefaults(userId);
         logger.warn("Settings reset to defaults via API");
         res.json(defaults);

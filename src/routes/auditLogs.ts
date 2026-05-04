@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getContainer } from "../util/getContainer";
-import type { AuditEventType, AuditLogQuery } from "../persistence/AuditLogRepository";
+import type { AuditEventType, AuditLogQuery } from "../types/audit";
 import { adminAuthMiddleware } from "../middleware/adminAuth";
 
 const router = Router();

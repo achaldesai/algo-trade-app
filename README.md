@@ -57,7 +57,7 @@ The server listens on port `3000` by default. Access the web dashboard at `http:
 
 ### 🔒 Security
 - **Admin API Key**: Required header `X-Admin-API-Key` for sensitive endpoints
-- **Rate Limiting**: Global (100/15min) and Admin (10/min) rate limits
+- **Rate Limiting**: Global (1000/15min) and Admin (60/min) rate limits
 - **Constant-Time Auth**: Timing-safe comparison prevents side-channel attacks
 - **CSP Headers**: Content Security Policy enabled to prevent XSS
 - **Audit Logging**: All sensitive operations logged with automatic redaction

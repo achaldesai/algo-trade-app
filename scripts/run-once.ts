@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { ensurePortfolioStore } from "../src/persistence";
-import { resetContainer } from "../src/container";
+import { DatabaseManager } from "../src/db/DatabaseManager";
+import { createContainer } from "../src/container";
+import env from "../src/config/env";
 import type { MarketTick } from "../src/types";
 
 interface CliOptions {
@@ -61,9 +62,11 @@ const replacer = (_key: string, value: unknown) => {
 
 const main = async () => {
   const options = parseArgs(process.argv.slice(2));
-  await ensurePortfolioStore();
 
-  const container = resetContainer();
+  const dbManager = new DatabaseManager(env.portfolioStorePath);
+  await dbManager.open();
+  const container = createContainer(dbManager);
+
   const ticks = await loadTicks(options.ticksPath);
 
   if (ticks.length > 0) {
@@ -75,6 +78,8 @@ const main = async () => {
 
   const result = await container.tradingEngine.evaluate(options.strategyId);
   console.log(JSON.stringify(result, replacer, 2));
+
+  await dbManager.close();
 };
 
 main().catch((error) => {

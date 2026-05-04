@@ -16,6 +16,7 @@ import auditLogsRouter from "./routes/auditLogs";
 import notificationsRouter from "./routes/notifications";
 import scannerRouter from "./routes/scanner";
 import usersRouter from "./routes/users";
+import paperRouter, { paperModeOnly } from "./routes/paper";
 
 import { rateLimit } from "express-rate-limit";
 
@@ -23,7 +24,7 @@ const app = express();
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  limit: 1000, // Limit each IP to 1000 requests per window (needed for dashboard polling)
+  limit: 10000, // Headroom for dashboard polling (~7 endpoints every 2s) plus manual API use
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
@@ -38,7 +39,18 @@ const adminLimiter = rateLimit({
 });
 
 app.use(express.json());
-app.use(express.static("public"));
+
+// Gate the debug paper-trade console: only served in paper mode.
+// Must run BEFORE express.static so the files are not exposed otherwise.
+app.get(["/orders.html", "/orders.js"], paperModeOnly);
+
+app.use(express.static("public", {
+  setHeaders: (res, path) => {
+    if (path.endsWith(".html") || path.endsWith(".js") || path.endsWith(".css")) {
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
+    }
+  },
+}));
 
 // Trust the first proxy (Cloudflare Tunnel)
 app.set("trust proxy", 1);
@@ -78,6 +90,7 @@ app.use("/api/pnl", pnlRouter);
 app.use("/api/audit-logs", auditLogsRouter);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/scanner", scannerRouter);
+app.use("/api/paper", paperRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

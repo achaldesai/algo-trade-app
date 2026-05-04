@@ -3,7 +3,7 @@ import type {
     AuditLogEntry,
     AuditLogQuery,
     AuditEventType,
-} from "../../persistence/AuditLogRepository";
+} from "../../types/audit";
 
 /**
  * PgAuditLogRepo — PostgreSQL-backed audit log repository.

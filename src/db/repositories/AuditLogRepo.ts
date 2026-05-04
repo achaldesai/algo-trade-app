@@ -5,7 +5,9 @@ import type DatabaseManager from "../DatabaseManager";
 import type {
     AuditLogEntry,
     AuditLogQuery,
-} from "../../persistence/AuditLogRepository";
+} from "../../types/audit";
+
+export type { AuditLogEntry, AuditLogQuery, AuditEventType } from "../../types/audit";
 import logger from "../../utils/logger";
 
 // ─── Repository ──────────────────────────────────────────────────────────────

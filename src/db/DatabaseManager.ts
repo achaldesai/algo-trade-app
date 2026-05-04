@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { open, type Database, type RootDatabase } from "lmdb";
 import type { TradeSide } from "../types";
-import type { AuditEventType } from "../persistence/AuditLogRepository";
+import type { AuditEventType } from "../types/audit";
 import logger from "../utils/logger";
 
 // ─── Stored Record Types ───────────────────────────────────────────────────────

@@ -2,14 +2,13 @@ import { Router } from "express";
 import { getContainer } from "../util/getContainer";
 import type { StopLossConfig } from "../db/repositories/StopLossRepo";
 import { userAuthMiddleware } from "../middleware/userAuth";
-import type { AuthSession } from "../types/user";
 
 const router = Router();
 router.use(userAuthMiddleware);
 
 router.get("/", (req, res) => {
     const { stopLossMonitor } = getContainer(req);
-    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const userId = req.user!.userId;
     const status = stopLossMonitor.getStatus(userId);
 
     res.json({
@@ -24,7 +23,7 @@ router.get("/", (req, res) => {
 
 router.get("/:symbol", (req, res): void => {
     const { stopLossMonitor } = getContainer(req);
-    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const userId = req.user!.userId;
     const symbol = req.params.symbol.toUpperCase();
 
     const stopLoss = stopLossMonitor.get(userId, symbol);
@@ -39,7 +38,7 @@ router.get("/:symbol", (req, res): void => {
 
 router.put("/:symbol", async (req, res): Promise<void> => {
     const { stopLossMonitor } = getContainer(req);
-    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const userId = req.user!.userId;
     const symbol = req.params.symbol.toUpperCase();
     const { stopLossPrice, type, trailingPercent, entryPrice, quantity } = req.body;
 
@@ -72,7 +71,7 @@ router.put("/:symbol", async (req, res): Promise<void> => {
 
 router.delete("/:symbol", async (req, res): Promise<void> => {
     const { stopLossMonitor } = getContainer(req);
-    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const userId = req.user!.userId;
     const symbol = req.params.symbol.toUpperCase();
 
     const existing = stopLossMonitor.get(userId, symbol);

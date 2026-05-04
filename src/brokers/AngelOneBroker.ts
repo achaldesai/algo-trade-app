@@ -132,7 +132,7 @@ export class AngelOneBroker implements BrokerClient {
   async placeOrder(order: BrokerOrderRequest): Promise<BrokerOrderExecution> {
     if (this.authenticated && this.smartApi) {
       try {
-        const params = this.buildOrderParams(order);
+        const params = await this.buildOrderParams(order);
         const response = await this.smartApi.placeOrder(params);
 
         if (!response.status || !response.data?.orderid) {
@@ -281,7 +281,7 @@ export class AngelOneBroker implements BrokerClient {
   /**
    * Build order parameters in Angel One format
    */
-  private buildOrderParams(order: BrokerOrderRequest): OrderParams {
+  private async buildOrderParams(order: BrokerOrderRequest): Promise<OrderParams> {
     if (order.type === "LIMIT" && typeof order.price !== "number") {
       throw new Error(`Limit order for ${order.symbol} requires a price`);
     }
@@ -289,7 +289,7 @@ export class AngelOneBroker implements BrokerClient {
     return {
       variety: "NORMAL",
       tradingsymbol: order.symbol,
-      symboltoken: this.getSymbolToken(order.symbol),
+      symboltoken: await this.getSymbolToken(order.symbol),
       transactiontype: order.side,
       exchange: this.config.defaultExchange,
       ordertype: order.type,
@@ -375,15 +375,19 @@ export class AngelOneBroker implements BrokerClient {
   }
 
   /**
-   * Get symbol token for a given symbol synchronously
-   * Uses cached instrument master service
+   * Get symbol token for a given symbol
+   * Uses cached instrument master service; loads it if needed
    */
-  private getSymbolToken(symbol: string): string {
+  private async getSymbolToken(symbol: string): Promise<string> {
     const instrumentService = getInstrumentMasterService();
 
     if (!instrumentService.isReady()) {
-      logger.error({ symbol }, "Instrument master not loaded");
-      throw new Error("Instrument master not loaded. Call loadInstrumentMaster() at startup.");
+      try {
+        await instrumentService.loadInstrumentMaster();
+      } catch (error) {
+        logger.error({ err: error, symbol }, "Failed to load instrument master");
+        throw new Error(`Cannot fetch token for ${symbol}: instrument master not loaded`);
+      }
     }
 
     const token = instrumentService.getToken(symbol, this.config.defaultExchange);

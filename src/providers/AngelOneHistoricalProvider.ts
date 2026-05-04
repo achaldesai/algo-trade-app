@@ -11,6 +11,7 @@ export interface AngelOneConfig {
   clientId: string;
   password: string;
   totpSecret?: string;
+  defaultExchange?: string;
 }
 
 /**
@@ -82,9 +83,10 @@ export class AngelOneHistoricalProvider implements HistoricalDataProvider {
       );
 
       // Angel One historical API format
+      const exchange = this.config.defaultExchange || "NSE";
       const params = {
-        exchange: "NSE", // TODO: Make this configurable
-        symboltoken: await this.getSymbolToken(request.symbol),
+        exchange,
+        symboltoken: await this.getSymbolToken(request.symbol, exchange),
         interval,
         fromdate: this.formatDate(request.fromDate),
         todate: this.formatDate(request.toDate),
@@ -110,7 +112,7 @@ export class AngelOneHistoricalProvider implements HistoricalDataProvider {
    * Get symbol token for a given symbol
    * Angel One requires instrument tokens instead of symbols
    */
-  private async getSymbolToken(symbol: string): Promise<string> {
+  private async getSymbolToken(symbol: string, exchange: string): Promise<string> {
     const instrumentService = getInstrumentMasterService();
 
     // Ensure instrument master is loaded
@@ -124,7 +126,7 @@ export class AngelOneHistoricalProvider implements HistoricalDataProvider {
     }
 
     // Get token from instrument service
-    const token = instrumentService.getToken(symbol, "NSE");
+    const token = instrumentService.getToken(symbol, exchange);
 
     if (!token) {
       logger.error({ symbol }, "Symbol token not found in instrument master");

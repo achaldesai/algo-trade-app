@@ -2,13 +2,24 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { getUserRepository } from "../persistence/UserRepository";
+import { getContainer } from "../util/getContainer";
 import { HttpError } from "../utils/HttpError";
 import logger from "../utils/logger";
 import env from "../config/env";
 import { userAuthMiddleware } from "../middleware/userAuth";
 
 const router = Router();
+
+function getJwtSecret(): string {
+  if (env.adminApiKey) return env.adminApiKey;
+
+  if (env.nodeEnv === "production") {
+    throw new HttpError(503, "Authentication is not configured. Set ADMIN_API_KEY in environment variables.");
+  }
+
+  logger.warn("ADMIN_API_KEY is not set — using fallback secret for DEVELOPMENT only. DO NOT use in production.");
+  return "fallback-secret-for-dev";
+}
 
 const registerSchema = z.object({
     username: z.string().min(3).max(50),
@@ -29,10 +40,10 @@ const loginSchema = z.object({
 router.post("/register", async (req: Request, res: Response) => {
     try {
         const data = registerSchema.parse(req.body);
-        const repo = getUserRepository();
+        const repo = getContainer(req).userRepo;
 
         // Check if username already exists
-        const existing = await repo.findUserByUsername(data.username);
+        const existing = repo.findUserByUsername(data.username);
         if (existing) {
             throw new HttpError(409, "Username already exists");
         }
@@ -77,9 +88,9 @@ router.post("/register", async (req: Request, res: Response) => {
 router.post("/login", async (req: Request, res: Response) => {
     try {
         const data = loginSchema.parse(req.body);
-        const repo = getUserRepository();
+        const repo = getContainer(req).userRepo;
 
-        const user = await repo.findUserByUsername(data.username);
+        const user = repo.findUserByUsername(data.username);
         if (!user) {
             throw new HttpError(401, "Invalid username or password");
         }
@@ -89,7 +100,7 @@ router.post("/login", async (req: Request, res: Response) => {
             throw new HttpError(401, "Invalid username or password");
         }
 
-        const secret = env.adminApiKey || "fallback-secret-for-dev";
+        const secret = getJwtSecret();
 
         // Create JWT token valid for 24 hours
         const token = jwt.sign(
@@ -130,8 +141,8 @@ router.get("/me", userAuthMiddleware, async (req: Request, res: Response) => {
     try {
         if (!req.user) throw new HttpError(401, "Not authenticated");
 
-        const repo = getUserRepository();
-        const user = await repo.findUserById(req.user.userId);
+        const repo = getContainer(req).userRepo;
+        const user = repo.findUserById(req.user.userId);
 
         if (!user) {
             throw new HttpError(404, "User not found");

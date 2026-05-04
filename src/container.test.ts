@@ -8,6 +8,7 @@ import HistoricalDataService from "./services/HistoricalDataService";
 import PortfolioRebalancer from "./services/PortfolioRebalancer";
 import ExecutionPlanner from "./services/ExecutionPlanner";
 import TradingEngine from "./services/TradingEngine";
+import TokenRefreshService from "./services/TokenRefreshService";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { createContainer } = require("./container") as {
@@ -88,6 +89,7 @@ describe("Container", () => {
       "auditLogRepo",
       "tokenRepo",
       "userRepo",
+      "strategyConfigRepo",
       "portfolioService",
       "marketDataService",
       "historicalDataService",
@@ -95,6 +97,7 @@ describe("Container", () => {
       "portfolioRebalancer",
       "executionPlanner",
       "brokerClient",
+      "brokerFactory",
       "tradingEngine",
       "reconciliationService",
       "riskManager",
@@ -102,8 +105,11 @@ describe("Container", () => {
       "auditLogService",
       "healthService",
       "notificationService",
+      "tunnelService",
+      "discordBotService",
       "tradingLoopService",
       "autoTradingService",
+      "tokenRefreshService",
     ];
 
     for (const key of expectedKeys) {
@@ -141,5 +147,13 @@ describe("Container", () => {
     assert.notStrictEqual(container1, container2);
     assert.notStrictEqual(container1.portfolioService, container2.portfolioService);
     assert.notStrictEqual(container1.marketDataService, container2.marketDataService);
+  });
+
+  it("token refresh service is created and properly wired", async () => {
+    const container = await makeContainer();
+    assert.ok(container.tokenRefreshService instanceof TokenRefreshService);
+    assert.equal(typeof container.tokenRefreshService.start, "function");
+    assert.equal(typeof container.tokenRefreshService.stop, "function");
+    assert.equal(typeof container.tokenRefreshService.refreshToken, "function");
   });
 });

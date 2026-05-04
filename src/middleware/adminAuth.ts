@@ -4,11 +4,25 @@ import jwt from "jsonwebtoken";
 import { HttpError } from "../utils/HttpError";
 import env from "../config/env";
 import logger from "../utils/logger";
-import { getUserRepository } from "../persistence/UserRepository";
+import { getContainer } from "../util/getContainer";
 
 export interface TokenPayload {
   userId: string;
   role: string;
+}
+
+function getJwtSecret(): string {
+  if (env.adminApiKey) return env.adminApiKey;
+
+  if (env.nodeEnv === "production") {
+    throw new HttpError(
+      503,
+      "Admin endpoints are not configured. Set ADMIN_API_KEY in environment variables."
+    );
+  }
+
+  logger.warn("ADMIN_API_KEY is not set — using fallback secret for DEVELOPMENT only. DO NOT use in production.");
+  return "fallback-secret-for-dev";
 }
 
 /**
@@ -25,12 +39,12 @@ export async function adminAuthMiddleware(
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const token = authHeader.split(" ")[1];
     try {
-      const secret = env.adminApiKey || "fallback-secret-for-dev";
+      const secret = getJwtSecret();
       const decoded = jwt.verify(token, secret) as TokenPayload;
 
       if (decoded.role === "ADMIN") {
-        const repo = getUserRepository();
-        const user = await repo.findUserById(decoded.userId);
+        const repo = getContainer(req).userRepo;
+        const user = repo.findUserById(decoded.userId);
 
         if (user) {
           req.user = decoded; // Attach user payload

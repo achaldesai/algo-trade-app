@@ -1,8 +1,8 @@
 import WebSocket from "ws";
 import type { MarketDataService } from "./MarketDataService";
 import type { TickerClient, TickerSubscription } from "./TickerClient";
+import type { TokenRepo } from "../db/repositories/TokenRepo";
 import logger from "../utils/logger";
-import { loadAngelToken } from "../routes/auth";
 
 interface AngelOneTickMessage {
   exchange: string;
@@ -27,14 +27,20 @@ export class AngelOneTickerService implements TickerClient {
   private _connected = false;
   private currentTokens?: { clientId: string; jwtToken: string; feedToken: string };
   private reconnectAttempts = 0;
+  private tickCount = 0;
+  private statsInterval?: NodeJS.Timeout;
+  private readonly TICK_STATS_INTERVAL = 30_000;
 
   private readonly WS_URL = "wss://smartapisocket.angelone.in/smart-stream";
   private readonly HEARTBEAT_INTERVAL = 10000; // 10 seconds
   private readonly RECONNECT_DELAY = 5000; // 5 seconds
   private readonly MAX_RECONNECT_ATTEMPTS = 10; // Stop retrying after 10 failures
 
-  constructor(marketDataService: MarketDataService) {
+  private readonly tokenRepo: TokenRepo;
+
+  constructor(marketDataService: MarketDataService, tokenRepo: TokenRepo) {
     this.marketDataService = marketDataService;
+    this.tokenRepo = tokenRepo;
   }
 
   /**
@@ -48,7 +54,7 @@ export class AngelOneTickerService implements TickerClient {
 
     try {
       // Load latest tokens
-      const tokenData = await loadAngelToken("SYSTEM_DEFAULT");
+      const tokenData = this.tokenRepo.getAngelOneToken("SYSTEM_DEFAULT");
       if (!tokenData) {
         throw new Error("No Angel One tokens found. Cannot connect ticker.");
       }
@@ -90,6 +96,11 @@ export class AngelOneTickerService implements TickerClient {
    * Disconnect from WebSocket
    */
   async disconnect(): Promise<void> {
+    if (this.statsInterval) {
+      clearInterval(this.statsInterval);
+      this.statsInterval = undefined;
+    }
+
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
     }
@@ -155,6 +166,18 @@ export class AngelOneTickerService implements TickerClient {
 
     // Start heartbeat
     this.startHeartbeat();
+
+    // Start tick stats logger
+    this.tickCount = 0;
+    this.statsInterval = setInterval(() => {
+      if (this.subscriptions.size > 0) {
+        logger.info(
+          { ticksReceived: this.tickCount, subscribedSymbols: this.subscriptions.size },
+          "Live ticker active"
+        );
+      }
+      this.tickCount = 0;
+    }, this.TICK_STATS_INTERVAL);
   }
 
   /**
@@ -270,6 +293,7 @@ export class AngelOneTickerService implements TickerClient {
    * Process market data updates
    */
   private processMarketData(data: AngelOneTickMessage[]): void {
+    this.tickCount += data.length;
     for (const tick of data) {
       try {
         // Find the subscription for this tick

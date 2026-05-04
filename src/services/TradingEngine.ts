@@ -254,29 +254,6 @@ export class TradingEngine extends EventEmitter {
     return { signal, executions, failures };
   }
 
-  /**
-   * Validates an order before execution
-   * Checks position size limits and capital availability
-   * @deprecated logic moved to RiskManager
-   */
-  private validateOrder(order: BrokerOrderRequest): void {
-    // Legacy local validation kept as backup or removed? 
-    // We can defer to RiskManager completely. 
-    // RiskManager handles maxPositionSize now.
-    // Capital availability/price checks might still be useful here or moved to RiskManager?
-    // For now, let's just minimal checks.
-
-    // Validate price exists and is positive for LIMIT orders
-    if (order.type === 'LIMIT' && (!order.price || order.price <= 0)) {
-      throw new Error(`Invalid price: ${order.price} (must be > 0)`);
-    }
-
-    // Validate quantity is positive
-    if (order.quantity <= 0) {
-      throw new Error(`Invalid quantity: ${order.quantity} (must be > 0)`);
-    }
-  }
-
   private serializeError(error: unknown): unknown {
     if (error instanceof Error) {
       return { message: error.message, stack: error.stack };

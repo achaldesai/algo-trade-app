@@ -39,10 +39,12 @@ describe("ZerodhaBroker fallback behaviour", () => {
     const broker = new ZerodhaBroker(
       { ...baseConfig, apiKey: "dummy" },
       {
-        createClient: () => {
-          throw new Error("boom");
+        dependencies: {
+          createClient: () => {
+            throw new Error("boom");
+          },
+          now: () => new Date("2024-01-01T00:00:00.000Z"),
         },
-        now: () => new Date("2024-01-01T00:00:00.000Z"),
       },
     );
 
@@ -137,8 +139,10 @@ describe("ZerodhaBroker kiteconnect integration", () => {
         product: "CNC",
       },
       {
-        createClient: () => kite.stub,
-        now: () => now,
+        dependencies: {
+          createClient: () => kite.stub,
+          now: () => now,
+        },
       },
     );
 

@@ -58,11 +58,10 @@ async function apiFetch(url, options = {}, requiresAuth = false) {
 
     if (requiresAuth) {
         const token = getAuthToken();
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-            // Also send as X-Admin-API-Key for fallback compatibility if needed
-            headers['X-Admin-API-Key'] = token;
+        if (!token) {
+            return new Response(JSON.stringify({ success: false, error: 'Not authenticated' }), { status: 401 });
         }
+        headers['Authorization'] = `Bearer ${token}`;
     }
 
     if (options.body && typeof options.body === 'string' && !headers['Content-Type']) {
@@ -234,19 +233,22 @@ function checkAuthState() {
 async function updateStatus() {
     try {
         // Check Angel One (Data)
-        const angelRes = await fetch('/api/auth/angelone/status');
+        const angelRes = await apiFetch('/api/auth/angelone/status', {}, true);
         const angelData = await angelRes.json();
         const angelEl = document.getElementById('angel-status');
-        if (angelData.authenticated) {
+        if (angelData.authenticated && angelData.tickerConnected !== false) {
             angelEl.textContent = 'CONNECTED';
             angelEl.className = 'status-value connected';
+        } else if (angelData.authenticated) {
+            angelEl.textContent = 'CONNECTING...';
+            angelEl.className = 'status-value pending';
         } else {
             angelEl.textContent = 'DISCONNECTED';
             angelEl.className = 'status-value disconnected';
         }
 
         // Check Zerodha (Execution)
-        const zerodhaRes = await fetch('/api/auth/zerodha/status');
+        const zerodhaRes = await apiFetch('/api/auth/zerodha/status', {}, true);
         const zerodhaData = await zerodhaRes.json();
         const zerodhaEl = document.getElementById('zerodha-status');
         if (zerodhaData.authenticated) {
@@ -301,6 +303,16 @@ async function updateSystemHealth() {
             status.className = 'status-value disconnected';
         }
 
+        // Update market status
+        const marketEl = document.getElementById('market-status');
+        if (health.marketOpen) {
+            marketEl.textContent = 'OPEN';
+            marketEl.className = 'status-value connected';
+        } else {
+            marketEl.textContent = 'CLOSED';
+            marketEl.className = 'status-value disconnected';
+        }
+
         // Update uptime
         if (health.uptime) {
             const hours = Math.floor(health.uptime / 3600);
@@ -314,7 +326,7 @@ async function updateSystemHealth() {
 
 async function updateStrategies() {
     try {
-        const res = await fetch('/api/strategies');
+        const res = await apiFetch('/api/strategies', {}, true);
         const data = await res.json();
         const list = document.getElementById('strategies-list');
 
@@ -335,7 +347,7 @@ async function updateMarketData() {
         // Ideally this should be a WebSocket, but for now we poll the snapshot
         // Note: The current API returns a snapshot, but we need history for candles.
         // For this demo, we'll just plot the current tick as a candle update if available.
-        const res = await fetch('/api/market-data');
+        const res = await apiFetch('/api/market-data', {}, true);
         const data = await res.json();
 
         // Mock data for demonstration if empty
@@ -361,7 +373,7 @@ async function updateMarketData() {
 
 async function updateReconciliationStatus() {
     try {
-        const res = await fetch('/api/reconciliation/status');
+        const res = await apiFetch('/api/reconciliation/status', {}, true);
         const data = await res.json();
 
         const statusEl = document.getElementById('recon-status');
@@ -401,7 +413,7 @@ async function updateReconciliationStatus() {
 // Global function for the sync button in the list
 window.syncSymbol = async (symbol) => {
     try {
-        await fetch(`/api/reconciliation/sync/${symbol}`, { method: 'POST' });
+        await apiFetch(`/api/reconciliation/sync/${symbol}`, { method: 'POST' }, true);
         await updateReconciliationStatus();
     } catch (_err) {
         alert('Failed to sync ' + symbol);
@@ -412,7 +424,7 @@ const reconSyncBtn = document.getElementById('recon-sync-btn');
 if (reconSyncBtn) {
     reconSyncBtn.addEventListener('click', async () => {
         try {
-            await fetch('/api/reconciliation/run', { method: 'POST' });
+            await apiFetch('/api/reconciliation/run', { method: 'POST' }, true);
             await updateReconciliationStatus();
             alert('Reconciliation run triggered');
         } catch (_err) {
@@ -456,7 +468,7 @@ function stopDashboard() {
 async function updateDailyPnL() {
     try {
         const [pnlRes, stopLossRes] = await Promise.all([
-            apiFetch('/api/pnl/positions'),
+            apiFetch('/api/pnl/positions', {}, true),
             apiFetch('/api/stop-loss', {}, true)
         ]);
 
@@ -474,7 +486,7 @@ async function updateDailyPnL() {
         }
 
         // Fetch daily summary for realized P&L
-        const dailyRes = await fetch('/api/pnl/daily');
+        const dailyRes = await apiFetch('/api/pnl/daily', {}, true);
         const dailyData = await dailyRes.json();
 
         if (dailyData.success) {
@@ -703,7 +715,7 @@ panicBtn.addEventListener('click', async () => {
 // Notification Functions
 async function updateNotificationStatus() {
     try {
-        const res = await fetch('/api/notifications/status');
+        const res = await apiFetch('/api/notifications/status', {}, true);
         const data = await res.json();
 
         const statusEl = document.getElementById('notification-status');
@@ -732,7 +744,7 @@ if (testNotificationBtn) {
         testNotificationBtn.textContent = 'Sending...';
 
         try {
-            const res = await fetch('/api/notifications/test', { method: 'POST' });
+            const res = await apiFetch('/api/notifications/test', { method: 'POST' }, true);
             const data = await res.json();
 
             resultEl.classList.remove('hidden');

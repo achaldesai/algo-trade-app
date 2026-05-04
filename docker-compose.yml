@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: algo-trade-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgres://algouser:algopass@postgres:5432/algotrade
+      - REDIS_URL=redis://redis:6379
+      # Default to paper trading for safety if not set in .env
+      - BROKER_PROVIDER=${BROKER_PROVIDER:-paper}
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data/app:/app/data
+      - ./backups:/app/backups
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: algo-trade-postgres
+    environment:
+      POSTGRES_USER: algouser
+      POSTGRES_PASSWORD: algopass
+      POSTGRES_DB: algotrade
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U algouser -d algotrade"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: algo-trade-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+

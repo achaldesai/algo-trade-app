@@ -21,7 +21,8 @@ import type {
 } from "kiteconnect/types/connect";
 import logger from "../utils/logger";
 import env from "../config/env";
-import { getTokenRepository, type ZerodhaTokenData } from "../persistence/TokenRepository";
+import type { TokenRepo } from "../db/repositories/TokenRepo";
+import type { ZerodhaTokenData } from "../types/tokens";
 
 export interface ZerodhaBrokerConfig {
   apiKey: string;
@@ -53,15 +54,21 @@ export class ZerodhaBroker implements BrokerClient {
 
   private readonly config: ZerodhaBrokerConfig;
 
+  private readonly tokenRepo?: TokenRepo;
+
   private kite?: Connect;
 
   private connected = false;
 
   private kiteSessionActive = false;
 
-  constructor(config: ZerodhaBrokerConfig, dependencies: ZerodhaBrokerDependencies = DEFAULT_DEPENDENCIES) {
+  constructor(
+    config: ZerodhaBrokerConfig,
+    opts: { tokenRepo?: TokenRepo; dependencies?: ZerodhaBrokerDependencies } = {}
+  ) {
     this.config = config;
-    this.dependencies = dependencies;
+    this.tokenRepo = opts.tokenRepo;
+    this.dependencies = opts.dependencies ?? DEFAULT_DEPENDENCIES;
   }
 
   async connect(): Promise<void> {
@@ -117,12 +124,13 @@ export class ZerodhaBroker implements BrokerClient {
               apiKey: this.config.apiKey,
             };
 
-            try {
-              const tokenRepo = getTokenRepository(env.portfolioStorePath);
-              await tokenRepo.saveZerodhaToken(env.zerodhaUserId, tokenData);
-              process.env.ZERODHA_ACCESS_TOKEN = session.access_token;
-            } catch (saveError) {
-              logger.warn({ err: saveError }, "Failed to save Zerodha token to repository (non-fatal)");
+            if (this.tokenRepo) {
+              try {
+                await this.tokenRepo.saveZerodhaToken(env.zerodhaUserId, tokenData);
+                process.env.ZERODHA_ACCESS_TOKEN = session.access_token;
+              } catch (saveError) {
+                logger.warn({ err: saveError }, "Failed to save Zerodha token to repository (non-fatal)");
+              }
             }
 
             logger.info({ broker: this.name, userId: env.zerodhaUserId }, "Zerodha session established via automated login");

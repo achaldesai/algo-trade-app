@@ -34,6 +34,7 @@ import { DiscordBotService } from "./services/DiscordBotService";
 import { MarketScannerService } from "./services/MarketScannerService";
 import { TradingLoopService } from "./services/TradingLoopService";
 import { AutoTradingService } from "./services/AutoTradingService";
+import { TokenRefreshService } from "./services/TokenRefreshService";
 
 // PostgreSQL & Redis (optional)
 import { PostgresManager } from "./db/postgres/PostgresManager";
@@ -66,6 +67,7 @@ export interface AppContainer {
   portfolioRebalancer: PortfolioRebalancer;
   executionPlanner: ExecutionPlanner;
   brokerClient: BrokerClient;
+  brokerFactory: BrokerFactory;
   tradingEngine: TradingEngine;
   tickerClient: TickerClient | null;
   reconciliationService: ReconciliationService;
@@ -78,6 +80,7 @@ export interface AppContainer {
   discordBotService: DiscordBotService;
   tradingLoopService: TradingLoopService;
   autoTradingService: AutoTradingService;
+  tokenRefreshService: TokenRefreshService;
 
   // Optional: PostgreSQL layer (available when DATABASE_URL is set)
   postgresManager?: PostgresManager;
@@ -93,18 +96,26 @@ export interface AppContainer {
 
 // ─── Factory Functions ───────────────────────────────────────────────────────
 
-function buildBroker(): BrokerClient {
+function buildBroker(tokenRepo: TokenRepo): BrokerClient {
+  if (env.paperTrading) {
+    logger.warn("PAPER_TRADING is enabled — all orders will route to PaperBroker");
+    return new PaperBroker();
+  }
+
   switch (env.brokerProvider) {
     case "zerodha":
-      return new ZerodhaBroker({
-        apiKey: env.brokerApiKey,
-        apiSecret: env.brokerApiSecret,
-        accessToken:
-          env.brokerAccessToken || process.env.ZERODHA_ACCESS_TOKEN,
-        requestToken: env.brokerRequestToken,
-        defaultExchange: env.brokerDefaultExchange,
-        product: env.brokerProduct,
-      });
+      return new ZerodhaBroker(
+        {
+          apiKey: env.brokerApiKey,
+          apiSecret: env.brokerApiSecret,
+          accessToken:
+            env.brokerAccessToken || process.env.ZERODHA_ACCESS_TOKEN,
+          requestToken: env.brokerRequestToken,
+          defaultExchange: env.brokerDefaultExchange,
+          product: env.brokerProduct,
+        },
+        { tokenRepo }
+      );
     case "angelone":
       return new AngelOneBroker({
         apiKey: env.angelOneApiKey,
@@ -120,12 +131,13 @@ function buildBroker(): BrokerClient {
 }
 
 function buildHistoricalDataService(): HistoricalDataService {
-  if (env.brokerProvider === "angelone" && env.angelOneApiKey) {
+  if (env.angelOneApiKey) {
     const provider = new AngelOneHistoricalProvider({
       apiKey: env.angelOneApiKey,
       clientId: env.angelOneClientId,
       password: env.angelOnePassword,
       totpSecret: env.angelOneTotpSecret,
+      defaultExchange: env.angelOneDefaultExchange,
     });
     return new HistoricalDataService(undefined, provider);
   }
@@ -133,10 +145,11 @@ function buildHistoricalDataService(): HistoricalDataService {
 }
 
 function buildTicker(
-  marketData: MarketDataService
+  marketData: MarketDataService,
+  tokenRepo: TokenRepo
 ): TickerClient | null {
   if (env.dataProvider === "angelone" && env.angelOneApiKey) {
-    return new AngelOneTickerService(marketData);
+    return new AngelOneTickerService(marketData, tokenRepo);
   }
   return null;
 }
@@ -187,12 +200,14 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
   );
   const portfolioRebalancer = new PortfolioRebalancer();
   const executionPlanner = new ExecutionPlanner();
-  const brokerClient = buildBroker();
+  const brokerClient = buildBroker(tokenRepo);
+
+  const brokerFactory = new BrokerFactory(tokenRepo);
 
   const riskManager = new RiskManager(settingsRepo);
 
   const tradingEngine = new TradingEngine({
-    brokerFactory: (userId: string) => BrokerFactory.getBroker(userId),
+    brokerFactory: (userId: string) => brokerFactory.getBroker(userId),
     fallbackBroker: new PaperBroker(),
     marketData: marketDataService,
     portfolioService,
@@ -201,10 +216,10 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
 
   tradingEngine.registerStrategy(new VWAPStrategy());
 
-  const tickerClient = buildTicker(marketDataService);
+  const tickerClient = buildTicker(marketDataService, tokenRepo);
 
   const reconciliationService = new ReconciliationService(
-    (userId: string) => BrokerFactory.getBroker(userId),
+    (userId: string) => brokerFactory.getBroker(userId),
     portfolioService,
     userRepo
   );
@@ -216,6 +231,7 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     tradingEngine,
     stopLossRepository: stopLossRepo,
     riskManager,
+    brokerFactory: (userId: string) => brokerFactory.getBroker(userId),
   });
 
   // ── Audit & Observability ────────────────────────────────────────────────
@@ -272,6 +288,8 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     tradingLoopService
   );
 
+  const tokenRefreshService = new TokenRefreshService(tokenRepo);
+
   // ── Health (created after tradingLoopService) ────────────────────────────
 
   const healthService = new HealthService({
@@ -299,6 +317,7 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     portfolioRebalancer,
     executionPlanner,
     brokerClient,
+    brokerFactory,
     tradingEngine,
     tickerClient,
     reconciliationService,
@@ -311,6 +330,7 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     discordBotService,
     tradingLoopService,
     autoTradingService,
+    tokenRefreshService,
   };
 }
 

@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 
 import type { SettingsRepo } from "../db/repositories/SettingsRepo";
 import type { BrokerOrderExecution, BrokerOrderRequest } from "../types";
+import { AsyncMutex } from "../util/AsyncMutex";
 import logger from "../utils/logger";
 
 export interface RiskLimits {
@@ -28,7 +29,7 @@ export interface UserRiskState {
 
 export class RiskManager extends EventEmitter {
     private userStates = new Map<string, UserRiskState>();
-    private processingLock = Promise.resolve(); // Async mutex for state updates
+    private mutex = new AsyncMutex();
 
     constructor(private readonly settingsRepo: SettingsRepo) {
         super();
@@ -112,23 +113,16 @@ export class RiskManager extends EventEmitter {
 
     // Update PnL from PortfolioService
     public async updatePnL(userId: string, realized: number, unrealized: number) {
-        // Queue updates via promise chain
-        this.processingLock = this.processingLock.then(async () => {
-            try {
-                const state = this.getUserState(userId);
-                state.dailyRealizedPnL = realized;
-                state.dailyUnrealizedPnL = unrealized;
+        await this.mutex.runExclusive(async () => {
+            const state = this.getUserState(userId);
+            state.dailyRealizedPnL = realized;
+            state.dailyUnrealizedPnL = unrealized;
 
-                const total = realized + unrealized;
-                if (total <= -state.limits.maxDailyLoss && !state.circuitBroken) {
-                    this.triggerCircuitBreaker(userId, `Daily loss limit hit via PnL update: ${total}`);
-                }
-            } catch (error) {
-                logger.error({ err: error, userId }, "Error updating PnL in RiskManager");
+            const total = realized + unrealized;
+            if (total <= -state.limits.maxDailyLoss && !state.circuitBroken) {
+                this.triggerCircuitBreaker(userId, `Daily loss limit hit via PnL update: ${total}`);
             }
         });
-
-        await this.processingLock;
     }
 
     public isCircuitBroken(userId: string): boolean {

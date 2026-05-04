@@ -43,11 +43,14 @@ export const env = {
   port: parseNumberWithFallback(process.env.PORT, 3000),
   brokerProvider: (process.env.BROKER_PROVIDER ?? "paper").toLowerCase(),
   dataProvider: (process.env.DATA_PROVIDER ?? process.env.BROKER_PROVIDER ?? "paper").toLowerCase(),
+  // When true, route all order placement to PaperBroker regardless of brokerProvider.
+  // Use this for safe strategy testing against real market data.
+  paperTrading: (process.env.PAPER_TRADING ?? "false").toLowerCase() === "true",
   brokerBaseUrl: process.env.BROKER_BASE_URL ?? "",
 
   // Legacy Zerodha/KiteConnect configuration
-  brokerApiKey: process.env.BROKER_API_KEY ?? process.env.ZERODHA_API_KEY ?? "eac2wbs798o3cl7t",
-  brokerApiSecret: process.env.BROKER_API_SECRET ?? process.env.ZERODHA_API_SECRET ?? "nnyzg2a9x2ffp4d8kzm06xvtkgxt3vfw",
+  brokerApiKey: process.env.BROKER_API_KEY ?? process.env.ZERODHA_API_KEY ?? "",
+  brokerApiSecret: process.env.BROKER_API_SECRET ?? process.env.ZERODHA_API_SECRET ?? "",
   brokerAccessToken: process.env.BROKER_ACCESS_TOKEN ?? process.env.ZERODHA_ACCESS_TOKEN ?? "",
   brokerRequestToken: process.env.BROKER_REQUEST_TOKEN ?? "",
   brokerDefaultExchange: process.env.BROKER_DEFAULT_EXCHANGE ?? process.env.ZERODHA_DEFAULT_EXCHANGE ?? "NSE",

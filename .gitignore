@@ -12,3 +12,7 @@ backups/
 # Logs
 *.log
 error.log
+
+# AI assistant conversation dumps
+gemini-conversation-*.json
+.claude/worktrees/

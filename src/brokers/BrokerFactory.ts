@@ -3,50 +3,65 @@ import ZerodhaBroker from "./ZerodhaBroker";
 import AngelOneBroker from "./AngelOneBroker";
 import PaperBroker from "./PaperBroker";
 import env from "../config/env";
-import { getTokenRepository } from "../persistence/TokenRepository";
+import type { TokenRepo } from "../db/repositories/TokenRepo";
 import logger from "../utils/logger";
 
+/**
+ * Per-user broker cache. Keeps a single live broker instance per userId
+ * and reuses it across calls (matches old static-singleton behavior).
+ */
 export class BrokerFactory {
-    private static instances = new Map<string, BrokerClient>();
+    private readonly tokenRepo: TokenRepo;
+    private readonly instances = new Map<string, BrokerClient>();
 
-    static async getBroker(userId: string): Promise<BrokerClient> {
-        if (this.instances.has(userId)) {
-            return this.instances.get(userId)!;
-        }
+    constructor(tokenRepo: TokenRepo) {
+        this.tokenRepo = tokenRepo;
+    }
+
+    async getBroker(userId: string): Promise<BrokerClient> {
+        const existing = this.instances.get(userId);
+        if (existing) return existing;
 
         const broker = await this.createBroker(userId);
         try {
             await broker.connect();
+            this.instances.set(userId, broker);
         } catch (err) {
-            logger.error({ err, userId }, "Failed to connect user broker instance");
+            logger.error({ err, userId }, "Failed to connect user broker instance — not caching");
+            // Do NOT cache a failed broker; next call will create a fresh one
         }
-        this.instances.set(userId, broker);
         return broker;
     }
 
-    static clearBroker(userId: string): void {
+    clearBroker(userId: string): void {
         this.instances.delete(userId);
     }
 
-    private static async createBroker(userId: string): Promise<BrokerClient> {
-        const tokenRepo = getTokenRepository(env.portfolioStorePath);
+    private async createBroker(userId: string): Promise<BrokerClient> {
+        if (env.paperTrading) {
+            logger.debug({ userId }, "PAPER_TRADING enabled — creating PaperBroker for user");
+            return new PaperBroker();
+        }
 
         if (env.brokerProvider === "zerodha") {
-            const tokenData = await tokenRepo.getZerodhaToken(userId);
-            return new ZerodhaBroker({
-                apiKey: env.brokerApiKey,
-                apiSecret: env.brokerApiSecret,
-                accessToken: tokenData?.accessToken || (userId === "SYSTEM_DEFAULT" ? env.brokerAccessToken || process.env.ZERODHA_ACCESS_TOKEN : undefined),
-                requestToken: env.brokerRequestToken,
-                defaultExchange: env.brokerDefaultExchange,
-                product: env.brokerProduct,
-            });
+            const tokenData = this.tokenRepo.getZerodhaToken(userId);
+            return new ZerodhaBroker(
+                {
+                    apiKey: env.brokerApiKey,
+                    apiSecret: env.brokerApiSecret,
+                    accessToken: tokenData?.accessToken || (userId === "SYSTEM_DEFAULT" ? env.brokerAccessToken || process.env.ZERODHA_ACCESS_TOKEN : undefined),
+                    requestToken: env.brokerRequestToken,
+                    defaultExchange: env.brokerDefaultExchange,
+                    product: env.brokerProduct,
+                },
+                { tokenRepo: this.tokenRepo }
+            );
         }
 
         if (env.brokerProvider === "angelone") {
             // AngelOneBroker retrieves credentials mostly from env right now.
             // If we go completely multi-tenant, AngelOne credentials need to be stored in DB per user.
-            const tokenData = await tokenRepo.getAngelOneToken(userId);
+            const tokenData = this.tokenRepo.getAngelOneToken(userId);
             const broker = new AngelOneBroker({
                 apiKey: env.angelOneApiKey,
                 clientId: tokenData?.clientId || env.angelOneClientId,

@@ -104,17 +104,16 @@ function buildPhases(app: Express): LifecyclePhase[] {
                 const { TokenMigrationService } = await import(
                     "./services/TokenMigrationService"
                 );
-                const migrationService = new TokenMigrationService();
-                await migrationService.migrate(env.portfolioStorePath);
+                const migrationService = new TokenMigrationService(
+                    state.container.tokenRepo
+                );
+                await migrationService.migrate();
             },
             stop: async () => {
                 // Stop token refresh scheduler
                 try {
-                    const { TokenRefreshService } = await import(
-                        "./services/TokenRefreshService"
-                    );
-                    const refreshService = TokenRefreshService.getInstance();
-                    refreshService.stop();
+                    const refreshService = state.container?.tokenRefreshService;
+                    if (refreshService) refreshService.stop();
                 } catch {
                     // Service may not be initialized
                 }
@@ -125,11 +124,18 @@ function buildPhases(app: Express): LifecyclePhase[] {
         {
             name: "broker",
             start: async () => {
-                if (env.brokerProvider === "paper") return;
                 if (!state.container) return;
 
                 const broker = state.container.brokerClient;
                 await broker.connect();
+
+                if (env.brokerProvider === "paper" || env.paperTrading) {
+                    logger.info(
+                        { broker: broker.name },
+                        "Paper broker connected"
+                    );
+                    return;
+                }
 
                 if (!broker.isConnected()) {
                     throw new Error(
@@ -169,11 +175,10 @@ function buildPhases(app: Express): LifecyclePhase[] {
                             "Angel One tokens missing/expired. Attempting automatic re-auth..."
                         );
                         try {
-                            const { TokenRefreshService } = await import(
-                                "./services/TokenRefreshService"
-                            );
-                            const refreshService = TokenRefreshService.getInstance();
-                            await refreshService.refreshToken("SYSTEM_DEFAULT");
+                            const refreshService = state.container?.tokenRefreshService;
+                            if (refreshService) {
+                                await refreshService.refreshToken("SYSTEM_DEFAULT");
+                            }
                             tokens = tokenRepo.getAngelOneToken("SYSTEM_DEFAULT");
                         } catch (error) {
                             logger.warn(
@@ -276,11 +281,7 @@ function buildPhases(app: Express): LifecyclePhase[] {
                 if (!state.container) return;
 
                 // Start token refresh scheduler
-                const { TokenRefreshService } = await import(
-                    "./services/TokenRefreshService"
-                );
-                const tokenRefreshService = TokenRefreshService.getInstance();
-                tokenRefreshService.start();
+                state.container.tokenRefreshService.start();
 
                 // Reconcile positions on startup
                 try {

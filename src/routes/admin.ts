@@ -76,10 +76,11 @@ router.get("/export", async (req: Request, res: Response) => {
 
 router.get("/health", async (req: Request, res: Response) => {
   try {
-    const { healthService } = getContainer(req);
+    const { healthService, autoTradingService } = getContainer(req);
     const health = await healthService.getHealth();
+    const marketOpen = autoTradingService?.isMarketHours(new Date()) ?? false;
     const statusCode = health.status === "unhealthy" ? 503 : 200;
-    res.status(statusCode).json(health);
+    res.status(statusCode).json({ ...health, marketOpen });
   } catch (error) {
     logger.error({ err: error }, "Health check failed");
     res.status(503).json({ status: "unhealthy", timestamp: new Date().toISOString(), error: "System health check failed" });

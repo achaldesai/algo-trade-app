@@ -3,7 +3,6 @@ import { z } from "zod";
 import { getContainer } from "../util/getContainer";
 import { validateBody } from "../middleware/validateRequest";
 import { userAuthMiddleware } from "../middleware/userAuth";
-import type { AuthSession } from "../types/user";
 import { HttpError } from "../utils/HttpError";
 
 const router = Router();
@@ -49,7 +48,7 @@ router.get("/", (req, res) => {
 router.get("/config", (req, res, next) => {
   try {
     const { strategyConfigRepo, tradingEngine } = getContainer(req);
-    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const userId = req.user!.userId;
 
     const userConfigs = strategyConfigRepo.getAllConfigs(userId);
     const allStrategies = tradingEngine.getStrategies();
@@ -88,7 +87,7 @@ router.put(
   async (req, res, next) => {
     try {
       const { strategyConfigRepo, tradingEngine } = getContainer(req);
-      const userId = (req as unknown as { user: AuthSession }).user.userId;
+      const userId = req.user!.userId;
       const { strategyId } = req.params;
 
       // Verify strategy exists
@@ -151,7 +150,7 @@ router.put(
 router.delete("/config/:strategyId", async (req, res, next) => {
   try {
     const { strategyConfigRepo, tradingEngine } = getContainer(req);
-    const userId = (req as unknown as { user: AuthSession }).user.userId;
+    const userId = req.user!.userId;
     const { strategyId } = req.params;
 
     // Verify strategy exists
@@ -181,7 +180,7 @@ router.post(
       const { strategyId } = req.params;
       const payload = req.body as z.infer<typeof evaluateSchema>;
       const { tradingEngine, marketDataService, strategyConfigRepo } = getContainer(req);
-      const userId = (req as unknown as { user: AuthSession }).user.userId;
+      const userId = req.user!.userId;
 
       payload.ticks?.forEach((tick) => {
         marketDataService.updateTick({
