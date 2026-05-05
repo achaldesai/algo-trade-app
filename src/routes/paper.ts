@@ -1,4 +1,3 @@
-import path from "node:path";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import env from "../config/env";
 import { getContainer } from "../util/getContainer";
