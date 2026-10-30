@@ -92,7 +92,7 @@ All under `/api/*`, mounted in `src/app.ts`.
 
 | Path | Auth | Notes |
 |---|---|---|
-| `/api/users` | mixed | `login`/`register` are public; rest require user JWT |
+| `/api/users` | mixed | `login` public; `register` public only for bootstrap (first user = ADMIN) and dev self-signup; rest require user JWT |
 | `/api/auth` | user | Zerodha + Angel One OAuth, token mgmt |
 | `/api/stocks`, `/trades`, `/strategies`, `/market-data`, `/pnl`, `/settings`, `/notifications`, `/reconciliation`, `/stop-loss` | user | Standard app routes |
 | `/api/scanner` | mixed | Listed scans require admin |
@@ -140,7 +140,8 @@ Grouped roughly by purpose. See `src/config/env.ts` for defaults and `validateEn
 - **Audit log redaction is automatic** for keys named like `password`, `token`, `secret`, `apiKey`. Don't bypass it; if you need to log something sensitive, hash it first.
 - **Don't reintroduce module-level singletons.** The DI migration was deliberate. New services go in `container.ts`.
 - **Don't `app.locals.foo = …` outside of `lifecycle.ts`** — the only thing on `app.locals` should be the container.
-- **The `getJwtSecret()` shared between user and admin auth is load-bearing.** Changing one breaks the other; tokens minted under the dev fallback won't verify once you set a real `ADMIN_API_KEY`.
+- **`getJwtSecret()` in `src/utils/jwtSecret.ts` is the only place the JWT secret is resolved.** Login signs with it; `userAuth` and `adminAuth` verify with it. Don't add another copy. Tokens minted under the dev fallback won't verify once you set a real `ADMIN_API_KEY`.
+- **Registration never trusts a client-supplied role.** First user becomes ADMIN; after that only an ADMIN JWT can choose a role, and self-signup is closed in production.
 - **Stop-loss tick processing must stay race-free.** The per-symbol promise queue in `StopLossMonitor` exists because of a real prior bug. Don't replace it with naive parallel processing.
 - **Trailing stop-loss handles the "config disappears mid-update" case explicitly.** If you refactor that code, preserve the guard.
 - **Strategy code should read indicators from `marketData.getIndicators(symbol)`, not recompute.** That cache exists for latency.

@@ -3,28 +3,20 @@ import { z } from "zod";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { getContainer } from "../util/getContainer";
+import { getJwtSecret } from "../utils/jwtSecret";
 import { HttpError } from "../utils/HttpError";
 import logger from "../utils/logger";
 import env from "../config/env";
-import { userAuthMiddleware } from "../middleware/userAuth";
+import { userAuthMiddleware, type TokenPayload } from "../middleware/userAuth";
 
 const router = Router();
 
-function getJwtSecret(): string {
-  if (env.adminApiKey) return env.adminApiKey;
-
-  if (env.nodeEnv === "production") {
-    throw new HttpError(503, "Authentication is not configured. Set ADMIN_API_KEY in environment variables.");
-  }
-
-  logger.warn("ADMIN_API_KEY is not set — using fallback secret for DEVELOPMENT only. DO NOT use in production.");
-  return "fallback-secret-for-dev";
-}
 
 const registerSchema = z.object({
     username: z.string().min(3).max(50),
     password: z.string().min(8),
-    role: z.enum(["ADMIN", "USER"]).optional().default("USER")
+    // Honoured only when the caller is an authenticated ADMIN.
+    role: z.enum(["ADMIN", "USER"]).optional()
 });
 
 const loginSchema = z.object({
@@ -33,14 +25,52 @@ const loginSchema = z.object({
 });
 
 /**
+ * Decide which role a registration request may create. Never trusts the
+ * requested role unless the caller presents a valid ADMIN JWT.
+ */
+function resolveRegistrationRole(
+    req: Request,
+    isFirstUser: boolean,
+    requestedRole: "ADMIN" | "USER" | undefined
+): "ADMIN" | "USER" {
+    if (isFirstUser) return "ADMIN";
+
+    const caller = getCallerFromBearer(req);
+    if (caller?.role === "ADMIN") return requestedRole ?? "USER";
+
+    if (env.nodeEnv === "production") {
+        throw new HttpError(403, "Registration is closed. Ask an admin to create your account.");
+    }
+    if (requestedRole === "ADMIN") {
+        throw new HttpError(403, "Only an admin can create admin accounts");
+    }
+    return "USER";
+}
+
+function getCallerFromBearer(req: Request): TokenPayload | undefined {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) return undefined;
+    try {
+        const decoded = jwt.verify(authHeader.slice("Bearer ".length), getJwtSecret()) as TokenPayload;
+        return getContainer(req).userRepo.findUserById(decoded.userId) ? decoded : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
  * POST /api/users/register
- * Register a new user
- * Note: In a real production app, admin registration should be locked down.
+ * Register a new user.
+ *
+ * - The very first user becomes ADMIN (bootstrap).
+ * - An authenticated ADMIN may create users with any role.
+ * - Otherwise, self-signup creates a USER in development and is closed in production.
  */
 router.post("/register", async (req: Request, res: Response) => {
     try {
         const data = registerSchema.parse(req.body);
         const repo = getContainer(req).userRepo;
+        const role = resolveRegistrationRole(req, repo.listUsers().length === 0, data.role);
 
         // Check if username already exists
         const existing = repo.findUserByUsername(data.username);
@@ -55,10 +85,10 @@ router.post("/register", async (req: Request, res: Response) => {
         const user = await repo.createUser({
             username: data.username,
             passwordHash,
-            role: data.role
+            role
         });
 
-        logger.info({ userId: user.id }, "New user registered");
+        logger.info({ userId: user.id, role }, "New user registered");
 
         // Return without password hash
         res.status(201).json({
