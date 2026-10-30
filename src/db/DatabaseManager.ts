@@ -34,6 +34,12 @@ export interface RiskLimitsRecord {
     circuitBroken?: boolean;
 }
 
+export interface ScannerUniverseRecord {
+    symbols: string[];
+}
+
+export type SettingsRecord = RiskLimitsRecord | ScannerUniverseRecord;
+
 export interface StopLossRecord {
     symbol: string;
     userId: string;
@@ -97,7 +103,7 @@ export interface StrategyConfigRecord {
 export interface DatabaseHandles {
     stocks: Database<StockRecord, string>;
     trades: Database<TradeRecord, string>;
-    settings: Database<RiskLimitsRecord, string>;
+    settings: Database<SettingsRecord, string>;
     stopLosses: Database<StopLossRecord, string>;
     auditLogs: Database<AuditLogRecord, string>;
     tokens: Database<TokenRecord, string>;
@@ -115,7 +121,7 @@ export interface DatabaseHandles {
 export interface TransactionContext {
     readonly stocks: Database<StockRecord, string>;
     readonly trades: Database<TradeRecord, string>;
-    readonly settings: Database<RiskLimitsRecord, string>;
+    readonly settings: Database<SettingsRecord, string>;
     readonly stopLosses: Database<StopLossRecord, string>;
     readonly auditLogs: Database<AuditLogRecord, string>;
     readonly tokens: Database<TokenRecord, string>;
@@ -177,7 +183,7 @@ export class DatabaseManager {
                 name: "trades",
                 encoding: "json",
             }),
-            settings: this.root.openDB<RiskLimitsRecord, string>({
+            settings: this.root.openDB<SettingsRecord, string>({
                 name: "settings",
                 encoding: "json",
             }),

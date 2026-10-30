@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { getContainer } from "../util/getContainer";
 import { adminAuthMiddleware as adminAuth } from "../middleware/adminAuth";
+import { HttpError } from "../utils/HttpError";
 import logger from "../utils/logger";
+import { scannerUniverseSchema } from "../schemas/settings";
+import { DEFAULT_UNIVERSE } from "../services/MarketScannerService";
 
 const router = Router();
 
@@ -38,6 +41,39 @@ router.post("/apply", adminAuth, async (req, res) => {
   } catch (error) {
     logger.error({ err: error }, "Failed to apply picks");
     res.status(500).json({ success: false, error: error instanceof Error ? error.message : "Internal server error" });
+  }
+});
+
+router.get("/universe", adminAuth, (req, res, next) => {
+  try {
+    const { settingsRepo } = getContainer(req);
+    const persisted = settingsRepo.getUniverse();
+    res.json({
+      success: true,
+      data: {
+        symbols: persisted ?? [...DEFAULT_UNIVERSE],
+        isDefault: persisted === undefined,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put("/universe", adminAuth, async (req, res, next) => {
+  try {
+    const { settingsRepo } = getContainer(req);
+    const parsed = scannerUniverseSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new HttpError(400, parsed.error.errors.map(e => e.message).join(", "));
+    }
+
+    await settingsRepo.saveUniverse(parsed.data.symbols);
+    const stored = settingsRepo.getUniverse() ?? [];
+    logger.info({ count: stored.length }, "Scanner universe updated");
+    res.json({ success: true, data: { symbols: stored } });
+  } catch (error) {
+    next(error);
   }
 });
 

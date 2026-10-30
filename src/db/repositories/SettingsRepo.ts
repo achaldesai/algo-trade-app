@@ -9,6 +9,7 @@ export interface RiskLimits {
     maxDailyLoss: number;
     maxDailyLossPercent: number;
     maxPositionSize: number;
+    maxPositionSizePerSymbol?: number;
     maxOpenPositions: number;
     stopLossPercent: number;
     circuitBroken?: boolean;
@@ -26,10 +27,13 @@ export interface RiskLimits {
  *   - `updated: <userId>` with the new RiskLimits
  *   - `updated` (global, for backward compat)
  */
+const UNIVERSE_KEY = "scanner:universe";
+
 export class SettingsRepo extends EventEmitter {
     private readonly db: DatabaseManager;
     private readonly cache = new Map<string, RiskLimits>();
     private readonly defaults: RiskLimits;
+    private universeCache: string[] | undefined;
 
     constructor(db: DatabaseManager, defaults: RiskLimits) {
         super();
@@ -51,10 +55,15 @@ export class SettingsRepo extends EventEmitter {
                 if (userId) {
                     this.cache.set(userId, { ...this.defaults, ...value });
                 }
+            } else if (key === UNIVERSE_KEY && value && Array.isArray((value as { symbols?: unknown }).symbols)) {
+                this.universeCache = (value as { symbols: string[] }).symbols;
             }
         }
 
-        logger.info({ count: this.cache.size }, "SettingsRepo loaded");
+        logger.info(
+            { count: this.cache.size, universeLoaded: this.universeCache !== undefined },
+            "SettingsRepo loaded",
+        );
     }
 
     /**
@@ -92,5 +101,25 @@ export class SettingsRepo extends EventEmitter {
      */
     getDefaults(): RiskLimits {
         return { ...this.defaults };
+    }
+
+    /**
+     * Get the persisted scanner universe, or undefined if none is configured.
+     * Returning undefined lets callers fall back to a code-level default rather
+     * than ever silently scanning an empty universe.
+     */
+    getUniverse(): string[] | undefined {
+        return this.universeCache ? [...this.universeCache] : undefined;
+    }
+
+    /**
+     * Persist the scanner universe (system-wide, not per-user).
+     */
+    async saveUniverse(symbols: string[]): Promise<void> {
+        const { settings } = this.db.handles;
+        const normalized = [...new Set(symbols.map(s => s.trim().toUpperCase()).filter(Boolean))];
+        await settings.put(UNIVERSE_KEY, { symbols: normalized });
+        this.universeCache = normalized;
+        this.emit("universe-updated", normalized);
     }
 }

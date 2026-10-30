@@ -43,6 +43,10 @@ export const env = {
   port: parseNumberWithFallback(process.env.PORT, 3000),
   brokerProvider: (process.env.BROKER_PROVIDER ?? "paper").toLowerCase(),
   dataProvider: (process.env.DATA_PROVIDER ?? process.env.BROKER_PROVIDER ?? "paper").toLowerCase(),
+  // Source for historical OHLCV bars used by the scanner.
+  // "yahoo" (default): free, no auth, NSE via .NS suffix.
+  // "angelone": uses Angel One SmartAPI (requires ANGEL_ONE_API_KEY etc).
+  historicalProvider: (process.env.HISTORICAL_PROVIDER ?? "yahoo").toLowerCase(),
   // When true, route all order placement to PaperBroker regardless of brokerProvider.
   // Use this for safe strategy testing against real market data.
   paperTrading: (process.env.PAPER_TRADING ?? "false").toLowerCase() === "true",
@@ -77,6 +81,7 @@ export const env = {
 
   dryRun: process.env.DRY_RUN === "true",
   maxPositionSize: parseNumberWithFallback(process.env.MAX_POSITION_SIZE, 100000),
+  maxPositionSizePerSymbol: parseNumberWithFallback(process.env.MAX_POSITION_SIZE_PER_SYMBOL, parseNumberWithFallback(process.env.MAX_POSITION_SIZE, 100000)),
 
   // Risk Management Defaults
   maxDailyLoss: parseNumberWithFallback(process.env.MAX_DAILY_LOSS, 5000),

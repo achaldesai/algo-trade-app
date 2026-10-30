@@ -1,8 +1,19 @@
-import { HistoricalDataService } from "./HistoricalDataService";
+import { DelistedSymbolError, HistoricalDataService } from "./HistoricalDataService";
 import { InstrumentMasterService, getInstrumentMasterService } from "./InstrumentMasterService";
 import logger from "../utils/logger";
 import { TechnicalIndicators } from "./TechnicalIndicators";
 import type TickerClient from "./TickerClient";
+import type { SettingsRepo } from "../db/repositories/SettingsRepo";
+
+// Used when no universe has been persisted yet — Nifty 50 + liquid midcaps.
+export const DEFAULT_UNIVERSE: readonly string[] = [
+  "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "ITC", "SBIN", "BHARTIARTL", "KOTAKBANK",
+  "LTM", "AXISBANK", "BAJFINANCE", "ASIANPAINT", "MARUTI", "HCLTECH", "SUNPHARMA", "TITAN", "ULTRACEMCO", "TATASTEEL",
+  "NTPC", "POWERGRID", "BAJAJFINSV", "INDUSINDBK", "NESTLEIND", "JSWSTEEL", "ADANIENT", "GRASIM", "TECHM", "ONGC",
+  "HINDALCO", "WIPRO", "COALINDIA", "DIVISLAB", "ADANIPORTS", "CIPLA", "APOLLOHOSP", "DRREDDY", "M&M", "TATAMOTORS",
+  "EICHERMOT", "BRITANNIA", "BAJAJ-AUTO", "HEROMOTOCO", "SBILIFE", "HDFCLIFE", "BPCL", "TATACONSUM", "UPL",
+  "ADANIGREEN", "ADANIPOWER", "DLF", "HAL", "TATAELXSI", "TRENT", "VBL", "ZOMATO", "CANBK", "IDFCFIRSTB",
+];
 
 export interface ScanResult {
   symbol: string;
@@ -19,41 +30,61 @@ export interface ScanResult {
 export class MarketScannerService {
   public readonly instrumentService: InstrumentMasterService;
   private readonly historicalDataService: HistoricalDataService;
+  private readonly settingsRepo: SettingsRepo;
+  private readonly delistedSymbols = new Set<string>();
 
-  // Nifty 50 + highly liquid midcaps for better volatility
-  private readonly UNIVERSE = [
-    "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "ITC", "SBIN", "BHARTIARTL", "KOTAKBANK",
-    "LTIM", "AXISBANK", "BAJFINANCE", "ASIANPAINT", "MARUTI", "HCLTECH", "SUNPHARMA", "TITAN", "ULTRACEMCO", "TATASTEEL",
-    "NTPC", "POWERGRID", "BAJAJFINSV", "INDUSINDBK", "NESTLEIND", "JSWSTEEL", "ADANIENT", "GRASIM", "TECHM", "ONGC",
-    "HINDALCO", "WIPRO", "COALINDIA", "DIVISLAB", "ADANIPORTS", "CIPLA", "APOLLOHOSP", "DRREDDY", "M&M", "TATAMOTORS",
-    "EICHERMOT", "BRITANNIA", "BAJAJ-AUTO", "HEROMOTOCO", "SBILIFE", "HDFCLIFE", "BPCL", "TATACONSUM", "UPL",
-    "ADANIGREEN", "ADANIPOWER", "DLF", "HAL", "TATAELXSI", "TRENT", "VBL", "ZOMATO", "CANBK", "IDFCFIRSTB"
-  ];
+  // Symbols the operator must never trade (e.g. own employer for insider-trading reasons).
+  // Enforced at scanner level only — does not block manual orders via API.
+  private readonly BLOCKED_SYMBOLS = new Set<string>([
+    "LTM", // owner's employer
+  ]);
 
   constructor(
     historicalDataService: HistoricalDataService,
-    instrumentService?: InstrumentMasterService
+    settingsRepo: SettingsRepo,
+    instrumentService?: InstrumentMasterService,
   ) {
     this.historicalDataService = historicalDataService;
+    this.settingsRepo = settingsRepo;
     this.instrumentService = instrumentService || getInstrumentMasterService();
+
+    // A persisted-universe edit shouldn't carry stale "delisted" state from
+    // before — admin may have just fixed a bad symbol.
+    this.settingsRepo.on("universe-updated", () => this.delistedSymbols.clear());
+  }
+
+  /** Resolve the active universe: persisted setting if present, else baked-in default. */
+  private getActiveUniverse(): readonly string[] {
+    return this.settingsRepo.getUniverse() ?? DEFAULT_UNIVERSE;
   }
 
   /**
    * Scan the market for high-volatility, high-volume stocks suitable for day trading
    */
   async scan(limit: number = 10): Promise<ScanResult[]> {
-    logger.info({ universeSize: this.UNIVERSE.length }, "Starting intraday market scan...");
-
     if (!this.instrumentService.isReady()) {
       await this.instrumentService.loadInstrumentMaster();
     }
+
+    const activeUniverse = this.getActiveUniverse();
+    const universe = activeUniverse.filter(
+      s => !this.delistedSymbols.has(s) && !this.BLOCKED_SYMBOLS.has(s),
+    );
+    logger.info(
+      {
+        universeSize: universe.length,
+        skippedDelisted: this.delistedSymbols.size,
+        skippedBlocked: this.BLOCKED_SYMBOLS.size,
+      },
+      "Starting intraday market scan...",
+    );
 
     const results: ScanResult[] = [];
 
     // Concurrency limit to avoid rate limiting
     const batchSize = 5;
-    for (let i = 0; i < this.UNIVERSE.length; i += batchSize) {
-      const batch = this.UNIVERSE.slice(i, i + batchSize);
+    for (let i = 0; i < universe.length; i += batchSize) {
+      const batch = universe.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(
         batch.map(symbol => this.analyzeForIntraday(symbol))
       );
@@ -70,8 +101,9 @@ export class MarketScannerService {
 
     logger.info(
       {
-        scanned: this.UNIVERSE.length,
+        scanned: universe.length,
         selected: sortedResults.length,
+        delistedTotal: this.delistedSymbols.size,
         topPicks: sortedResults.map(r => r.symbol)
       },
       "Intraday market scan completed"
@@ -138,7 +170,13 @@ export class MarketScannerService {
       }
 
       return null;
-    } catch {
+    } catch (err) {
+      if (err instanceof DelistedSymbolError) {
+        if (!this.delistedSymbols.has(symbol)) {
+          this.delistedSymbols.add(symbol);
+          logger.warn({ symbol }, "Removing symbol from scanner universe — no historical data available");
+        }
+      }
       return null;
     }
   }
