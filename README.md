@@ -14,7 +14,7 @@ Unlike other brokers that charge ₹2000/month for market data APIs, **Angel One
 
 ## Prerequisites
 
-- Node.js >= 18.17
+- Node.js >= 20
 - npm >= 9
 
 ## Getting Started
