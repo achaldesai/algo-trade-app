@@ -19,6 +19,7 @@ import usersRouter from "./routes/users";
 import paperRouter, { paperModeOnly } from "./routes/paper";
 
 import { rateLimit } from "express-rate-limit";
+import helmet from "helmet";
 
 const app = express();
 
@@ -38,6 +39,41 @@ const adminLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Brute-force protection for credential endpoints (per IP, failed attempts only for login)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  skipSuccessfulRequests: true,
+  message: { success: false, error: "Too many attempts, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Trust the first proxy (Cloudflare Tunnel). Must be set before rate limiters
+// run so they key on the client IP, not the tunnel's.
+app.set("trust proxy", 1);
+
+// Security headers. Applied before express.static so the dashboard HTML gets them too.
+// CORS: intentionally no Access-Control-* headers — the dashboard is same-origin,
+// so browsers block cross-origin reads by default.
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "https://unpkg.com", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:"],
+      connectSrc: ["'self'"],
+      frameAncestors: ["'none'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+    },
+  },
+  // unpkg chart script is loaded cross-origin without CORP headers
+  crossOriginEmbedderPolicy: false,
+}));
+
 app.use(express.json());
 
 // Gate the debug paper-trade console: only served in paper mode.
@@ -52,20 +88,9 @@ app.use(express.static("public", {
   },
 }));
 
-// Trust the first proxy (Cloudflare Tunnel)
-app.set("trust proxy", 1);
-
 // Apply rate limiting to all requests
 app.use("/api", limiter);
-
-// Security Headers (CSP)
-app.use((_req, res, next) => {
-  res.setHeader(
-    "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' https://unpkg.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
-  );
-  next();
-});
+app.use(["/api/users/login", "/api/users/register"], authLimiter);
 
 // Prevent 404 logs for favicon
 app.get("/favicon.ico", (_req, res) => res.status(204).end());
