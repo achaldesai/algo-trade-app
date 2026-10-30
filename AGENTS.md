@@ -101,7 +101,9 @@ All under `/api/*`, mounted in `src/app.ts`.
 | `/api/audit-logs` | admin | Audit query/export, sensitive fields auto-redacted |
 | `/api/paper` | conditional | Mounted only when `PAPER_TRADING=true` |
 
-Rate limits: 1000 req / 15 min globally, **10 req / 1 min** on `/api/admin`.
+Rate limits: 10000 req / 15 min globally on `/api` (dashboard polling), **60 req / 1 min** on `/api/admin`, **20 failed attempts / 15 min** per IP on `/api/users/login` and `/register`.
+
+Security headers come from `helmet` (CSP defined in `src/app.ts`), applied before `express.static` so the dashboard gets them. No CORS headers are sent on purpose — the dashboard is same-origin.
 
 ## Frontend
 
@@ -125,9 +127,9 @@ Grouped roughly by purpose. See `src/config/env.ts` for defaults and `validateEn
 
 **Angel One**: `ANGEL_ONE_API_KEY`, `ANGEL_ONE_CLIENT_ID`, `ANGEL_ONE_PASSWORD`, `ANGEL_ONE_TOTP_SECRET`, `ANGEL_ONE_DEFAULT_EXCHANGE`, `ANGEL_ONE_PRODUCT_TYPE`. TOTP secret enables auto-refresh at 4:30 AM IST daily (token expires at 5 AM).
 
-**Storage**: `PORTFOLIO_BACKEND` (`lmdb` / `file`), `PORTFOLIO_STORE`, `DATABASE_URL`, `POSTGRES_POOL_MIN`/`MAX`, `REDIS_URL`, `BACKUP_INTERVAL_HOURS`.
+**Storage**: `PORTFOLIO_BACKEND` (`lmdb` / `file`), `PORTFOLIO_STORE`, `DATABASE_URL`, `POSTGRES_POOL_MIN`/`MAX`, `REDIS_URL`, `BACKUP_INTERVAL_HOURS`. Under Docker Compose, `POSTGRES_PASSWORD` and `REDIS_PASSWORD` are required and the URLs are derived from them; Postgres/Redis ports are not published on the host.
 
-**Auth & risk**: `ADMIN_API_KEY` (required in prod; signs user JWTs and gates admin endpoints), `MAX_DAILY_LOSS`, `MAX_DAILY_LOSS_PERCENT`, `MAX_POSITION_SIZE`, `MAX_OPEN_POSITIONS`, `STOP_LOSS_PERCENT`, `DEFAULT_TRAILING_STOP_PERCENT`.
+**Auth & risk**: `ADMIN_API_KEY` (required in prod; signs user JWTs and gates admin endpoints), `MAX_DAILY_LOSS`, `MAX_DAILY_LOSS_PERCENT`, `MAX_POSITION_SIZE`, `MAX_POSITION_SIZE_PER_SYMBOL`, `MAX_OPEN_POSITIONS`, `STOP_LOSS_PERCENT`, `DEFAULT_TRAILING_STOP_PERCENT`.
 
 **Notifications**: `DISCORD_WEBHOOK_URL`, `WEBHOOK_URL`, `NOTIFICATIONS_ENABLED`, `DISCORD_BOT_TOKEN` (Discord bot for `!dashboard` tunnel via Cloudflare Quick Tunnels).
 
