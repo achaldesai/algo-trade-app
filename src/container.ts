@@ -20,6 +20,7 @@ import HistoricalDataService from "./services/HistoricalDataService";
 import PortfolioRebalancer from "./services/PortfolioRebalancer";
 import ExecutionPlanner from "./services/ExecutionPlanner";
 import AngelOneHistoricalProvider from "./providers/AngelOneHistoricalProvider";
+import YahooHistoricalProvider from "./providers/YahooHistoricalProvider";
 import VWAPStrategy from "./strategies/VWAPStrategy";
 import type { TickerClient } from "./services/TickerClient";
 import AngelOneTickerService from "./services/AngelOneTickerService";
@@ -35,6 +36,7 @@ import { MarketScannerService } from "./services/MarketScannerService";
 import { TradingLoopService } from "./services/TradingLoopService";
 import { AutoTradingService } from "./services/AutoTradingService";
 import { TokenRefreshService } from "./services/TokenRefreshService";
+import FeedHealthMonitor from "./services/FeedHealthMonitor";
 
 // PostgreSQL & Redis (optional)
 import { PostgresManager } from "./db/postgres/PostgresManager";
@@ -81,6 +83,7 @@ export interface AppContainer {
   tradingLoopService: TradingLoopService;
   autoTradingService: AutoTradingService;
   tokenRefreshService: TokenRefreshService;
+  feedHealthMonitor: FeedHealthMonitor;
 
   // Optional: PostgreSQL layer (available when DATABASE_URL is set)
   postgresManager?: PostgresManager;
@@ -96,10 +99,10 @@ export interface AppContainer {
 
 // ─── Factory Functions ───────────────────────────────────────────────────────
 
-function buildBroker(tokenRepo: TokenRepo): BrokerClient {
+function buildBroker(tokenRepo: TokenRepo, marketData: MarketDataService): BrokerClient {
   if (env.paperTrading) {
     logger.warn("PAPER_TRADING is enabled — all orders will route to PaperBroker");
-    return new PaperBroker();
+    return new PaperBroker((symbol) => marketData.getTick(symbol)?.price);
   }
 
   switch (env.brokerProvider) {
@@ -126,22 +129,31 @@ function buildBroker(tokenRepo: TokenRepo): BrokerClient {
         productType: env.angelOneProductType,
       });
     default:
-      return new PaperBroker();
+      return new PaperBroker((symbol) => marketData.getTick(symbol)?.price);
   }
 }
 
 function buildHistoricalDataService(): HistoricalDataService {
-  if (env.angelOneApiKey) {
-    const provider = new AngelOneHistoricalProvider({
-      apiKey: env.angelOneApiKey,
-      clientId: env.angelOneClientId,
-      password: env.angelOnePassword,
-      totpSecret: env.angelOneTotpSecret,
-      defaultExchange: env.angelOneDefaultExchange,
-    });
-    return new HistoricalDataService(undefined, provider);
+  const choice = env.historicalProvider;
+
+  if (choice === "angelone") {
+    if (!env.angelOneApiKey) {
+      logger.warn("HISTORICAL_PROVIDER=angelone but ANGEL_ONE_API_KEY not set, falling back to Yahoo");
+    } else {
+      const provider = new AngelOneHistoricalProvider({
+        apiKey: env.angelOneApiKey,
+        clientId: env.angelOneClientId,
+        password: env.angelOnePassword,
+        totpSecret: env.angelOneTotpSecret,
+        defaultExchange: env.angelOneDefaultExchange,
+      });
+      return new HistoricalDataService(undefined, provider);
+    }
   }
-  return new HistoricalDataService();
+
+  const exchange = env.angelOneDefaultExchange === "BSE" ? "BSE" : "NSE";
+  const provider = new YahooHistoricalProvider({ defaultExchange: exchange });
+  return new HistoricalDataService(undefined, provider);
 }
 
 function buildTicker(
@@ -173,6 +185,7 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     maxDailyLoss: env.maxDailyLoss,
     maxDailyLossPercent: env.maxDailyLossPercent,
     maxPositionSize: env.maxPositionSize,
+    maxPositionSizePerSymbol: env.maxPositionSizePerSymbol,
     maxOpenPositions: env.maxOpenPositions,
     stopLossPercent: env.stopLossPercent,
   };
@@ -196,19 +209,19 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
   const marketDataService = new MarketDataService();
   const historicalDataService = buildHistoricalDataService();
   const marketScannerService = new MarketScannerService(
-    historicalDataService
+    historicalDataService,
+    settingsRepo,
   );
   const portfolioRebalancer = new PortfolioRebalancer();
   const executionPlanner = new ExecutionPlanner();
-  const brokerClient = buildBroker(tokenRepo);
+  const brokerClient = buildBroker(tokenRepo, marketDataService);
 
-  const brokerFactory = new BrokerFactory(tokenRepo);
+  const brokerFactory = new BrokerFactory(tokenRepo, (symbol) => marketDataService.getTick(symbol)?.price);
 
   const riskManager = new RiskManager(settingsRepo);
 
   const tradingEngine = new TradingEngine({
     brokerFactory: (userId: string) => brokerFactory.getBroker(userId),
-    fallbackBroker: new PaperBroker(),
     marketData: marketDataService,
     portfolioService,
     riskManager,
@@ -290,6 +303,15 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
 
   const tokenRefreshService = new TokenRefreshService(tokenRepo);
 
+  // ── Feed Health Monitor (fail-safe kill switch on feed staleness) ────────
+
+  const feedHealthMonitor = new FeedHealthMonitor({
+    marketDataService,
+    tradingLoopService,
+    notificationService,
+    auditLogService,
+  });
+
   // ── Health (created after tradingLoopService) ────────────────────────────
 
   const healthService = new HealthService({
@@ -331,6 +353,7 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     tradingLoopService,
     autoTradingService,
     tokenRefreshService,
+    feedHealthMonitor,
   };
 }
 

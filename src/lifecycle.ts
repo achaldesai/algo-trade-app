@@ -170,9 +170,11 @@ function buildPhases(app: Express): LifecyclePhase[] {
                     const tokenRepo = state.container.tokenRepo;
                     let tokens = tokenRepo.getAngelOneToken("SYSTEM_DEFAULT");
 
-                    if (!tokens && env.angelOneTotpSecret) {
+                    const tokenExpired =
+                        tokens && new Date(tokens.expiresAt) < new Date();
+                    if ((!tokens || tokenExpired) && env.angelOneTotpSecret) {
                         logger.info(
-                            "Angel One tokens missing/expired. Attempting automatic re-auth..."
+                            "Angel One tokens missing or expired. Attempting automatic re-auth..."
                         );
                         try {
                             const refreshService = state.container?.tokenRefreshService;
@@ -307,6 +309,10 @@ function buildPhases(app: Express): LifecyclePhase[] {
                 state.container.autoTradingService.start();
                 logger.info("Auto-trading service started");
 
+                // Start feed health monitor (fail-safe kill switch)
+                state.container.feedHealthMonitor.start();
+                logger.info("Feed health monitor started");
+
                 // Schedule backups
                 const backupIntervalHours =
                     Number(process.env.BACKUP_INTERVAL_HOURS) || 24;
@@ -353,6 +359,9 @@ function buildPhases(app: Express): LifecyclePhase[] {
 
                 // Stop stop-loss monitor
                 state.container.stopLossMonitor.stop();
+
+                // Stop feed health monitor
+                state.container.feedHealthMonitor.stop();
             },
         },
 

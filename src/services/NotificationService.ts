@@ -1,6 +1,6 @@
 import type TradingEngine from "./TradingEngine";
 import type { StopLossMonitor } from "./StopLossMonitor";
-import type { Trade } from "../types";
+import type { BrokerOrderRequest, Trade } from "../types";
 import logger from "../utils/logger";
 
 export interface NotificationServiceOptions {
@@ -57,6 +57,12 @@ export class NotificationService {
         if (options.tradingEngine) {
             options.tradingEngine.on("trade-executed", (data: { trade: Trade; userId: string }) => {
                 void this.notifyTradeExecuted(data.userId, data.trade);
+            });
+            options.tradingEngine.on("trade-failed", (data: { userId: string; request: BrokerOrderRequest; error: string }) => {
+                void this.notifyTradeFailed(data.userId, data.request, data.error);
+            });
+            options.tradingEngine.on("broker-unavailable", (data: { userId: string; error: string }) => {
+                void this.notifyCriticalError("BROKER_UNAVAILABLE", data.error);
             });
         }
 
@@ -141,6 +147,27 @@ export class NotificationService {
     }
 
     /**
+     * Notify about an order failure
+     */
+    private async notifyTradeFailed(userId: string, request: BrokerOrderRequest, errorMessage: string): Promise<void> {
+        const embed: DiscordEmbed = {
+            title: `❌ Order Failed (User: ${userId})`,
+            description: `Failed to place **${request.side}** order for **${request.symbol}**`,
+            color: COLORS.ERROR,
+            fields: [
+                { name: "Symbol", value: request.symbol, inline: true },
+                { name: "Side", value: request.side, inline: true },
+                { name: "Quantity", value: request.quantity.toString(), inline: true },
+                { name: "Error", value: errorMessage || "Unknown error", inline: false },
+            ],
+            timestamp: new Date().toISOString(),
+            footer: { text: "Algo Trade App" },
+        };
+
+        await this.queueNotification({ embeds: [embed] });
+    }
+
+    /**
      * Notify about a stop-loss trigger
      */
     private async notifyStopLossTriggered(userId: string, event: { config: { symbol: string; stopLossPrice: number }; triggerPrice: number }): Promise<void> {
@@ -201,6 +228,21 @@ export class NotificationService {
         const embed: DiscordEmbed = {
             title: "⏹️ Trading Stopped",
             description: "Trading loop has been stopped",
+            color: COLORS.INFO,
+            timestamp: new Date().toISOString(),
+            footer: { text: "Algo Trade App" },
+        };
+
+        await this.queueNotification({ embeds: [embed] });
+    }
+
+    /**
+     * Notify that the market data feed has recovered and trading has auto-resumed
+     */
+    async notifyFeedRecovered(): Promise<void> {
+        const embed: DiscordEmbed = {
+            title: "✅ Feed Recovered",
+            description: "Market data feed recovered — trading auto-resumed",
             color: COLORS.INFO,
             timestamp: new Date().toISOString(),
             footer: { text: "Algo Trade App" },

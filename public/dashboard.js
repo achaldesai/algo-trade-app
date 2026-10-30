@@ -270,11 +270,17 @@ async function updateSystemHealth() {
         const res = await apiFetch('/api/admin/health', {}, true);
 
         if (!res.ok) {
-            // No admin key or unauthorized - show basic status
             const dot = document.getElementById('health-dot');
             const status = document.getElementById('health-status');
-            dot.className = 'health-dot pending';
-            status.textContent = 'Auth Required (Click)';
+            dot.className = 'health-dot unhealthy';
+            status.className = 'status-value disconnected';
+            if (res.status === 401 || res.status === 403) {
+                status.textContent = 'Forbidden';
+            } else if (res.status === 503) {
+                status.textContent = 'Health unavailable';
+            } else {
+                status.textContent = `Error ${res.status}`;
+            }
             return;
         }
 
