@@ -21,6 +21,14 @@ export class PaperBroker implements BrokerClient {
 
   private readonly trades: PaperTrade[] = [];
 
+  // Optional live price feed — injected from MarketDataService so market orders
+  // get filled at the real tick price instead of a random number.
+  private readonly priceLookup?: (symbol: string) => number | undefined;
+
+  constructor(priceLookup?: (symbol: string) => number | undefined) {
+    this.priceLookup = priceLookup;
+  }
+
   async connect(): Promise<void> {
     this.connected = true;
   }
@@ -74,20 +82,22 @@ export class PaperBroker implements BrokerClient {
   }
 
   async getQuote(symbol: string, side: TradeSide): Promise<BrokerOrderQuote | null> {
-    const matches = this.trades.filter((trade) => trade.symbol === symbol);
-    if (matches.length === 0) {
+    const livePrice = this.priceLookup?.(symbol);
+    const lastTrade = this.trades.filter((t) => t.symbol === symbol).at(-1);
+    const basePrice = livePrice ?? lastTrade?.price;
+
+    if (!basePrice) {
       return null;
     }
 
-    const lastTrade = matches[matches.length - 1];
     const adjustment = side === "BUY" ? 1 + MARKET_SLIPPAGE_BPS / 10_000 : 1 - MARKET_SLIPPAGE_BPS / 10_000;
-    const price = Number((lastTrade.price * adjustment).toFixed(4));
+    const price = Number((basePrice * adjustment).toFixed(4));
 
     return {
       symbol,
       side,
       limitPrice: price,
-      quantity: Math.max(lastTrade.quantity, 1),
+      quantity: Math.max(lastTrade?.quantity ?? 1, 1),
       validUntil: new Date(Date.now() + 60_000),
     };
   }
@@ -101,12 +111,19 @@ export class PaperBroker implements BrokerClient {
       return order.price;
     }
 
-    const reference = this.trades
-      .filter((item) => item.symbol === order.symbol && item.side === order.side)
-      .map((item) => item.price)
-      .at(-1);
+    // Prefer the live tick; fall back to any prior paper trade for this symbol.
+    const livePrice = this.priceLookup?.(order.symbol);
+    const reference =
+      livePrice ??
+      this.trades
+        .filter((item) => item.symbol === order.symbol)
+        .map((item) => item.price)
+        .at(-1);
+
     if (!reference) {
-      return Number((Math.random() * 100 + 50).toFixed(2));
+      throw new Error(
+        `Paper broker cannot fill MARKET order for ${order.symbol}: no live tick or prior trade price available`
+      );
     }
 
     const direction = order.side === "BUY" ? 1 : -1;

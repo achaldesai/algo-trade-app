@@ -114,12 +114,65 @@ declare module "smartapi-javascript" {
     generateToken(refreshToken: string): Promise<SmartAPIResponse<SessionTokens>>;
   }
 
+  interface WebSocketV2Params {
+    clientcode: string;
+    jwttoken: string;
+    apikey: string;
+    feedtype: string;
+  }
+
+  type WebSocketV2Action = 0 | 1;
+  type WebSocketV2Mode = 1 | 2 | 3 | 4;
+
+  interface WebSocketV2FetchRequest {
+    correlationID?: string;
+    action: WebSocketV2Action;
+    mode: WebSocketV2Mode;
+    exchangeType: number;
+    tokens: string[];
+  }
+
+  interface WebSocketV2QuoteTick {
+    subscription_mode: string;
+    exchange_type: string;
+    token: string;
+    sequence_number: string;
+    exchange_timestamp: string;
+    last_traded_price: string;
+    last_traded_quantity: string;
+    avg_traded_price: string;
+    vol_traded: string;
+    total_buy_quantity: number;
+    total_sell_quantity: number;
+    open_price_day: string;
+    high_price_day: string;
+    low_price_day: string;
+    close_price: string;
+  }
+
+  type WebSocketV2Tick = WebSocketV2QuoteTick | Record<string, unknown> | string;
+
+  class WebSocketV2 {
+    constructor(params: WebSocketV2Params);
+    connect(): Promise<void>;
+    fetchData(req: WebSocketV2FetchRequest): void;
+    on(event: "tick" | "connect", cb: (data: WebSocketV2Tick) => void): void;
+    close(): void;
+    customError(): void;
+    reconnection(type: "simple", delayMs: number): void;
+    reconnection(type: "exponential", delayMs: number, multiplier: number): void;
+  }
+
   export {
     SmartAPI,
     AngelOneOrderBookEntry,
     AngelOnePosition,
     OrderParams,
     SmartApiCandleTuple,
+    WebSocketV2,
+    WebSocketV2FetchRequest,
+    WebSocketV2QuoteTick,
+    WebSocketV2Tick,
   };
 
   export default SmartAPI;
