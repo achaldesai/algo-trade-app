@@ -52,9 +52,6 @@ export class StopLossMonitor extends EventEmitter {
         this.repository = options.stopLossRepository;
         this.riskManager = options.riskManager;
         this.brokerFactory = options.brokerFactory;
-
-        // Listen to trade events for automatic stop-loss management
-        this.tradingEngine.on("trade-executed", this.handleTradeExecuted);
     }
 
     /**

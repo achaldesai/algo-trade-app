@@ -5,10 +5,13 @@ import type { StrategySignal } from "../types";
 
 const DEFAULT_THRESHOLD = 0.01;   // 1% deviation from VWAP
 const DEFAULT_ORDER_SIZE = 10;
+const DEFAULT_COOLDOWN_MS = 300000;   // 5 minutes between signals per user/symbol
 
 // ─── VWAP Mean Reversion Strategy ────────────────────────────────────────────
 
 export class VWAPStrategy extends BaseStrategy {
+  private readonly lastSignalAt = new Map<string, number>();
+
   constructor() {
     super("vwap", "VWAP Mean Reversion", "Trades when price deviates materially from VWAP");
   }
@@ -35,6 +38,15 @@ export class VWAPStrategy extends BaseStrategy {
         max: 1000,
         step: 1,
       },
+      {
+        key: "cooldownMs",
+        label: "Signal Cooldown (ms)",
+        type: "number",
+        default: DEFAULT_COOLDOWN_MS,
+        description: "Minimum time between consecutive signals for the same user and symbol",
+        min: 0,
+        step: 1000,
+      },
     ];
   }
 
@@ -42,6 +54,7 @@ export class VWAPStrategy extends BaseStrategy {
     return {
       threshold: DEFAULT_THRESHOLD,
       orderSize: DEFAULT_ORDER_SIZE,
+      cooldownMs: DEFAULT_COOLDOWN_MS,
     };
   }
 
@@ -49,6 +62,7 @@ export class VWAPStrategy extends BaseStrategy {
     const signals: StrategySignal[] = [];
     const threshold = (context.params.threshold as number) ?? DEFAULT_THRESHOLD;
     const baseOrderSize = (context.params.orderSize as number) ?? DEFAULT_ORDER_SIZE;
+    const cooldownMs = (context.params.cooldownMs as number) ?? DEFAULT_COOLDOWN_MS;
 
     for (const tick of context.market.ticks) {
       const position = context.portfolio.positions.find((item) => item.symbol === tick.symbol);
@@ -66,7 +80,20 @@ export class VWAPStrategy extends BaseStrategy {
       }
 
       const direction = deviation > 0 ? "SELL" : "BUY";
-      const orderSize = Math.max(baseOrderSize, Math.abs(positionSize));
+
+      // Position gate: long-only, no pyramiding / no overselling
+      if (direction === "BUY" && positionSize > 0) continue;
+      if (direction === "SELL" && positionSize <= 0) continue;
+
+      // Cooldown gate: one signal per user/symbol within the cooldown window
+      const key = `${context.userId}:${tick.symbol}`;
+      if (Date.now() - (this.lastSignalAt.get(key) ?? -Infinity) < cooldownMs) {
+        continue;
+      }
+
+      const orderSize = direction === "BUY" ? baseOrderSize : Math.abs(positionSize);
+
+      this.lastSignalAt.set(key, Date.now());
 
       signals.push({
         strategyId: this.id,

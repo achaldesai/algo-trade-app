@@ -9,6 +9,7 @@ export interface RiskLimits {
     maxDailyLoss: number;
     maxDailyLossPercent: number;
     maxPositionSize: number;
+    maxPositionSizePerSymbol?: number;
     maxOpenPositions: number;
     stopLossPercent: number;
     circuitBroken?: boolean;
@@ -62,7 +63,7 @@ export class RiskManager extends EventEmitter {
         return state;
     }
 
-    public checkOrderAllowed(userId: string, order: BrokerOrderRequest, currentUnrealizedPnL: number, openPositionsCount: number): RiskCheckResult {
+    public checkOrderAllowed(userId: string, order: BrokerOrderRequest, currentUnrealizedPnL: number, openPositionsCount: number, currentPositionValue: number = 0): RiskCheckResult {
         const state = this.getUserState(userId);
         // 0. Validate basic order parameters first
         if (order.quantity <= 0) {
@@ -94,13 +95,25 @@ export class RiskManager extends EventEmitter {
         }
 
         // 4. Check Position Size
-        if (order.type !== "MARKET" && !isEmergency) {
-            const estimatedValue = order.quantity * (order.price || 0);
-            if (estimatedValue > state.limits.maxPositionSize) {
-                return { allowed: false, reason: `Order value ${estimatedValue} exceeds max position size ${state.limits.maxPositionSize}` };
+        if (!isEmergency) {
+            const referencePrice = order.price ?? 0;
+            if (referencePrice <= 0) {
+                return { allowed: false, reason: "Order value cannot be estimated: missing reference price" };
             }
-        } else if (order.type === "MARKET" && !isEmergency) {
-            // implicit pass for market orders
+            const orderValue = order.quantity * referencePrice;
+            const orderDelta = order.side === "BUY" ? orderValue : -orderValue;
+            const isReducing = (currentPositionValue > 0 && orderDelta < 0) || (currentPositionValue < 0 && orderDelta > 0);
+            if (!isReducing) {
+                if (orderValue > state.limits.maxPositionSize) {
+                    return { allowed: false, reason: `Order value ${orderValue} exceeds max position size ${state.limits.maxPositionSize}` };
+                }
+                const newPositionValue = currentPositionValue + orderDelta;
+                const newExposure = Math.abs(newPositionValue);
+                const cap = state.limits.maxPositionSizePerSymbol ?? state.limits.maxPositionSize;
+                if (newExposure > cap) {
+                    return { allowed: false, reason: `Projected symbol value ${newExposure} exceeds per-symbol cap ${cap}` };
+                }
+            }
         }
 
         return { allowed: true };

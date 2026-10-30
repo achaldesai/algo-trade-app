@@ -71,6 +71,148 @@ describe("RiskManager", () => {
             assert.ok(result.reason?.includes("exceeds max position size"));
         });
 
+        it("should reject MARKET orders with no reference price (non-emergency)", () => {
+            const orderNoPrice: BrokerOrderRequest = {
+                symbol: "TEST",
+                side: "BUY",
+                quantity: 10,
+                type: "MARKET",
+                tag: "test",
+            };
+
+            const resultNoPrice = riskManager.checkOrderAllowed("test-user", orderNoPrice, 0, 0);
+            assert.strictEqual(resultNoPrice.allowed, false);
+            assert.ok(resultNoPrice.reason?.includes("missing reference price"));
+
+            const orderZeroPrice: BrokerOrderRequest = {
+                symbol: "TEST",
+                side: "BUY",
+                quantity: 10,
+                type: "MARKET",
+                price: 0,
+                tag: "test",
+            };
+
+            const resultZeroPrice = riskManager.checkOrderAllowed("test-user", orderZeroPrice, 0, 0);
+            assert.strictEqual(resultZeroPrice.allowed, false);
+            assert.ok(resultZeroPrice.reason?.includes("missing reference price"));
+        });
+
+        it("should reject MARKET orders whose value exceeds max position size", () => {
+            const order: BrokerOrderRequest = {
+                symbol: "TEST",
+                side: "BUY",
+                quantity: 100,
+                type: "MARKET",
+                price: 100,
+                tag: "test",
+            };
+
+            const result = riskManager.checkOrderAllowed("test-user", order, 0, 0);
+            assert.strictEqual(result.allowed, false);
+            assert.ok(result.reason?.includes("exceeds max position size"));
+        });
+
+        it("should reject a BUY that pushes the symbol past the per-symbol cap", () => {
+            const cappedSettings = {
+                getRiskLimits: () => ({ ...defaultLimits, maxPositionSizePerSymbol: 1000 }),
+                on: mock.fn(),
+                saveRiskLimits: mock.fn(() => Promise.resolve()),
+            } as unknown as SettingsRepo;
+            const cappedRiskManager = new RiskManager(cappedSettings);
+
+            const order: BrokerOrderRequest = {
+                symbol: "TEST",
+                side: "BUY",
+                quantity: 10,
+                type: "MARKET",
+                price: 100,
+                tag: "test",
+            };
+
+            const result = cappedRiskManager.checkOrderAllowed("test-user", order, 0, 0, 800);
+            assert.strictEqual(result.allowed, false);
+            assert.ok(result.reason?.includes("exceeds per-symbol cap"));
+        });
+
+        it("should allow a SELL that reduces the symbol even when current notional exceeds the cap", () => {
+            const cappedSettings = {
+                getRiskLimits: () => ({ ...defaultLimits, maxPositionSizePerSymbol: 1000 }),
+                on: mock.fn(),
+                saveRiskLimits: mock.fn(() => Promise.resolve()),
+            } as unknown as SettingsRepo;
+            const cappedRiskManager = new RiskManager(cappedSettings);
+
+            const order: BrokerOrderRequest = {
+                symbol: "TEST",
+                side: "SELL",
+                quantity: 10,
+                type: "MARKET",
+                price: 100,
+                tag: "test",
+            };
+
+            const result = cappedRiskManager.checkOrderAllowed("test-user", order, 0, 0, 2000);
+            assert.strictEqual(result.allowed, true);
+        });
+
+        it("should allow reducing a long even when the order value exceeds max position size", () => {
+            const order: BrokerOrderRequest = {
+                symbol: "TEST",
+                side: "SELL",
+                quantity: 1000,
+                type: "MARKET",
+                price: 150,
+                tag: "test",
+            };
+
+            const result = riskManager.checkOrderAllowed("test-user", order, 0, 0, 150000);
+            assert.strictEqual(result.allowed, true);
+        });
+
+        it("should cap opening a short when the order value exceeds max position size", () => {
+            const order: BrokerOrderRequest = {
+                symbol: "TEST",
+                side: "SELL",
+                quantity: 100,
+                type: "MARKET",
+                price: 100,
+                tag: "test",
+            };
+
+            const result = riskManager.checkOrderAllowed("test-user", order, 0, 0, 0);
+            assert.strictEqual(result.allowed, false);
+            assert.ok(result.reason?.includes("exceeds max position size"));
+        });
+
+        it("should allow covering a short even when the order value exceeds max position size", () => {
+            const order: BrokerOrderRequest = {
+                symbol: "TEST",
+                side: "BUY",
+                quantity: 1000,
+                type: "MARKET",
+                price: 150,
+                tag: "test",
+            };
+
+            const result = riskManager.checkOrderAllowed("test-user", order, 0, 0, -50000);
+            assert.strictEqual(result.allowed, true);
+        });
+
+        it("should allow emergency MARKET orders with price 0", () => {
+            const order: BrokerOrderRequest = {
+                symbol: "TEST",
+                side: "SELL",
+                quantity: 10,
+                type: "MARKET",
+                price: 0,
+                tag: "PANIC-SELL-123",
+            };
+
+            const result = riskManager.checkOrderAllowed("test-user", order, 0, 0);
+            assert.strictEqual(result.allowed, true);
+        });
+
         it("should reject new positions when max open positions reached", () => {
             const order: BrokerOrderRequest = {
                 symbol: "TEST",

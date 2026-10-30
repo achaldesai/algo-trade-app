@@ -182,6 +182,8 @@ describe("StopLossMonitor", () => {
 
     describe("auto-create on trade", () => {
         it("should auto-create stop-loss on BUY trade", async () => {
+            monitor.start();
+
             const trade: Trade = {
                 id: "trade-1",
                 symbol: "HDFC",
@@ -202,6 +204,8 @@ describe("StopLossMonitor", () => {
         });
 
         it("should update stop-loss on additional BUY trade", async () => {
+            monitor.start();
+
             await monitor.setStopLoss("test-user", "HDFC", {
                 entryPrice: 100,
                 quantity: 10,
@@ -226,6 +230,8 @@ describe("StopLossMonitor", () => {
         });
 
         it("should reduce quantity on SELL trade", async () => {
+            monitor.start();
+
             await monitor.setStopLoss("test-user", "RELIANCE", {
                 entryPrice: 100,
                 quantity: 20,
@@ -249,6 +255,8 @@ describe("StopLossMonitor", () => {
         });
 
         it("should remove stop-loss when position fully closed", async () => {
+            monitor.start();
+
             await monitor.setStopLoss("test-user", "TCS", {
                 entryPrice: 100,
                 quantity: 10,
@@ -268,6 +276,43 @@ describe("StopLossMonitor", () => {
 
             const stopLoss = monitor.get("test-user", "TCS");
             assert.strictEqual(stopLoss, undefined, "Stop-loss should be removed");
+        });
+
+        it("should not double-process a single BUY trade after start", async () => {
+            monitor.start();
+
+            const trade: Trade = {
+                id: "trade-regression",
+                symbol: "HDFC",
+                side: "BUY",
+                quantity: 10,
+                price: 100,
+                executedAt: new Date(),
+            };
+
+            mockTradingEngine.emitTrade(trade);
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            const stopLoss = monitor.get("test-user", "HDFC");
+            assert.ok(stopLoss, "Stop-loss should be created");
+            assert.strictEqual(stopLoss.quantity, 10);
+            assert.strictEqual(stopLoss.entryPrice, 100);
+        });
+
+        it("should NOT create stop-loss when monitor is not started", async () => {
+            const trade: Trade = {
+                id: "trade-not-started",
+                symbol: "HDFC",
+                side: "BUY",
+                quantity: 10,
+                price: 100,
+                executedAt: new Date(),
+            };
+
+            mockTradingEngine.emitTrade(trade);
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            assert.strictEqual(monitor.get("test-user", "HDFC"), undefined);
         });
     });
 
