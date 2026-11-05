@@ -2,8 +2,24 @@ import { Router } from "express";
 import { getContainer } from "../util/getContainer";
 import type { StopLossConfig } from "../db/repositories/StopLossRepo";
 import { userAuthMiddleware } from "../middleware/userAuth";
+import { adminAuthMiddleware } from "../middleware/adminAuth";
 
 const router = Router();
+
+// Starting/stopping the monitor affects every user's stop-losses, so it is admin-only.
+// Registered before the userAuth middleware so X-Admin-API-Key callers work too.
+router.post("/start", adminAuthMiddleware, (req, res) => {
+    const { stopLossMonitor } = getContainer(req);
+    stopLossMonitor.start();
+    res.json({ success: true, message: "Stop-loss monitor started", data: stopLossMonitor.getStatus() });
+});
+
+router.post("/stop", adminAuthMiddleware, (req, res) => {
+    const { stopLossMonitor } = getContainer(req);
+    stopLossMonitor.stop();
+    res.json({ success: true, message: "Stop-loss monitor stopped", data: stopLossMonitor.getStatus() });
+});
+
 router.use(userAuthMiddleware);
 
 router.get("/", (req, res) => {
@@ -87,18 +103,6 @@ router.delete("/:symbol", async (req, res): Promise<void> => {
         const message = error instanceof Error ? error.message : "Failed to remove stop-loss";
         res.status(500).json({ success: false, error: message });
     }
-});
-
-router.post("/start", (req, res) => {
-    const { stopLossMonitor } = getContainer(req);
-    stopLossMonitor.start();
-    res.json({ success: true, message: "Stop-loss monitor started", data: stopLossMonitor.getStatus() });
-});
-
-router.post("/stop", (req, res) => {
-    const { stopLossMonitor } = getContainer(req);
-    stopLossMonitor.stop();
-    res.json({ success: true, message: "Stop-loss monitor stopped", data: stopLossMonitor.getStatus() });
 });
 
 function formatStopLoss(config: StopLossConfig) {

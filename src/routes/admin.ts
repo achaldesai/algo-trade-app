@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { getContainer } from "../util/getContainer";
+import { asyncHandler } from "../util/asyncHandler";
 import logger from "../utils/logger";
 import { HttpError } from "../utils/HttpError";
 import { adminAuthMiddleware } from "../middleware/adminAuth";
@@ -8,7 +9,7 @@ import { adminAuthMiddleware } from "../middleware/adminAuth";
 const router = Router();
 router.use(adminAuthMiddleware);
 
-router.get("/db-stats", async (req: Request, res: Response) => {
+router.get("/db-stats", asyncHandler(async (req: Request, res: Response) => {
   try {
     const { dbManager } = getContainer(req);
     const stats = await dbManager.getStats();
@@ -17,9 +18,9 @@ router.get("/db-stats", async (req: Request, res: Response) => {
     logger.error({ err: error }, "Failed to get database stats");
     throw new HttpError(500, "Failed to retrieve database statistics");
   }
-});
+}));
 
-router.post("/backup", async (req: Request, res: Response) => {
+router.post("/backup", asyncHandler(async (req: Request, res: Response) => {
   try {
     const { dbManager } = getContainer(req);
     const backupPath = await dbManager.createBackup();
@@ -29,9 +30,9 @@ router.post("/backup", async (req: Request, res: Response) => {
     logger.error({ err: error }, "Failed to create backup");
     throw new HttpError(500, "Failed to create database backup");
   }
-});
+}));
 
-router.get("/backups", async (req: Request, res: Response) => {
+router.get("/backups", asyncHandler(async (req: Request, res: Response) => {
   try {
     const { dbManager } = getContainer(req);
     const backups = await dbManager.listBackups();
@@ -43,25 +44,30 @@ router.get("/backups", async (req: Request, res: Response) => {
     logger.error({ err: error }, "Failed to list backups");
     throw new HttpError(500, "Failed to list backups");
   }
-});
+}));
 
 const RestoreSchema = z.object({ backupPath: z.string().min(1) });
 
-router.post("/restore", async (req: Request, res: Response) => {
+router.post("/restore", asyncHandler(async (req: Request, res: Response) => {
   try {
     const { backupPath } = RestoreSchema.parse(req.body);
     const { dbManager } = getContainer(req);
+    // Only allow restoring from backups this server created (no arbitrary paths).
+    const known = await dbManager.listBackups();
+    if (!known.includes(backupPath)) {
+      throw new HttpError(400, "backupPath must be one of the paths returned by GET /api/admin/backups");
+    }
     await dbManager.restoreFromBackup(backupPath);
     logger.info({ backupPath }, "Database restored from backup");
     res.json({ success: true, restoredFrom: backupPath, restoredAt: new Date().toISOString() });
   } catch (error) {
-    if (error instanceof HttpError) throw error;
+    if (error instanceof HttpError || error instanceof z.ZodError) throw error;
     logger.error({ err: error }, "Failed to restore from backup");
     throw new HttpError(500, "Failed to restore database from backup");
   }
-});
+}));
 
-router.get("/export", async (req: Request, res: Response) => {
+router.get("/export", asyncHandler(async (req: Request, res: Response) => {
   try {
     const { dbManager } = getContainer(req);
     const data = await dbManager.exportToJson();
@@ -72,9 +78,9 @@ router.get("/export", async (req: Request, res: Response) => {
     logger.error({ err: error }, "Failed to export database");
     throw new HttpError(500, "Failed to export database");
   }
-});
+}));
 
-router.get("/health", async (req: Request, res: Response) => {
+router.get("/health", asyncHandler(async (req: Request, res: Response) => {
   try {
     const { healthService, autoTradingService } = getContainer(req);
     const health = await healthService.getHealth();
@@ -85,6 +91,6 @@ router.get("/health", async (req: Request, res: Response) => {
     logger.error({ err: error }, "Health check failed");
     res.status(503).json({ status: "unhealthy", timestamp: new Date().toISOString(), error: "System health check failed" });
   }
-});
+}));
 
 export default router;

@@ -144,6 +144,9 @@ Grouped roughly by purpose. See `src/config/env.ts` for defaults and `validateEn
 - **Don't `app.locals.foo = …` outside of `lifecycle.ts`** — the only thing on `app.locals` should be the container.
 - **`getJwtSecret()` in `src/utils/jwtSecret.ts` is the only place the JWT secret is resolved.** Login signs with it; `userAuth` and `adminAuth` verify with it. Don't add another copy. Tokens minted under the dev fallback won't verify once you set a real `ADMIN_API_KEY`.
 - **Registration never trusts a client-supplied role.** First user becomes ADMIN; after that only an ADMIN JWT can choose a role, and self-signup is closed in production.
+- **Wrap async route handlers in `asyncHandler()`** (`src/util/asyncHandler.ts`) or catch and call `next(err)` yourself. This is Express 4: a `throw` inside a bare async handler is an unhandled rejection and crashes the process.
+- **`POST /api/admin/restore` only accepts paths returned by `GET /api/admin/backups`.** `restoreFromBackup()` stages the copy and moves the live store aside, so a failed restore never deletes data. Keep it that way.
+- **`POST /api/stop-loss/start|stop` are admin-only** — they control the monitor for every user.
 - **Stop-loss tick processing must stay race-free.** The per-symbol promise queue in `StopLossMonitor` exists because of a real prior bug. Don't replace it with naive parallel processing.
 - **Trailing stop-loss handles the "config disappears mid-update" case explicitly.** If you refactor that code, preserve the guard.
 - **Strategy code should read indicators from `marketData.getIndicators(symbol)`, not recompute.** That cache exists for latency.
