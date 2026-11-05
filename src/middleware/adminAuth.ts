@@ -5,25 +5,13 @@ import { HttpError } from "../utils/HttpError";
 import env from "../config/env";
 import logger from "../utils/logger";
 import { getContainer } from "../util/getContainer";
+import { getJwtSecret } from "../utils/jwtSecret";
 
 export interface TokenPayload {
   userId: string;
   role: string;
 }
 
-function getJwtSecret(): string {
-  if (env.adminApiKey) return env.adminApiKey;
-
-  if (env.nodeEnv === "production") {
-    throw new HttpError(
-      503,
-      "Admin endpoints are not configured. Set ADMIN_API_KEY in environment variables."
-    );
-  }
-
-  logger.warn("ADMIN_API_KEY is not set — using fallback secret for DEVELOPMENT only. DO NOT use in production.");
-  return "fallback-secret-for-dev";
-}
 
 /**
  * Middleware to protect admin endpoints with API key authentication or Admin JWT

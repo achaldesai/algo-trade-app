@@ -25,6 +25,7 @@ export interface StrategyContext {
   broker: BrokerClient;
   /** Per-user parameters (strategy defaults merged with user overrides). */
   params: Record<string, unknown>;
+  userId: string;
 }
 
 // ─── Base Strategy ───────────────────────────────────────────────────────────

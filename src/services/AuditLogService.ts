@@ -6,7 +6,7 @@ import type TradingEngine from "./TradingEngine";
 import type { StopLossMonitor } from "./StopLossMonitor";
 import type { SettingsRepo } from "../db/repositories/SettingsRepo";
 import type { RiskLimits } from "./RiskManager";
-import type { Trade } from "../types";
+import type { BrokerOrderRequest, Trade } from "../types";
 import logger from "../utils/logger";
 
 export interface AuditLogServiceOptions {
@@ -42,6 +42,18 @@ export class AuditLogService {
         if (options.tradingEngine) {
             options.tradingEngine.on("trade-executed", (data: { trade: Trade; userId: string }) => {
                 this.safeLog(() => this.logTradeExecuted(data.userId, data.trade));
+            });
+            options.tradingEngine.on("trade-failed", (data: { userId: string; request: BrokerOrderRequest; error: string }) => {
+                this.safeLog(() => this.logTradeFailed(data.userId, data.request.symbol, data.request.side, data.error, { request: data.request }));
+            });
+            options.tradingEngine.on("broker-unavailable", (data: { userId: string; error: string }) => {
+                this.safeLog(() => this.log(data.userId, {
+                    eventType: "SYSTEM",
+                    category: "system",
+                    message: `Broker unavailable; trading skipped: ${data.error}`,
+                    details: { error: data.error },
+                    severity: "error",
+                }));
             });
         }
 

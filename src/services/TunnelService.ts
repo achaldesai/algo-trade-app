@@ -24,7 +24,9 @@ export class TunnelService {
             }
 
             // Start new Cloudflare tunnel
-            const tunnel = await startTunnel({ port });
+            // acceptCloudflareNotice skips the interactive TTY prompt, which
+            // would crash when the server runs headlessly (no TTY available).
+            const tunnel = await startTunnel({ port, acceptCloudflareNotice: true });
 
             if (!tunnel) {
                 throw new Error("Failed to start Cloudflare tunnel");

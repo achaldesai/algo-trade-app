@@ -13,6 +13,7 @@ import type {
 import type {
   Connect,
   Trade as KiteTrade,
+  Order as KiteOrder,
   Exchanges,
   Product as KiteProduct,
   OrderType as KiteOrderType,
@@ -44,6 +45,9 @@ const DEFAULT_DEPENDENCIES: ZerodhaBrokerDependencies = {
 };
 
 const FALLBACK_VALIDITY_MINUTES = 30;
+
+const FILL_POLL_ATTEMPTS = 5;
+const FILL_POLL_DELAY_MS = 300;
 
 export class ZerodhaBroker implements BrokerClient {
   public readonly name = "zerodha";
@@ -301,35 +305,139 @@ export class ZerodhaBroker implements BrokerClient {
   }
 
   async placeOrder(order: BrokerOrderRequest): Promise<BrokerOrderExecution> {
-    if (this.kiteSessionActive && this.kite) {
+    if (!this.kiteSessionActive || !this.kite) {
+      throw new Error("Zerodha session not active; refusing to place order (no paper fallback)");
+    }
+
+    try {
+      const params = this.buildOrderParams(order);
+      const response = await this.kite.placeOrder(this.kite.VARIETY_REGULAR, params);
+
+      return await this.resolveFill(response.order_id, order);
+    } catch (error) {
+      logger.error({ err: error, symbol: order.symbol, side: order.side }, "Failed to place order via Zerodha");
+      throw error;
+    }
+  }
+
+  private async resolveFill(orderId: string, order: BrokerOrderRequest): Promise<BrokerOrderExecution> {
+    const trades = await this.pollOrderTrades(orderId);
+
+    if (trades.length > 0) {
+      const { filledQuantity, averagePrice, executedAt } = this.summariseTrades(trades, order);
+      return {
+        id: orderId,
+        request: order,
+        status: this.resolveStatus(filledQuantity, order.quantity),
+        filledQuantity,
+        averagePrice,
+        executedAt,
+      } satisfies BrokerOrderExecution;
+    }
+
+    const kiteOrder = await this.getOrderRecord(orderId);
+
+    if (kiteOrder) {
+      const filledQuantity =
+        typeof kiteOrder.filled_quantity === "number" ? kiteOrder.filled_quantity : 0;
+      const averagePrice = typeof kiteOrder.average_price === "number" ? kiteOrder.average_price : 0;
+      const executedAt = this.resolveOrderExecutedAt(kiteOrder);
+
+      return {
+        id: orderId,
+        request: order,
+        status: this.resolveStatus(filledQuantity, order.quantity, kiteOrder.status),
+        filledQuantity,
+        averagePrice,
+        executedAt,
+      } satisfies BrokerOrderExecution;
+    }
+
+    logger.warn(
+      { orderId, symbol: order.symbol, side: order.side },
+      "Zerodha order placed but no fill info available from trades or order history; reconciliation will resolve it",
+    );
+
+    return {
+      id: orderId,
+      request: order,
+      status: "PARTIALLY_FILLED",
+      filledQuantity: 0,
+      averagePrice: order.price ?? 0,
+      executedAt: this.dependencies.now(),
+    } satisfies BrokerOrderExecution;
+  }
+
+  private async pollOrderTrades(orderId: string): Promise<KiteTrade[]> {
+    for (let attempt = 1; attempt <= FILL_POLL_ATTEMPTS; attempt += 1) {
       try {
-        const params = this.buildOrderParams(order);
-        const response = await this.kite.placeOrder(this.kite.VARIETY_REGULAR, params);
-
-        const trades = await this.kite
-          .getOrderTrades(response.order_id)
-          .catch(() => [] as KiteTrade[]);
-        const { filledQuantity, averagePrice, executedAt } = this.summariseTrades(trades, order);
-
-        const status: BrokerOrderExecution["status"] =
-          filledQuantity > 0 ? "FILLED" : "PARTIALLY_FILLED";
-
-        const execution: BrokerOrderExecution = {
-          id: response.order_id,
-          request: order,
-          status,
-          filledQuantity,
-          averagePrice,
-          executedAt,
-        } satisfies BrokerOrderExecution;
-
-        return execution;
+        const trades = await this.kite!.getOrderTrades(orderId);
+        if (Array.isArray(trades) && trades.length > 0) {
+          return trades;
+        }
       } catch (error) {
-        logger.error({ err: error, symbol: order.symbol, side: order.side }, "Failed to place order via Zerodha, using paper broker");
+        logger.warn(
+          { err: error, orderId, attempt },
+          "Transient error while polling Zerodha order trades",
+        );
+      }
+
+      if (attempt < FILL_POLL_ATTEMPTS) {
+        await this.delay(FILL_POLL_DELAY_MS);
       }
     }
 
-    return this.fallback.placeOrder(order);
+    return [];
+  }
+
+  private async getOrderRecord(orderId: string): Promise<KiteOrder | undefined> {
+    let history: KiteOrder[];
+    try {
+      history = await this.kite!.getOrderHistory(orderId);
+    } catch (error) {
+      logger.warn({ err: error, orderId }, "Failed to fetch Zerodha order history");
+      return undefined;
+    }
+
+    if (!Array.isArray(history) || history.length === 0) {
+      return undefined;
+    }
+
+    const terminalStatuses = ["COMPLETE", "REJECTED", "CANCELLED"];
+    return (
+      history.find((entry) => terminalStatuses.includes(entry.status?.toUpperCase())) ??
+      history[history.length - 1]
+    );
+  }
+
+  private resolveStatus(
+    filledQuantity: number,
+    requestedQuantity: number,
+    kiteStatus?: string,
+  ): BrokerOrderExecution["status"] {
+    const status = kiteStatus?.toUpperCase();
+    if (status === "REJECTED" || status === "CANCELLED") {
+      return "REJECTED";
+    }
+    if (filledQuantity > 0 && filledQuantity >= requestedQuantity) {
+      return "FILLED";
+    }
+    return "PARTIALLY_FILLED";
+  }
+
+  private resolveOrderExecutedAt(order: KiteOrder): Date {
+    const candidate = order.exchange_update_timestamp ?? order.exchange_timestamp ?? order.order_timestamp;
+    if (candidate) {
+      const parsed = new Date(candidate);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+    return this.dependencies.now();
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async cancelOrder(orderId: string): Promise<void> {

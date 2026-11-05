@@ -19,5 +19,17 @@ jobs:
         run: npm ci
       - name: Lint
         run: npm run lint
+      - name: Type check and build
+        run: npm run build
       - name: Test
         run: npm test
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t algo-trade-app:ci .
+      - name: Image serves dashboard and health
+        run: |
+          docker run --rm algo-trade-app:ci sh -c 'test -f public/index.html && test -f dist/server.js'

@@ -1,6 +1,5 @@
 import { EventEmitter } from "events";
 import type BrokerClient from "../brokers/BrokerClient";
-import PaperBroker from "../brokers/PaperBroker";
 import type { RiskManager } from "./RiskManager";
 import type MarketDataService from "./MarketDataService";
 import PortfolioService from "./PortfolioService";
@@ -20,9 +19,10 @@ import type BaseStrategy from "../strategies/BaseStrategy";
 import { HttpError } from "../utils/HttpError";
 import env from "../config/env";
 
+const BROKER_UNAVAILABLE_ALERT_COOLDOWN_MS = 60_000;
+
 export interface TradingEngineOptions {
   brokerFactory: (userId: string) => Promise<BrokerClient>;
-  fallbackBroker?: BrokerClient;
   portfolioService: PortfolioService;
   marketData: MarketDataService;
   riskManager: RiskManager;
@@ -43,18 +43,17 @@ export class TradingEngine extends EventEmitter {
 
   private readonly brokerFactory: (userId: string) => Promise<BrokerClient>;
 
-  private readonly fallbackBroker: BrokerClient;
-
   private readonly portfolioService: PortfolioService;
 
   private readonly marketData: MarketDataService;
 
   private readonly riskManager: RiskManager;
 
+  private readonly brokerAlertAt = new Map<string, number>();
+
   constructor(options: TradingEngineOptions) {
     super();
     this.brokerFactory = options.brokerFactory;
-    this.fallbackBroker = options.fallbackBroker ?? new PaperBroker();
     this.portfolioService = options.portfolioService;
     this.marketData = options.marketData;
     this.riskManager = options.riskManager;
@@ -95,37 +94,21 @@ export class TradingEngine extends EventEmitter {
       errors.push({ stage: "BROKER_CONNECTION", message, details: this.serializeError(error) });
       logger.error(
         { err: error, strategyId, userId },
-        "Primary broker connection failed, using paper fallback",
+        "Broker connection failed; skipping evaluation (fail-closed)",
       );
+      this.emitBrokerUnavailable(userId, message);
 
-      activeBroker = this.fallbackBroker;
-      try {
-        await this.ensureBrokerConnected(activeBroker);
-      } catch (fallbackError) {
-        const fallbackMessage =
-          fallbackError instanceof Error ? fallbackError.message : "Failed to connect fallback broker";
-        errors.push({
-          stage: "BROKER_CONNECTION",
-          message: fallbackMessage,
-          details: this.serializeError(fallbackError),
-        });
-        logger.error(
-          { err: fallbackError, strategyId, userId, broker: this.fallbackBroker.name },
-          "Fallback broker connection failed",
-        );
-
-        const marketSnapshot = this.marketData.getSnapshot();
-        const portfolioSnapshot = await this.portfolioService.getSnapshot(userId);
-        return {
-          strategyId,
-          snapshot: {
-            market: marketSnapshot,
-            portfolio: portfolioSnapshot,
-          },
-          executions: [],
-          errors,
-        } satisfies StrategyEvaluationResult;
-      }
+      const marketSnapshot = this.marketData.getSnapshot();
+      const portfolioSnapshot = await this.portfolioService.getSnapshot(userId);
+      return {
+        strategyId,
+        snapshot: {
+          market: marketSnapshot,
+          portfolio: portfolioSnapshot,
+        },
+        executions: [],
+        errors,
+      } satisfies StrategyEvaluationResult;
     }
 
     const marketSnapshot = this.marketData.getSnapshot();
@@ -144,6 +127,7 @@ export class TradingEngine extends EventEmitter {
         portfolio: portfolioSnapshot,
         broker,
         params: mergedParams,
+        userId,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to generate strategy signals";
@@ -221,7 +205,11 @@ export class TradingEngine extends EventEmitter {
         const unrealizedPnL = portfolioSnapshot.positions.reduce((sum, p) => sum + p.unrealizedPnl, 0);
         const openPositionsCount = portfolioSnapshot.positions.filter(p => p.netQuantity !== 0).length;
 
-        const riskResult = this.riskManager.checkOrderAllowed(userId, order, unrealizedPnL, openPositionsCount);
+        const position = portfolioSnapshot.positions.find(p => p.symbol === order.symbol);
+        const refPrice = this.marketData.getTick(order.symbol)?.price ?? position?.averageEntryPrice ?? order.price ?? 0;
+        const currentPositionValue = (position?.netQuantity ?? 0) * refPrice;
+
+        const riskResult = this.riskManager.checkOrderAllowed(userId, order, unrealizedPnL, openPositionsCount, currentPositionValue);
         if (!riskResult.allowed) {
           throw new Error(`Risk check failed: ${riskResult.reason}`);
         }
@@ -248,10 +236,20 @@ export class TradingEngine extends EventEmitter {
         const message = error instanceof Error ? error.message : "Order execution failed";
         failures.push({ request: order, error: message, details: this.serializeError(error) });
         logger.error({ err: error, symbol: order.symbol, side: order.side }, "Broker order execution failed");
+        this.emit("trade-failed", { userId, request: order, error: message });
       }
     }
 
     return { signal, executions, failures };
+  }
+
+  private emitBrokerUnavailable(userId: string, error: string): void {
+    const now = Date.now();
+    const lastAlert = this.brokerAlertAt.get(userId) ?? 0;
+    if (now - lastAlert >= BROKER_UNAVAILABLE_ALERT_COOLDOWN_MS) {
+      this.brokerAlertAt.set(userId, now);
+      this.emit("broker-unavailable", { userId, error });
+    }
   }
 
   private serializeError(error: unknown): unknown {

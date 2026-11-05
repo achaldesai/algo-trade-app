@@ -75,6 +75,15 @@ export interface HistoricalDataProvider {
   fetchHistoricalData(request: HistoricalDataRequest): Promise<HistoricalCandle[]>;
 }
 
+export class DelistedSymbolError extends Error {
+  readonly symbol: string;
+  constructor(symbol: string, message?: string) {
+    super(message ?? `No historical data for ${symbol} (likely delisted or unsupported)`);
+    this.name = "DelistedSymbolError";
+    this.symbol = symbol;
+  }
+}
+
 class ZerodhaHistoricalProvider implements HistoricalDataProvider {
   async fetchHistoricalData(request: HistoricalDataRequest): Promise<HistoricalCandle[]> {
     logger.info({ symbol: request.symbol, interval: request.interval }, "Fetching historical data from Zerodha");

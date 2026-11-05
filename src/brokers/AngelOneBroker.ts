@@ -130,46 +130,47 @@ export class AngelOneBroker implements BrokerClient {
   }
 
   async placeOrder(order: BrokerOrderRequest): Promise<BrokerOrderExecution> {
-    if (this.authenticated && this.smartApi) {
-      try {
-        const params = await this.buildOrderParams(order);
-        const response = await this.smartApi.placeOrder(params);
-
-        if (!response.status || !response.data?.orderid) {
-          throw new Error(
-            `Order placement failed: ${response.message || JSON.stringify(response)}`
-          );
-        }
-
-        const orderId = response.data.orderid;
-
-        // Fetch order details to get fill information
-        const orderDetails = await this.getOrderDetails(orderId);
-
-        const execution: BrokerOrderExecution = {
-          id: orderId,
-          request: order,
-          status: orderDetails.status,
-          filledQuantity: orderDetails.filledQuantity,
-          averagePrice: orderDetails.averagePrice,
-          executedAt: orderDetails.executedAt,
-        };
-
-        logger.info(
-          { orderId, symbol: order.symbol, side: order.side, status: execution.status },
-          "Angel One order executed"
-        );
-
-        return execution;
-      } catch (error) {
-        logger.error(
-          { err: error, symbol: order.symbol, side: order.side },
-          "Failed to place order via Angel One, using paper broker"
-        );
-      }
+    if (!this.authenticated || !this.smartApi) {
+      throw new Error("Angel One session not active; refusing to place order (no paper fallback)");
     }
 
-    return this.fallback.placeOrder(order);
+    try {
+      const params = await this.buildOrderParams(order);
+      const response = await this.smartApi.placeOrder(params);
+
+      if (!response.status || !response.data?.orderid) {
+        throw new Error(
+          `Order placement failed: ${response.message || JSON.stringify(response)}`
+        );
+      }
+
+      const orderId = response.data.orderid;
+
+      // Fetch order details to get fill information
+      const orderDetails = await this.getOrderDetails(orderId);
+
+      const execution: BrokerOrderExecution = {
+        id: orderId,
+        request: order,
+        status: orderDetails.status,
+        filledQuantity: orderDetails.filledQuantity,
+        averagePrice: orderDetails.averagePrice,
+        executedAt: orderDetails.executedAt,
+      };
+
+      logger.info(
+        { orderId, symbol: order.symbol, side: order.side, status: execution.status },
+        "Angel One order executed"
+      );
+
+      return execution;
+    } catch (error) {
+      logger.error(
+        { err: error, symbol: order.symbol, side: order.side },
+        "Failed to place order via Angel One"
+      );
+      throw error;
+    }
   }
 
   async cancelOrder(orderId: string): Promise<void> {

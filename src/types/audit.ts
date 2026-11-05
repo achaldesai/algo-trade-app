@@ -19,6 +19,7 @@ export type AuditEventType =
     | "TRADING_STOPPED"
     | "PANIC_SELL"
     | "RECONCILIATION"
+    | "FEED_STALENESS"
     | "SYSTEM";
 
 export interface AuditLogEntry {
