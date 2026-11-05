@@ -8,6 +8,7 @@ import { HttpError } from "../utils/HttpError";
 import type { ZerodhaTokenData, AngelOneTokenData } from "../types/tokens";
 import { userAuthMiddleware } from "../middleware/userAuth";
 import { getContainer } from "../util/getContainer";
+import { asyncHandler } from "../util/asyncHandler";
 
 const router = Router();
 
@@ -54,7 +55,7 @@ router.get("/zerodha/login", userAuthMiddleware, (req: Request, res: Response) =
  * Automatic redirect handler from Zerodha
  * Query: ?request_token=...&status=success
  */
-router.get("/zerodha/callback", userAuthMiddleware, async (req: Request, res: Response) => {
+router.get("/zerodha/callback", userAuthMiddleware, asyncHandler(async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     const { request_token: requestToken } = req.query as { request_token?: string };
@@ -99,14 +100,14 @@ router.get("/zerodha/callback", userAuthMiddleware, async (req: Request, res: Re
     logger.error({ err: error }, "Failed to handle Zerodha redirect");
     res.status(400).send(`Authentication failed: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
-});
+}));
 
 /**
  * POST /auth/zerodha/callback
  * Exchange request token for access token
  * Body: { requestToken: string }
  */
-router.post("/zerodha/callback", userAuthMiddleware, async (req: Request, res: Response) => {
+router.post("/zerodha/callback", userAuthMiddleware, asyncHandler(async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     const { requestToken } = req.body as { requestToken?: string };
@@ -178,14 +179,14 @@ router.post("/zerodha/callback", userAuthMiddleware, async (req: Request, res: R
 
     throw new HttpError(400, errorMessage);
   }
-});
+}));
 
 /**
  * GET /auth/zerodha/status
  * Check authentication status
  * Falls back to SYSTEM_DEFAULT token since the broker client uses it globally
  */
-router.get("/zerodha/status", userAuthMiddleware, async (req: Request, res: Response) => {
+router.get("/zerodha/status", userAuthMiddleware, asyncHandler(async (req: Request, res: Response) => {
   try {
     const container = getContainer(req);
     const userId = req.user!.userId;
@@ -214,13 +215,13 @@ router.get("/zerodha/status", userAuthMiddleware, async (req: Request, res: Resp
     logger.error({ err: error }, "Failed to check auth status");
     throw new HttpError(500, "Failed to check authentication status");
   }
-});
+}));
 
 /**
  * POST /auth/zerodha/logout
  * Clear stored access token
  */
-router.post("/zerodha/logout", userAuthMiddleware, async (req: Request, res: Response) => {
+router.post("/zerodha/logout", userAuthMiddleware, asyncHandler(async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     await getContainer(req).tokenRepo.deleteZerodhaToken(userId);
@@ -235,13 +236,13 @@ router.post("/zerodha/logout", userAuthMiddleware, async (req: Request, res: Res
     logger.error({ err: error }, "Failed to logout");
     throw new HttpError(500, "Failed to logout");
   }
-});
+}));
 
 /**
  * GET /auth/zerodha/token
  * Get current access token (for debugging/manual use)
  */
-router.get("/zerodha/token", userAuthMiddleware, async (req: Request, res: Response) => {
+router.get("/zerodha/token", userAuthMiddleware, asyncHandler(async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     const tokenData = getContainer(req).tokenRepo.getZerodhaToken(userId);
@@ -261,7 +262,7 @@ router.get("/zerodha/token", userAuthMiddleware, async (req: Request, res: Respo
     logger.error({ err: error }, "Failed to retrieve token");
     throw new HttpError(500, "Failed to retrieve access token");
   }
-});
+}));
 
 // ============================================================================
 // Angel One SmartAPI Authentication Routes
@@ -272,7 +273,7 @@ router.get("/zerodha/token", userAuthMiddleware, async (req: Request, res: Respo
  * Authenticate with Angel One SmartAPI
  * Body: { totp?: string }
  */
-router.post("/angelone/login", userAuthMiddleware, async (req: Request, res: Response) => {
+router.post("/angelone/login", userAuthMiddleware, asyncHandler(async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     const { totp } = req.body as { totp?: string };
@@ -364,14 +365,14 @@ router.post("/angelone/login", userAuthMiddleware, async (req: Request, res: Res
 
     throw new HttpError(400, errorMessage);
   }
-});
+}));
 
 /**
  * GET /auth/angelone/status
  * Check Angel One authentication status
  * Falls back to SYSTEM_DEFAULT token since the ticker service uses it globally
  */
-router.get("/angelone/status", userAuthMiddleware, async (req: Request, res: Response) => {
+router.get("/angelone/status", userAuthMiddleware, asyncHandler(async (req: Request, res: Response) => {
   try {
     const container = getContainer(req);
     const userId = req.user!.userId;
@@ -402,13 +403,13 @@ router.get("/angelone/status", userAuthMiddleware, async (req: Request, res: Res
     logger.error({ err: error }, "Failed to check Angel One auth status");
     throw new HttpError(500, "Failed to check authentication status");
   }
-});
+}));
 
 /**
  * POST /auth/angelone/logout
  * Clear stored Angel One token
  */
-router.post("/angelone/logout", userAuthMiddleware, async (req: Request, res: Response) => {
+router.post("/angelone/logout", userAuthMiddleware, asyncHandler(async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     await getContainer(req).tokenRepo.deleteAngelOneToken(userId);
@@ -423,7 +424,7 @@ router.post("/angelone/logout", userAuthMiddleware, async (req: Request, res: Re
     logger.error({ err: error }, "Failed to logout from Angel One");
     throw new HttpError(500, "Failed to logout");
   }
-});
+}));
 
 /**
  * POST /auth/angelone/refresh
@@ -433,7 +434,7 @@ router.post("/angelone/logout", userAuthMiddleware, async (req: Request, res: Re
  * This is useful for recovering from mid-session disconnections but won't extend the session.
  * For a fresh session after expiry, use POST /api/auth/angelone/login
  */
-router.post("/angelone/refresh", userAuthMiddleware, async (req: Request, res: Response) => {
+router.post("/angelone/refresh", userAuthMiddleware, asyncHandler(async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     const tokenData = getContainer(req).tokenRepo.getAngelOneToken(userId);
@@ -512,7 +513,7 @@ router.post("/angelone/refresh", userAuthMiddleware, async (req: Request, res: R
 
     throw new HttpError(400, errorMessage);
   }
-});
+}));
 
 export default router;
 
