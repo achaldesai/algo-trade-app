@@ -320,26 +320,52 @@ export class DatabaseManager {
     }
 
     /**
-     * Restore the database from a backup directory.
-     * Closes the current DB, replaces the data dir, and re-opens.
+     * Restore the database from a backup directory created by `createBackup()`.
+     *
+     * The backup is copied to a staging dir *before* the live store is touched,
+     * and the live store is moved aside rather than deleted, so a failed copy or
+     * swap leaves the original data in place and the DB re-opened.
      */
     async restoreFromBackup(backupPath: string): Promise<void> {
-        // Verify backup exists
+        const backupDir = path.resolve(path.dirname(this.storePath), "backups");
+        const source = path.resolve(backupPath);
+        if (path.dirname(source) !== backupDir || !path.basename(source).startsWith("portfolio-")) {
+            throw new Error(`Not a backup in ${backupDir}: ${backupPath}`);
+        }
+
         try {
-            await fs.access(backupPath);
+            await fs.access(source);
         } catch {
             throw new Error(`Backup not found: ${backupPath}`);
         }
 
-        // Close current DB
+        const suffix = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+        const staging = `${this.storePath}.restore-${suffix}`;
+        const previous = `${this.storePath}.pre-restore-${suffix}`;
+
+        try {
+            await fs.cp(source, staging, { recursive: true });
+        } catch (err) {
+            await fs.rm(staging, { recursive: true, force: true });
+            throw err;
+        }
+
         await this.close();
+        try {
+            await fs.rename(this.storePath, previous);
+            await fs.rename(staging, this.storePath);
+        } catch (err) {
+            // Put the original store back if it was already moved aside.
+            if (await pathExists(previous) && !(await pathExists(this.storePath))) {
+                await fs.rename(previous, this.storePath);
+            }
+            await fs.rm(staging, { recursive: true, force: true });
+            await this.open();
+            throw err;
+        }
 
-        // Replace data directory
-        await fs.rm(this.storePath, { recursive: true, force: true });
-        await fs.cp(backupPath, this.storePath, { recursive: true });
-
-        // Re-open
         await this.open();
+        await fs.rm(previous, { recursive: true, force: true });
         logger.info({ backupPath }, "Database restored from backup");
     }
 
@@ -446,3 +472,12 @@ export class DatabaseManager {
 }
 
 export default DatabaseManager;
+
+async function pathExists(p: string): Promise<boolean> {
+    try {
+        await fs.access(p);
+        return true;
+    } catch {
+        return false;
+    }
+}
