@@ -49,6 +49,55 @@ describe("DatabaseManager backup/restore", () => {
     assert.deepEqual(leftovers, []);
   });
 
+  it("writes a single LMDB snapshot file, not a copy of the live dir", async () => {
+    await putLimit(1000);
+    const backup = await db.createBackup();
+    assert.deepEqual(await fs.readdir(backup), ["data.mdb"]);
+  });
+
+  it("takes a consistent snapshot while writes continue", async () => {
+    const settings = db.handles.settings;
+    await Promise.all(Array.from({ length: 500 }, (_, i) => settings.put(`k${i}`, { maxDailyLoss: i } as never)));
+
+    const writes = (async () => {
+      for (let i = 500; i < 800; i++) await settings.put(`k${i}`, { maxDailyLoss: i } as never);
+    })();
+    const backup = await db.createBackup();
+    await writes;
+
+    const copy = new DatabaseManager(backup);
+    await copy.open();
+    try {
+      const keys = [...copy.handles.settings.getKeys()].filter((k) => String(k).startsWith("k"));
+      // Snapshot holds a prefix of the writes: k0..k(n-1), with no gaps.
+      assert.ok(keys.length >= 500, `expected at least the initial 500 keys, got ${keys.length}`);
+      for (let i = 0; i < keys.length; i++) {
+        assert.ok(copy.handles.settings.get(`k${i}`), `missing k${i} in a ${keys.length}-key snapshot`);
+      }
+    } finally {
+      await copy.close();
+    }
+  });
+
+  it("refuses to back up a closed store", async () => {
+    await db.close();
+    await assert.rejects(db.createBackup(), /not open/);
+    await db.open();
+  });
+
+  it("leaves no listed backup behind when the backup fails", { skip: process.getuid?.() === 0 }, async () => {
+    await db.createBackup();
+    const backupDir = path.join(root, "backups");
+    await fs.chmod(backupDir, 0o555);
+    try {
+      await assert.rejects(db.createBackup());
+    } finally {
+      await fs.chmod(backupDir, 0o755);
+    }
+    assert.equal((await db.listBackups()).length, 1);
+    assert.deepEqual((await fs.readdir(backupDir)).filter((n) => n.startsWith(".partial-")), []);
+  });
+
   it("lists backups newest first", async () => {
     const first = await db.createBackup();
     await new Promise((r) => setTimeout(r, 5));

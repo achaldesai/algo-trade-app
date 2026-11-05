@@ -8,6 +8,7 @@
 - **Docker**: image now ships `public/` (dashboard previously 404'd); Postgres/Redis no longer published on the host and require `POSTGRES_PASSWORD` / `REDIS_PASSWORD`; container health checks on `/health` (ACH-7, ACH-8, ACH-12).
 - **CI**: runs `npm run build` and a Docker image build (ACH-13).
 - **Tests**: auth middleware, registration, PaperBroker, incremental indicators (ACH-11).
+- **Backups**: snapshots now use LMDB's own consistent copy instead of copying the live files; failed backups are never listed. Restore stages the copy and never deletes live data first; async route errors no longer crash the server; stop-loss monitor start/stop is admin-only (ACH-11, ACH-17).
 - **Features**: Yahoo historical provider (`HISTORICAL_PROVIDER`, default `yahoo`), configurable scanner universe, `MAX_POSITION_SIZE_PER_SYMBOL`, `FeedHealthMonitor` stops trading on a stale feed.
 
 ### Known limitations (beta)

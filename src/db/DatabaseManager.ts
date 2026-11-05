@@ -297,9 +297,18 @@ export class DatabaseManager {
     /**
      * Create a timestamped backup of the LMDB directory.
      * Keeps only the last `MAX_BACKUPS` backups.
+     *
+     * Uses LMDB's own snapshot copy (`mdb_env_copy2`), which reads inside a
+     * single read transaction, so the backup is consistent even while writes
+     * continue. A plain file copy of an open store can capture a torn page set.
+     * The snapshot is written to a hidden dir and renamed into place, so a
+     * failed backup never shows up in `listBackups()`.
      * @returns Absolute path to the created backup directory.
      */
     async createBackup(): Promise<string> {
+        if (!this.root) {
+            throw new Error("DatabaseManager is not open. Call open() first.");
+        }
         const timestamp = new Date()
             .toISOString()
             .replace(/:/g, "-")
@@ -311,8 +320,20 @@ export class DatabaseManager {
             `portfolio-${timestamp}-${randomSuffix}`
         );
 
-        await fs.mkdir(backupDir, { recursive: true });
-        await fs.cp(this.storePath, backupPath, { recursive: true });
+        const partialPath = path.join(
+            backupDir,
+            `.partial-${timestamp}-${randomSuffix}`
+        );
+
+        await fs.mkdir(partialPath, { recursive: true });
+        try {
+            // compact=true drops free pages, so backups stay small.
+            await this.root.backup(partialPath, true);
+            await fs.rename(partialPath, backupPath);
+        } catch (err) {
+            await fs.rm(partialPath, { recursive: true, force: true });
+            throw err;
+        }
         await this.cleanupOldBackups(backupDir);
 
         logger.info({ backupPath }, "Database backup created");
