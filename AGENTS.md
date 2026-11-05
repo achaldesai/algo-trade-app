@@ -56,7 +56,7 @@ LMDB is the **primary** store. Despite a recent commit titled "remove LMDB persi
 - **LMDB** (`src/db/DatabaseManager.ts`): portfolios, trades, settings, stop-losses, audit logs, broker tokens, users, strategy configs. Stored at `PORTFOLIO_STORE`.
 - **Postgres** (`src/db/postgres/`): optional. When `DATABASE_URL` is set, `PgUserRepo` / `PgTradeRepo` / `PgAuditLogRepo` are constructed alongside their LMDB counterparts. Treat as additive, not replacement — code paths still write to LMDB.
 - **Redis** (`src/db/redis/`): optional. `RedisCacheService` and `RedisSessionStore`. In-memory fallback if `REDIS_URL` is absent.
-- **Backups**: LMDB is snapshotted on startup and every `BACKUP_INTERVAL_HOURS` (default 24) into `data/backups/`. Last 7 retained. Restore via `POST /api/admin/restore`.
+- **Backups**: LMDB is snapshotted (via `root.backup()`, a consistent single-transaction copy — never `fs.cp` an open store) on startup and every `BACKUP_INTERVAL_HOURS` (default 24) into `data/backups/`. Last 7 retained. Restore via `POST /api/admin/restore`.
 
 ### Auth model
 
