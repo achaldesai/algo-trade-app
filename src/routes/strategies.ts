@@ -4,6 +4,7 @@ import { getContainer } from "../util/getContainer";
 import { validateBody } from "../middleware/validateRequest";
 import { userAuthMiddleware } from "../middleware/userAuth";
 import { HttpError } from "../utils/HttpError";
+import { resolveStrategyParams } from "../strategies/validateParams";
 
 const router = Router();
 router.use(userAuthMiddleware);
@@ -36,6 +37,8 @@ router.get("/", (req, res) => {
     id: strategy.id,
     name: strategy.name,
     description: strategy.description,
+    timeframe: strategy.timeframe,
+    backtestable: strategy.timeframe === "1day",
     paramSchema: strategy.getParamSchema(),
     defaultParams: strategy.getDefaultParams(),
   }));
@@ -98,32 +101,8 @@ router.put(
 
       const body = req.body as z.infer<typeof strategyConfigSchema>;
 
-      // Merge user params with defaults (only override what's provided)
-      const defaults = strategy.getDefaultParams();
-      const mergedParams = { ...defaults, ...(body.params ?? {}) };
-
-      // Validate param values against schema constraints
-      const paramSchema = strategy.getParamSchema();
-      for (const def of paramSchema) {
-        const val = mergedParams[def.key];
-        if (val === undefined) continue;
-
-        if (def.type === "number" && typeof val === "number") {
-          if (def.min !== undefined && val < def.min) {
-            throw new HttpError(400, `Parameter '${def.key}' must be >= ${def.min}`);
-          }
-          if (def.max !== undefined && val > def.max) {
-            throw new HttpError(400, `Parameter '${def.key}' must be <= ${def.max}`);
-          }
-        }
-
-        if (def.type === "select" && def.options) {
-          const validValues = def.options.map((o) => o.value);
-          if (!validValues.includes(String(val))) {
-            throw new HttpError(400, `Parameter '${def.key}' must be one of: ${validValues.join(", ")}`);
-          }
-        }
-      }
+      // Merge user params with defaults and validate against the schema
+      const mergedParams = resolveStrategyParams(strategy, body.params);
 
       await strategyConfigRepo.saveConfig(userId, {
         strategyId,
