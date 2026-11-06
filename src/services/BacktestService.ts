@@ -3,6 +3,7 @@ import type BaseStrategy from "../strategies/BaseStrategy";
 import type BrokerClient from "../brokers/BrokerClient";
 import { MARKET_SLIPPAGE_BPS } from "../brokers/PaperBroker";
 import { resolveStrategyParams } from "../strategies/validateParams";
+import { warmupFetchStart } from "../strategies/dailyIndicators";
 import { DelistedSymbolError, type HistoricalDataService } from "./HistoricalDataService";
 import type TradingEngine from "./TradingEngine";
 import type { BacktestRepo } from "../db/repositories/BacktestRepo";
@@ -383,9 +384,7 @@ export class BacktestService {
     const params = resolveStrategyParams(strategy, request.params);
     const costBps = request.costBps ?? DEFAULT_COST_BPS;
 
-    // Warm-up is in trading days; ~1.5 calendar days each covers weekends and holidays.
-    const fetchFrom = new Date(request.from);
-    fetchFrom.setDate(fetchFrom.getDate() - Math.ceil(strategy.getWarmupBars(params) * 1.5) - 10);
+    const fetchFrom = warmupFetchStart(request.from, strategy.getWarmupBars(params));
 
     const warnings: string[] = [];
     const candles: Record<string, HistoricalCandle[]> = {};

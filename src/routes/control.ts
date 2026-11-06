@@ -9,12 +9,13 @@ router.use(adminAuthMiddleware);
 
 router.get("/status", (req, res) => {
     try {
-        const { tradingLoopService, stopLossMonitor } = getContainer(req);
+        const { tradingLoopService, stopLossMonitor, dailyStrategyRunner } = getContainer(req);
         const loopStatus = tradingLoopService.getStatus();
         const stopLossStatus = stopLossMonitor.getStatus();
 
         res.json({
             ...loopStatus,
+            dailyStrategies: dailyStrategyRunner.getStatus(),
             stopLoss: {
                 monitoring: stopLossStatus.monitoring,
                 activeCount: stopLossStatus.activeStopLosses,

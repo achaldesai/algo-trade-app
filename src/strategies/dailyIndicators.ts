@@ -34,3 +34,13 @@ export function numberParam(params: Record<string, unknown>, key: string, fallba
   const value = Number(params[key]);
   return Number.isFinite(value) ? value : fallback;
 }
+
+/**
+ * Calendar date far enough before `date` to cover `warmupBars` trading days
+ * (~1.5 calendar days each, plus slack for holidays).
+ */
+export function warmupFetchStart(date: Date, warmupBars: number): Date {
+  const start = new Date(date);
+  start.setDate(start.getDate() - Math.ceil(warmupBars * 1.5) - 10);
+  return start;
+}

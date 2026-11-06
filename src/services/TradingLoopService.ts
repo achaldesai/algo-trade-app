@@ -12,14 +12,22 @@ export interface TradingLoopOptions {
     filterBySymbol?: boolean;
 }
 
+interface PlannedEvaluation {
+    strategyId: string;
+    userId: string;
+    params?: Record<string, unknown>;
+}
+
 /**
  * TradingLoopService evaluates strategies on every market tick.
  *
  * Per-user strategy filtering:
  * - If a user has strategy configs, only enabled strategies are evaluated
  *   with the user's custom params.
- * - If a user has NO configs at all, ALL registered strategies are evaluated
+ * - If a user has NO configs at all, ALL tick strategies are evaluated
  *   with default params (opt-in on first config save).
+ * - Daily (`1day`) strategies are never evaluated here; DailyStrategyRunner
+ *   runs them once per trading day.
  */
 export class TradingLoopService {
     private isRunning = false;
@@ -74,6 +82,22 @@ export class TradingLoopService {
         logger.info({ evaluationMode: mode }, "Evaluation mode changed");
     }
 
+    /**
+     * Which tick strategies to evaluate for a user. A user with any saved config
+     * (enabled or not) gets exactly their enabled tick strategies; only a user
+     * with no configs at all falls back to every tick strategy with defaults.
+     */
+    private planEvaluations(userId: string, tickStrategies: { id: string }[]): PlannedEvaluation[] {
+        const configs = this.strategyConfigRepo.getAllConfigs(userId);
+        if (configs.length === 0) {
+            return tickStrategies.map((s) => ({ strategyId: s.id, userId }));
+        }
+        const tickIds = new Set(tickStrategies.map((s) => s.id));
+        return configs
+            .filter((c) => c.enabled && tickIds.has(c.strategyId))
+            .map((c) => ({ strategyId: c.strategyId, userId, params: c.params }));
+    }
+
     private handleTick = async (tick: MarketTick) => {
         if (!this.isRunning) return;
 
@@ -88,43 +112,17 @@ export class TradingLoopService {
 
         try {
             const users = this.userRepository.listUsers();
-            const allStrategies = this.tradingEngine.getStrategies();
+            // Daily (`1day`) strategies run once a day via DailyStrategyRunner, not per tick.
+            const allStrategies = this.tradingEngine.getStrategies().filter((s) => s.timeframe === "tick");
+            const evaluations = users.flatMap((user) => this.planEvaluations(user.id, allStrategies));
 
             if (this.evaluationMode === "parallel") {
-                const evaluations: Promise<unknown>[] = [];
-                for (const user of users) {
-                    const activeConfigs = this.strategyConfigRepo.getActiveStrategies(user.id);
-
-                    if (activeConfigs.length > 0) {
-                        // User has configs — evaluate only enabled strategies with custom params
-                        for (const config of activeConfigs) {
-                            evaluations.push(
-                                this.tradingEngine.evaluate(config.strategyId, user.id, config.params)
-                            );
-                        }
-                    } else {
-                        // No configs yet — evaluate all strategies with defaults
-                        for (const strategy of allStrategies) {
-                            evaluations.push(
-                                this.tradingEngine.evaluate(strategy.id, user.id)
-                            );
-                        }
-                    }
-                }
-                await Promise.all(evaluations);
+                await Promise.all(
+                    evaluations.map((e) => this.tradingEngine.evaluate(e.strategyId, e.userId, e.params)),
+                );
             } else {
-                for (const user of users) {
-                    const activeConfigs = this.strategyConfigRepo.getActiveStrategies(user.id);
-
-                    if (activeConfigs.length > 0) {
-                        for (const config of activeConfigs) {
-                            await this.tradingEngine.evaluate(config.strategyId, user.id, config.params);
-                        }
-                    } else {
-                        for (const strategy of allStrategies) {
-                            await this.tradingEngine.evaluate(strategy.id, user.id);
-                        }
-                    }
+                for (const e of evaluations) {
+                    await this.tradingEngine.evaluate(e.strategyId, e.userId, e.params);
                 }
             }
 

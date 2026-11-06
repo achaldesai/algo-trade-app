@@ -309,6 +309,9 @@ function buildPhases(app: Express): LifecyclePhase[] {
                 state.container.autoTradingService.start();
                 logger.info("Auto-trading service started");
 
+                // Daily strategies run once a day near the close (only while trading is on)
+                state.container.dailyStrategyRunner.start();
+
                 // Start feed health monitor (fail-safe kill switch)
                 state.container.feedHealthMonitor.start();
                 logger.info("Feed health monitor started");
@@ -353,6 +356,7 @@ function buildPhases(app: Express): LifecyclePhase[] {
 
                 // Stop auto-trading
                 state.container.autoTradingService.stop();
+                state.container.dailyStrategyRunner.stop();
 
                 // Stop trading loop
                 state.container.tradingLoopService.stop();
