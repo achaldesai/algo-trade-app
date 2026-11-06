@@ -32,7 +32,7 @@ Tests are co-located (`foo.ts` + `foo.test.ts`).
 5. **auth** — `TokenMigrationService` migrates any legacy file-based broker tokens into LMDB once.
 6. **broker** — Connects the configured broker. **Throws if a live broker (`zerodha` / `angelone`) is not authenticated**; `paper` always succeeds. This is intentional — the system refuses to run partly-live to avoid memory leaks from endless reconnect loops.
 7. **marketData** — Loads Angel One instrument master (~155k symbols), starts ticker if in market hours, subscribes to `WATCHLIST`.
-8. **services** — Token refresh scheduler, reconciliation, auto-trading, backups, Discord bot.
+8. **services** — Token refresh scheduler, reconciliation, auto-trading, daily strategy runner, backups, Discord bot.
 9. **httpServer** — `app.listen()`.
 
 When debugging startup, the logs label every phase (`Starting phase…` / `Phase started`). Match that to the phase list above.
@@ -53,7 +53,7 @@ Optional services (Postgres / Redis-dependent) are typed as `T | undefined` on t
 
 LMDB is the **primary** store. Despite a recent commit titled "remove LMDB persistence", the `lmdb` package is still in `package.json` and `DatabaseManager.ts` still uses it. The commit removed something narrower (likely a specific cache layer) — do not assume LMDB is gone.
 
-- **LMDB** (`src/db/DatabaseManager.ts`): portfolios, trades, settings, stop-losses, audit logs, broker tokens, users, strategy configs. Stored at `PORTFOLIO_STORE`.
+- **LMDB** (`src/db/DatabaseManager.ts`): portfolios, trades, settings, stop-losses, audit logs, broker tokens, users, strategy configs, saved backtest runs (`backtests`, newest 50 per user). Stored at `PORTFOLIO_STORE`. That is 9 named DBs; LMDB's default `maxDbs` is 12, so raise it in `open()` before adding a 13th.
 - **Postgres** (`src/db/postgres/`): optional. When `DATABASE_URL` is set, `PgUserRepo` / `PgTradeRepo` / `PgAuditLogRepo` are constructed alongside their LMDB counterparts. Treat as additive, not replacement — code paths still write to LMDB.
 - **Redis** (`src/db/redis/`): optional. `RedisCacheService` and `RedisSessionStore`. In-memory fallback if `REDIS_URL` is absent.
 - **Backups**: LMDB is snapshotted (via `root.backup()`, a consistent single-transaction copy — never `fs.cp` an open store) on startup and every `BACKUP_INTERVAL_HOURS` (default 24) into `data/backups/`. Last 7 retained. Restore via `POST /api/admin/restore`.
@@ -77,14 +77,36 @@ When extending: implement the interface, register the implementation in `contain
 
 ### Trading loop & risk
 
-- `TradingLoopService` evaluates registered strategies on each tick. Modes: `parallel` (default, concurrent eval, ticks dropped if previous eval still running) or `sequential`. Latency >50ms is logged.
+- `TradingLoopService` evaluates registered **tick** strategies on each tick. A user with any saved strategy config gets exactly their enabled tick strategies; only a user with no configs at all falls back to every tick strategy with defaults. Modes: `parallel` (default, concurrent eval, ticks dropped if previous eval still running) or `sequential`. Latency >50ms is logged.
 - `StopLossMonitor` runs alongside the loop. Per-symbol promise queues serialize tick processing for a given symbol to avoid races on stop-loss state. Both FIXED and TRAILING types.
 - `RiskManager` enforces `MAX_DAILY_LOSS`, `MAX_POSITION_SIZE`, `MAX_OPEN_POSITIONS`. Circuit breaker state is persisted, survives restart, resets daily. **Stop-loss execution and panic-sell bypass the circuit breaker** — that's deliberate.
+- `DailyStrategyRunner` runs enabled `1day` strategies at 15:15 IST on weekdays. It is **opt-in** (no defaults fallback) and runs **only while the trading loop is on**, so START/STOP, panic-sell and the feed-health kill switch govern it too. Status is on `GET /api/control/status` → `dailyStrategies`.
 - `POST /api/control/panic-sell` requires `confirmToken: "PANIC-CONFIRM"` in the body. Stops the loop, liquidates all open positions, bypasses circuit breaker, returns 503 if broker unavailable.
 
 ### Strategies
 
-`BaseStrategy` (`src/strategies/`) is the abstract base. Currently only `VWAPStrategy` is implemented. Strategies access pre-computed indicators via `marketData.getIndicators(symbol)` — `IncrementalIndicators` keeps EMA/SMA/RSI/MACD/Bollinger updated in O(1) per tick on a `RingBuffer`. Don't recompute from scratch.
+`BaseStrategy` (`src/strategies/`) is the abstract base. Each strategy declares a `timeframe`:
+
+| Timeframe | Strategies | Runs | Indicators |
+|---|---|---|---|
+| `tick` (default) | `vwap` | every tick, via `TradingLoopService` | read the cache via `marketData.getIndicators(symbol)` — `IncrementalIndicators` keeps EMA/SMA/RSI/MACD/Bollinger updated in O(1) per tick. Don't recompute. |
+| `1day` | `ma-crossover`, `rsi-reversion` | once a day via `DailyStrategyRunner`, and in backtests | recompute from `context.bars` with the `Incremental*` classes (`src/strategies/dailyIndicators.ts`) |
+
+Rules for `1day` strategies:
+- **Stateless.** No fields that change between calls. The same instance serves live runs and backtests.
+- **No wall clock.** Use `context.market.asOf`, never `Date.now()`.
+- **Return `[]` when `context.bars` is absent.**
+- **Declare `getWarmupBars(params)` honestly.** Callers pass exactly `warmup + 1` bars, both live and in backtests.
+
+### Backtesting
+
+`BacktestService` (`src/services/BacktestService.ts`) replays daily bars from `HistoricalDataService` through a `1day` strategy. `simulate()` is pure and is what the tests exercise.
+- **No look-ahead:** signals from day t's close fill at day t+1's open.
+- **Fills:** `PaperBroker`'s slippage plus `costBps` per side.
+- **Long-only:** buys over the available cash are rejected, not resized.
+- **Metrics** include `exposurePct`. Strategies use a fixed `orderSize`, so they are usually far less invested than the buy-and-hold benchmark; read the returns against exposure.
+- **Not backtestable:** tick strategies (VWAP).
+- **Storage:** runs are saved per user in LMDB through `BacktestRepo`.
 
 ## Routes
 
@@ -95,6 +117,7 @@ All under `/api/*`, mounted in `src/app.ts`.
 | `/api/users` | mixed | `login` public; `register` public only for bootstrap (first user = ADMIN) and dev self-signup; rest require user JWT |
 | `/api/auth` | user | Zerodha + Angel One OAuth, token mgmt |
 | `/api/stocks`, `/trades`, `/strategies`, `/market-data`, `/pnl`, `/settings`, `/notifications`, `/reconciliation`, `/stop-loss` | user | Standard app routes |
+| `/api/backtest` | user | Run (`POST`), list, get, delete saved backtests. Max 10 symbols / 10 years; tick strategies → 400 |
 | `/api/scanner` | mixed | Listed scans require admin |
 | `/api/admin` | admin | DB stats, backup/restore, health |
 | `/api/control` | admin | Trading loop start/stop, panic-sell |
@@ -110,6 +133,7 @@ Security headers come from `helmet` (CSP defined in `src/app.ts`), applied befor
 Static files in `public/` served via `express.static`. No bundler.
 
 - `index.html` + `dashboard.js` — main monitoring UI. Polls `/api/admin/health`, `/api/auth/{angelone,zerodha}/status`, `/api/reconciliation/status`, P&L endpoints.
+- `backtest.js` — the Backtest panel on `index.html`. Loads when the panel is opened (no polling) and relies on `apiFetch()` / `formatCurrency()` from `dashboard.js`, which must load first.
 - `orders.html` + `orders.js` — paper-mode order debug console (gated behind `PAPER_TRADING=true`).
 - Auth: login form posts to `/api/users/login`, JWT stashed in `sessionStorage` (not `localStorage` — XSS hardening).
 
@@ -149,7 +173,7 @@ Grouped roughly by purpose. See `src/config/env.ts` for defaults and `validateEn
 - **`POST /api/stop-loss/start|stop` are admin-only** — they control the monitor for every user.
 - **Stop-loss tick processing must stay race-free.** The per-symbol promise queue in `StopLossMonitor` exists because of a real prior bug. Don't replace it with naive parallel processing.
 - **Trailing stop-loss handles the "config disappears mid-update" case explicitly.** If you refactor that code, preserve the guard.
-- **Strategy code should read indicators from `marketData.getIndicators(symbol)`, not recompute.** That cache exists for latency.
+- **Tick strategies should read indicators from `marketData.getIndicators(symbol)`, not recompute.** That cache exists for latency. Daily (`1day`) strategies recompute from `context.bars` instead; see Strategies.
 - **Tests use Node's built-in test runner**, not Jest/Mocha. `import { test } from "node:test"`. Mocks are deterministic fixtures from `src/data/`.
 
 ## Files an agent will most often touch
