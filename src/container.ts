@@ -22,6 +22,8 @@ import ExecutionPlanner from "./services/ExecutionPlanner";
 import AngelOneHistoricalProvider from "./providers/AngelOneHistoricalProvider";
 import YahooHistoricalProvider from "./providers/YahooHistoricalProvider";
 import VWAPStrategy from "./strategies/VWAPStrategy";
+import MovingAverageCrossoverStrategy from "./strategies/MovingAverageCrossoverStrategy";
+import RsiMeanReversionStrategy from "./strategies/RsiMeanReversionStrategy";
 import type { TickerClient } from "./services/TickerClient";
 import AngelOneTickerService from "./services/AngelOneTickerService";
 import ReconciliationService from "./services/ReconciliationService";
@@ -228,6 +230,8 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
   });
 
   tradingEngine.registerStrategy(new VWAPStrategy());
+  tradingEngine.registerStrategy(new MovingAverageCrossoverStrategy());
+  tradingEngine.registerStrategy(new RsiMeanReversionStrategy());
 
   const tickerClient = buildTicker(marketDataService, tokenRepo);
 
