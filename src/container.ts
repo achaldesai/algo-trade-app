@@ -14,6 +14,7 @@ import { UserRepo } from "./db/repositories/UserRepo";
 import { StrategyConfigRepo } from "./db/repositories/StrategyConfigRepo";
 import { BacktestRepo } from "./db/repositories/BacktestRepo";
 import BacktestService from "./services/BacktestService";
+import DailyStrategyRunner from "./services/DailyStrategyRunner";
 import type { RiskLimits } from "./db/repositories/SettingsRepo";
 import MarketDataService from "./services/MarketDataService";
 import PortfolioService from "./services/PortfolioService";
@@ -88,6 +89,7 @@ export interface AppContainer {
   discordBotService: DiscordBotService;
   tradingLoopService: TradingLoopService;
   autoTradingService: AutoTradingService;
+  dailyStrategyRunner: DailyStrategyRunner;
   tokenRefreshService: TokenRefreshService;
   feedHealthMonitor: FeedHealthMonitor;
 
@@ -312,6 +314,15 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     tradingLoopService
   );
 
+  const dailyStrategyRunner = new DailyStrategyRunner({
+    tradingEngine,
+    marketData: marketDataService,
+    historicalData: historicalDataService,
+    userRepo,
+    strategyConfigRepo,
+    isTradingEnabled: () => tradingLoopService.getStatus().running,
+  });
+
   const tokenRefreshService = new TokenRefreshService(tokenRepo);
 
   // ── Feed Health Monitor (fail-safe kill switch on feed staleness) ────────
@@ -338,6 +349,7 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     dbManager,
     backtestRepo,
     backtestService,
+    dailyStrategyRunner,
     portfolioRepo,
     settingsRepo,
     stopLossRepo,

@@ -37,6 +37,9 @@ const mockContainer = {
     stopLossMonitor: mockStopLossMonitor,
     tradingLoopService: mockLoopService,
     userRepo: mockUserRepo,
+    dailyStrategyRunner: {
+        getStatus: () => ({ scheduled: true, nextRunAt: "2026-11-09T09:45:00.000Z", lastRun: null }),
+    },
 } as unknown as AppContainer;
 
 const testApp = express();
@@ -96,6 +99,7 @@ describe("Control Routes", () => {
         assert.strictEqual(data.running, true);
         assert.strictEqual(data.stopLoss.monitoring, true);
         assert.strictEqual(data.stopLoss.activeCount, 5);
+        assert.strictEqual(data.dailyStrategies.nextRunAt, "2026-11-09T09:45:00.000Z");
     });
 
     it("POST /start should start loop and monitor", async () => {
