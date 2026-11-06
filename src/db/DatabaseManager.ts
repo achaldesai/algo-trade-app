@@ -98,6 +98,14 @@ export interface StrategyConfigRecord {
     updatedAt: string;
 }
 
+/** A saved backtest run. Shape is owned by `BacktestService`; stored as JSON. */
+export interface BacktestRecord {
+    id: string;
+    userId: string;
+    createdAt: string;
+    [key: string]: unknown;
+}
+
 // ─── Named Database Handles ────────────────────────────────────────────────────
 
 export interface DatabaseHandles {
@@ -109,6 +117,7 @@ export interface DatabaseHandles {
     tokens: Database<TokenRecord, string>;
     users: Database<UserRecord, string>;
     strategyConfigs: Database<StrategyConfigRecord, string>;
+    backtests: Database<BacktestRecord, string>;
 }
 
 // ─── Transaction Context ───────────────────────────────────────────────────────
@@ -127,6 +136,7 @@ export interface TransactionContext {
     readonly tokens: Database<TokenRecord, string>;
     readonly users: Database<UserRecord, string>;
     readonly strategyConfigs: Database<StrategyConfigRecord, string>;
+    readonly backtests: Database<BacktestRecord, string>;
 }
 
 // ─── Database Manager ──────────────────────────────────────────────────────────
@@ -171,7 +181,7 @@ export class DatabaseManager {
         this.root = open({
             path: this.storePath,
             compression: true,
-            // LMDB default maxDbs is 12 which is enough for our 8 named DBs
+            // LMDB default maxDbs is 12 which is enough for our 9 named DBs
         });
 
         this._handles = {
@@ -205,6 +215,10 @@ export class DatabaseManager {
             }),
             strategyConfigs: this.root.openDB<StrategyConfigRecord, string>({
                 name: "strategy-configs",
+                encoding: "json",
+            }),
+            backtests: this.root.openDB<BacktestRecord, string>({
+                name: "backtests",
                 encoding: "json",
             }),
         };
@@ -282,6 +296,7 @@ export class DatabaseManager {
             tokens: handles.tokens,
             users: handles.users,
             strategyConfigs: handles.strategyConfigs,
+            backtests: handles.backtests,
         };
 
         // lmdb's `transaction()` supports async functions.
