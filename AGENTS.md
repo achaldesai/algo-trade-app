@@ -30,7 +30,7 @@ Tests are co-located (`foo.ts` + `foo.test.ts`).
 3. **container** — `createContainer()` wires the DI graph and attaches it to `app.locals.container`.
 4. **optionalStores** — Postgres (`DATABASE_URL`) and Redis (`REDIS_URL`) connect if configured. **Failure here is non-fatal** — code falls back to LMDB / in-memory.
 5. **auth** — `TokenMigrationService` migrates any legacy file-based broker tokens into LMDB once.
-6. **broker** — Connects the configured broker. **Throws if a live broker (`zerodha` / `angelone`) is not authenticated**; `paper` always succeeds. This is intentional — the system refuses to run partly-live to avoid memory leaks from endless reconnect loops.
+6. **broker** — Connects the configured broker. **Throws if a live broker (`zerodha` / `angelone`) is not authenticated**; paper mode (see below) always succeeds. This is intentional — the system refuses to run partly-live to avoid memory leaks from endless reconnect loops.
 7. **marketData** — Loads Angel One instrument master (~155k symbols), starts ticker if in market hours, subscribes to `WATCHLIST`.
 8. **services** — Token refresh scheduler, reconciliation, auto-trading, daily strategy runner, backups, Discord bot.
 9. **httpServer** — `app.listen()`.
@@ -69,7 +69,8 @@ Important: **if `ADMIN_API_KEY` is unset in production, all admin endpoints retu
 
 ### Broker / ticker abstractions
 
-- `BrokerClient` interface (`src/brokers/`): `PaperBroker`, `ZerodhaBroker`, `AngelOneBroker`. Selection is via `BROKER_PROVIDER`. `PAPER_TRADING=true` overrides to `PaperBroker` regardless.
+- `BrokerClient` interface (`src/brokers/`): `PaperBroker`, `ZerodhaBroker`, `AngelOneBroker`. Selection is via `BROKER_PROVIDER` (default `paper`).
+- **Paper mode** is on when `BROKER_PROVIDER=paper` **or** `PAPER_TRADING=true`. `PAPER_TRADING=true` is the safety override: it routes every order to `PaperBroker` whatever `BROKER_PROVIDER` says, and skips the startup broker-auth check. Use it to run against real market data (`DATA_PROVIDER=angelone`) with no real orders. Paper mode also enables `/api/paper` and the orders console.
 - `TickerClient` interface: `AngelOneTickerService` is the sole implementation (SmartStream V2 binary WebSocket). Started only when `DATA_PROVIDER=angelone` and Angel One tokens are valid.
 - `HistoricalDataProvider` interface (`src/providers/`): `AngelOneHistoricalProvider` and `YahooHistoricalProvider`. Selection via `HISTORICAL_PROVIDER` (default `yahoo` — works with no auth).
 
@@ -122,7 +123,7 @@ All under `/api/*`, mounted in `src/app.ts`.
 | `/api/admin` | admin | DB stats, backup/restore, health |
 | `/api/control` | admin | Trading loop start/stop, panic-sell |
 | `/api/audit-logs` | admin | Audit query/export, sensitive fields auto-redacted |
-| `/api/paper` | conditional | Mounted only when `PAPER_TRADING=true` |
+| `/api/paper` | none | Always mounted, but returns 404 unless in paper mode. No auth by design: local debug only |
 
 Rate limits: 10000 req / 15 min globally on `/api` (dashboard polling), **60 req / 1 min** on `/api/admin`, **20 failed attempts / 15 min** per IP on `/api/users/login` and `/register`.
 
@@ -134,7 +135,7 @@ Static files in `public/` served via `express.static`. No bundler.
 
 - `index.html` + `dashboard.js` — main monitoring UI. Polls `/api/admin/health`, `/api/auth/{angelone,zerodha}/status`, `/api/reconciliation/status`, P&L endpoints.
 - `backtest.js` — the Backtest panel on `index.html`. Loads when the panel is opened (no polling) and relies on `apiFetch()` / `formatCurrency()` from `dashboard.js`, which must load first.
-- `orders.html` + `orders.js` — paper-mode order debug console (gated behind `PAPER_TRADING=true`).
+- `orders.html` + `orders.js` — paper-mode order debug console (404 unless in paper mode).
 - Auth: login form posts to `/api/users/login`, JWT stashed in `sessionStorage` (not `localStorage` — XSS hardening).
 
 The dashboard's status tiles map directly to backend endpoints. When something says "DISCONNECTED" or "Forbidden", look at the corresponding endpoint, not just the JS.
@@ -145,7 +146,7 @@ Grouped roughly by purpose. See `src/config/env.ts` for defaults and `validateEn
 
 **Core**: `NODE_ENV`, `PORT` (3000), `WATCHLIST` (comma-separated symbols), `DRY_RUN`.
 
-**Broker selection**: `BROKER_PROVIDER` (`paper` / `angelone` / `zerodha`), `DATA_PROVIDER` (defaults to broker), `HISTORICAL_PROVIDER` (`yahoo` / `angelone`), `PAPER_TRADING`.
+**Broker selection**: `BROKER_PROVIDER` (`paper` / `angelone` / `zerodha`), `DATA_PROVIDER` (defaults to broker; only `angelone` starts a live tick feed), `HISTORICAL_PROVIDER` (`yahoo` default / `angelone`; also feeds backtests), `PAPER_TRADING` (see Paper mode above).
 
 **Zerodha**: `BROKER_API_KEY`, `BROKER_API_SECRET`, `BROKER_ACCESS_TOKEN`, `BROKER_REQUEST_TOKEN`, `BROKER_DEFAULT_EXCHANGE`, `BROKER_PRODUCT`, plus `ZERODHA_USER_ID` / `ZERODHA_PASSWORD` / `ZERODHA_TOTP_SECRET` for fully-automated login (no OAuth callback needed).
 
