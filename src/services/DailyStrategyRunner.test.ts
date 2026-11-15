@@ -51,7 +51,7 @@ describe("DailyStrategyRunner.runOnce", () => {
     configs?: Record<string, { strategyId: string; enabled: boolean; params: Record<string, unknown> }[]>;
     ticks?: Record<string, MarketTick>;
   }) {
-    const calls: { strategyId: string; userId: string; bars?: Record<string, HistoricalCandle[]>; account?: unknown }[] = [];
+    const calls: { strategyId: string; userId: string; bars?: Record<string, HistoricalCandle[]>; withAccount?: boolean }[] = [];
     const strategies = [new VWAPStrategy(), new MovingAverageCrossoverStrategy()];
     const ticks = opts.ticks ?? {
       TCS: { symbol: "TCS", price: 123, volume: 9, timestamp: ist("2026-11-06T15:14:30") },
@@ -68,9 +68,9 @@ describe("DailyStrategyRunner.runOnce", () => {
           strategyId: string,
           userId: string,
           _p: unknown,
-          o: { bars?: Record<string, HistoricalCandle[]>; account?: unknown },
+          o: { bars?: Record<string, HistoricalCandle[]>; withAccount?: boolean },
         ) => {
-          calls.push({ strategyId, userId, bars: o.bars, account: o.account });
+          calls.push({ strategyId, userId, bars: o.bars, withAccount: o.withAccount });
           return { executions: [{ executions: [{}] }], errors: [] };
         },
       } as unknown as TradingEngine,
@@ -129,13 +129,15 @@ describe("DailyStrategyRunner.runOnce", () => {
     assert.equal(bars.filter((b) => b.timestamp.toISOString().startsWith("2026-11-06")).length, 1);
   });
 
-  it("still evaluates percent-sized configs (so sells run) but gives them no account to buy with", async () => {
+  it("asks for the account balance only for percent-sized configs", async () => {
     const { runner, calls } = setup({
-      configs: { u1: [{ strategyId: "ma-crossover", enabled: true, params: { fastPeriod: 3, slowPeriod: 5, sizing: "percent" } }] },
+      configs: {
+        u1: [{ strategyId: "ma-crossover", enabled: true, params: { fastPeriod: 3, slowPeriod: 5, sizing: "percent" } }],
+        u2: [{ strategyId: "ma-crossover", enabled: true, params: { fastPeriod: 3, slowPeriod: 5 } }],
+      },
     });
     await runner.runOnce();
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].account, undefined);
+    assert.deepEqual(calls.map((c) => [c.userId, c.withAccount]), [["u1", true], ["u2", false]]);
   });
 
   it("skips the run when no symbol has a tick today (holiday / feed down)", async () => {

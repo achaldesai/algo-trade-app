@@ -53,8 +53,8 @@ export function msUntilNextRun(now: Date): number {
  *   no tick today (e.g. a market holiday) is left out.
  * - Orders go through TradingEngine.evaluate, i.e. the usual risk checks,
  *   circuit breaker and stop-loss hooks.
- * - No account balance is passed yet, so configs sized as "% of equity" only
- *   sell; their buys are skipped with a warning.
+ * - Configs sized as "% of equity" get the account balance from the broker
+ *   (AccountService). If it can't be read, their buys are skipped.
  */
 export class DailyStrategyRunner {
   private timer: NodeJS.Timeout | null = null;
@@ -140,18 +140,15 @@ export class DailyStrategyRunner {
 
     for (const job of jobs) {
       const resolved = { ...job.strategy.getDefaultParams(), ...job.params };
-      // Live runs have no account balance yet, so percent-sized strategies can
-      // only sell. Say so rather than letting buys vanish silently.
-      if (resolved.sizing === "percent") {
-        logger.warn(
-          { strategyId: job.strategy.id, userId: job.userId },
-          "Percent position sizing needs the account balance, which live runs don't have yet; buys are skipped, sells still run",
-        );
-      }
       const window = job.strategy.getWarmupBars(resolved) + 1;
       const bars = Object.fromEntries(Object.entries(history).map(([s, b]) => [s, b.slice(-window)]));
       try {
-        const result = await this.deps.tradingEngine.evaluate(job.strategy.id, job.userId, job.params, { bars });
+        // Jobs run one at a time and the balance is re-read for each, so an
+        // earlier strategy's buys are already spent when the next one sizes.
+        const result = await this.deps.tradingEngine.evaluate(job.strategy.id, job.userId, job.params, {
+          bars,
+          withAccount: resolved.sizing === "percent",
+        });
         summary.evaluations++;
         summary.orders += result.executions.reduce((n, e) => n + e.executions.length, 0);
         summary.errors += result.errors.length;

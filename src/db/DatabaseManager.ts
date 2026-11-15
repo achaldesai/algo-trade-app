@@ -38,7 +38,11 @@ export interface ScannerUniverseRecord {
     symbols: string[];
 }
 
-export type SettingsRecord = RiskLimitsRecord | ScannerUniverseRecord;
+export interface PaperCashRecord {
+    amount: number;
+}
+
+export type SettingsRecord = RiskLimitsRecord | ScannerUniverseRecord | PaperCashRecord;
 
 export interface StopLossRecord {
     symbol: string;

@@ -5,6 +5,8 @@ import logger from "../utils/logger";
 import type { RiskLimits } from "../db/repositories/SettingsRepo";
 import { userAuthMiddleware } from "../middleware/userAuth";
 import { riskLimitsSchema } from "../schemas/settings";
+import { asyncHandler } from "../util/asyncHandler";
+import { z } from "zod";
 
 const router = Router();
 router.use(userAuthMiddleware);
@@ -60,5 +62,23 @@ router.post("/reset", async (req, res, next) => {
         next(error);
     }
 });
+
+// Paper mode's starting balance, used to size "% of equity" orders. Cash is
+// this plus sells minus buys in the user's recorded trades.
+router.get("/paper-cash", (req, res) => {
+    res.json({ startingCash: getContainer(req).settingsRepo.getPaperStartingCash(req.user!.userId) });
+});
+
+const paperCashSchema = z.object({ startingCash: z.number().min(0).max(1e12) });
+
+router.put(
+    "/paper-cash",
+    asyncHandler(async (req, res) => {
+        const parsed = paperCashSchema.safeParse(req.body);
+        if (!parsed.success) throw new HttpError(400, "'startingCash' must be a number from 0 to 1e12");
+        await getContainer(req).settingsRepo.savePaperStartingCash(req.user!.userId, parsed.data.startingCash);
+        res.json(parsed.data);
+    }),
+);
 
 export default router;

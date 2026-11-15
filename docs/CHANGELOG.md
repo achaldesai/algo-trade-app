@@ -27,6 +27,9 @@
 ### Backtest warnings (ACH-26)
 - A backtest that fires no signals, or whose buys were below one share, now says so instead of showing a silent 0%. Results report `signalCount` and `skippedSignals`. The dashboard shows these notes above the metrics and gives a Zerodha cost hint next to the costs field.
 
+### Live account balance (ACH-25)
+- Live daily strategies sized as "% of equity" now get the account balance, so they can buy as well as sell. Zerodha's balance comes from its margins API. Paper mode uses a starting cash amount you can set with `PUT /api/settings/paper-cash` (default ₹1,00,000), plus sells and minus buys. If the balance can't be read, those buys are skipped, never guessed.
+
 ### Known limitations (beta)
 - Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.
