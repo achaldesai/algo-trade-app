@@ -267,10 +267,24 @@
         highlightHistory();
     }
 
-    function drawEquity(curve) {
-        const container = document.getElementById('bt-chart');
+    // Theme colours, re-read on every draw and whenever the theme toggle flips.
+    function applyChartTheme() {
+        if (!chart) return;
         const css = getComputedStyle(document.documentElement);
         const color = (name) => css.getPropertyValue(name).trim();
+        chart.applyOptions({
+            layout: { background: { type: 'solid', color: color('--card-bg') }, textColor: color('--text-secondary') },
+            grid: { vertLines: { color: color('--border') }, horzLines: { color: color('--border') } },
+            rightPriceScale: { borderColor: color('--border') },
+            timeScale: { borderColor: color('--border') },
+        });
+        equitySeries.applyOptions({ color: color('--accent') });
+        contributedSeries.applyOptions({ color: color('--text-secondary') });
+    }
+    new MutationObserver(applyChartTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+    function drawEquity(curve) {
+        const container = document.getElementById('bt-chart');
         if (!chart) {
             chart = LightweightCharts.createChart(container, { width: container.clientWidth, height: 280 });
             equitySeries = chart.addLineSeries({ lineWidth: 2, title: 'Equity' });
@@ -283,16 +297,11 @@
             });
             window.addEventListener('resize', () => chart.applyOptions({ width: container.clientWidth }));
         }
-        // Re-read theme colors each time so a theme switch is picked up on the next run.
-        chart.applyOptions({
-            layout: { background: { type: 'solid', color: color('--card-bg') }, textColor: color('--text-secondary') },
-            grid: { vertLines: { color: color('--border') }, horzLines: { color: color('--border') } },
-        });
-        equitySeries.applyOptions({ color: color('--accent') });
+        applyChartTheme();
         equitySeries.setData(curve.map((p) => ({ time: p.date, value: p.equity })));
         // Only runs with deposits get the "money put in" line.
         const stepped = curve.some((p, i) => i > 0 && p.contributed !== curve[0].contributed);
-        contributedSeries.applyOptions({ color: color('--text-secondary'), visible: stepped });
+        contributedSeries.applyOptions({ visible: stepped });
         contributedSeries.setData(stepped ? curve.map((p) => ({ time: p.date, value: p.contributed })) : []);
         chart.timeScale().fitContent();
     }
