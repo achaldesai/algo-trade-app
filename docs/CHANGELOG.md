@@ -30,6 +30,9 @@
 ### Live account balance (ACH-25)
 - Live daily strategies sized as "% of equity" now get the account balance, so they can buy as well as sell. Zerodha's balance comes from its margins API. Paper mode uses a starting cash amount you can set with `PUT /api/settings/paper-cash` (default ₹1,00,000), plus sells and minus buys. If the balance can't be read, those buys are skipped, never guessed.
 
+### Bad historical bars (ACH-29)
+- Backtests and the live daily runner now drop short price spikes that are data errors. One example is Yahoo's NIFTYBEES, BANKBEES and GOLDBEES at a tenth of their price on 2019-12-19/20. Backtests say which dates were removed. Real crashes are kept. A spike in the most recent bars can't be confirmed yet and is kept.
+
 ### Known limitations (beta)
 - Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.

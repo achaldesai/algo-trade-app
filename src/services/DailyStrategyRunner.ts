@@ -6,6 +6,7 @@ import type { StrategyConfigRepo } from "../db/repositories/StrategyConfigRepo";
 import type { HistoricalCandle } from "../types";
 import { warmupFetchStart } from "../strategies/dailyIndicators";
 import { IST_OFFSET_MS } from "../utils/marketHours";
+import { badBarsNote, cleanCandles } from "../utils/candles";
 import logger from "../utils/logger";
 
 /** 15:15 IST — 15 minutes before NSE close, so market orders still fill today. */
@@ -172,7 +173,7 @@ export class DailyStrategyRunner {
     for (const symbol of symbols) {
       const tick = this.deps.marketData.getTick(symbol)!;
       try {
-        const past = (
+        const fetched = (
           await this.deps.historicalData.getHistoricalData({
             symbol,
             interval: "1day",
@@ -180,6 +181,10 @@ export class DailyStrategyRunner {
             toDate: now,
           })
         ).filter((b) => istDayKey(b.timestamp) !== today);
+        // Bad bars would feed wrong indicators into live orders.
+        const { candles: past, removed } = cleanCandles(fetched);
+        const note = badBarsNote(symbol, removed);
+        if (note) logger.warn({ symbol, removed }, note);
 
         // Today's bar from the session's ticks; strategies use the close.
         const prices = this.deps.marketData

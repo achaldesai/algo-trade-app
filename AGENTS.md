@@ -110,6 +110,7 @@ Rules for `1day` strategies:
 - **Sizing:** `simulate()` passes `account: { cash, equity }` at each signal close, so `percent` sizing grows with the account.
 - **Monthly deposits:** `monthlyContribution` is credited on the first trading day of each new month, before that day's fills. Deposits are never profit: `profit` = end equity − `totalContributed`; CAGR, Sharpe and drawdown use time-weighted daily returns with the day's deposit stripped out; `moneyWeightedReturnPct` is the XIRR. The benchmark invests the same money on the same days. `initialCapital` may be 0 only with a deposit.
 - **Metrics** include `exposurePct`. With the default fixed `orderSize`, strategies are usually far less invested than the buy-and-hold benchmark; read the returns against exposure.
+- **Bad bars:** `cleanCandles()` (`src/utils/candles.ts`) drops short spikes: a close more than 50% away from the last good close that comes back within 15% of it within 3 bars. An example is Yahoo's NIFTYBEES/BANKBEES/GOLDBEES at ÷10 on 2019-12-19/20. Backtests add a warning naming the dates, and `DailyStrategyRunner` cleans live history too. `HistoricalDataService` itself returns raw data; callers choose to clean.
 - **Not backtestable:** tick strategies (VWAP).
 - **Storage:** runs are saved per user in LMDB through `BacktestRepo`.
 

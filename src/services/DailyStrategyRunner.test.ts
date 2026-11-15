@@ -50,6 +50,7 @@ describe("DailyStrategyRunner.runOnce", () => {
     tradingOn?: boolean;
     configs?: Record<string, { strategyId: string; enabled: boolean; params: Record<string, unknown> }[]>;
     ticks?: Record<string, MarketTick>;
+    history?: (symbol: string) => HistoricalCandle[];
   }) {
     const calls: { strategyId: string; userId: string; bars?: Record<string, HistoricalCandle[]>; withAccount?: boolean }[] = [];
     const strategies = [new VWAPStrategy(), new MovingAverageCrossoverStrategy()];
@@ -81,7 +82,7 @@ describe("DailyStrategyRunner.runOnce", () => {
           ticks[s] ? [{ ...ticks[s], price: 110, timestamp: ist("2026-11-06T09:20:00") }, ticks[s]] : [],
       } as unknown as MarketDataService,
       historicalData: {
-        getHistoricalData: async ({ symbol }: { symbol: string }) => history(symbol, 30),
+        getHistoricalData: async ({ symbol }: { symbol: string }) => (opts.history ?? ((s) => history(s, 30)))(symbol),
       } as unknown as HistoricalDataService,
       userRepo: { listUsers: () => Object.keys(configs).map((id) => ({ id })) } as unknown as UserRepo,
       strategyConfigRepo: {
@@ -138,6 +139,16 @@ describe("DailyStrategyRunner.runOnce", () => {
     });
     await runner.runOnce();
     assert.deepEqual(calls.map((c) => [c.userId, c.withAccount]), [["u1", true], ["u2", false]]);
+  });
+
+  it("removes bad bars from the history before evaluating", async () => {
+    const glitched = (symbol: string) =>
+      history(symbol, 30).map((b, i) => (i === 25 || i === 26 ? { ...b, open: 10, high: 10, low: 10, close: 10 } : b));
+    const { runner, calls } = setup({ history: glitched });
+    await runner.runOnce();
+    const bars = calls[0].bars!.TCS;
+    assert.ok(bars.every((b) => b.close !== 10), "glitch bars removed");
+    assert.equal(bars.length, 7, "window is still full: warm-up + today");
   });
 
   it("skips the run when no symbol has a tick today (holiday / feed down)", async () => {
