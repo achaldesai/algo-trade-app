@@ -6,6 +6,7 @@ import BaseStrategy, {
 import {
   DEFAULT_SIZING_PARAMS,
   SIZING_PARAM_SCHEMA,
+  buyOrderFlags,
   buySizer,
   buySkipReason,
   lastTwo,
@@ -125,6 +126,7 @@ export class MovingAverageCrossoverStrategy extends BaseStrategy {
             price: close,
             type: "MARKET",
             tag: `MAX-${context.market.asOf.getTime()}`,
+            ...(side === "BUY" ? buyOrderFlags(context.params) : {}),
           },
         ],
       });

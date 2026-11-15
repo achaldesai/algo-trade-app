@@ -98,7 +98,7 @@ Rules for `1day` strategies:
 - **No wall clock.** Use `context.market.asOf`, never `Date.now()`.
 - **Return `[]` when `context.bars` is absent.**
 - **Declare `getWarmupBars(params)` honestly.** Callers pass exactly `warmup + 1` bars, both live and in backtests.
-- **Size buys with `buySizer(params, context.account)`** and spread `SIZING_PARAM_SCHEMA` / `DEFAULT_SIZING_PARAMS` into the schema and defaults (`src/strategies/dailyIndicators.ts`). `sizing: "shares"` (default) buys `orderSize`; `"percent"` buys `positionPct`% of equity, capped at cash, and **buys nothing without `context.account`**. Never fall back to a share count.
+- **Size buys with `buySizer(params, context.account)`** and spread `SIZING_PARAM_SCHEMA` / `DEFAULT_SIZING_PARAMS` into the schema and defaults (`src/strategies/dailyIndicators.ts`). `sizing: "shares"` (default) buys `orderSize`; `"percent"` buys `positionPct`% of equity, capped at cash less a 0.5% buffer (`CASH_BUFFER`) for costs and slippage, and **buys nothing without `context.account`**. Spread `buyOrderFlags(params)` into BUY orders. Never fall back to a share count.
 - **When a buy sizes to 0 shares, still return the signal** with `requestedOrders: []` and `skippedReason` (from `buySkipReason()`). `TradingEngine.evaluate` logs and skips it; backtests count it (`signalCount`, `skippedSignals`) and warn when nothing fired or buys were below one share.
 
 ### Backtesting
@@ -106,7 +106,7 @@ Rules for `1day` strategies:
 `BacktestService` (`src/services/BacktestService.ts`) replays daily bars from `HistoricalDataService` through a `1day` strategy. `simulate()` is pure and is what the tests exercise.
 - **No look-ahead:** signals from day t's close fill at day t+1's open.
 - **Fills:** `PaperBroker`'s slippage plus `costBps` per side.
-- **Long-only:** buys over the available cash are rejected, not resized.
+- **Long-only:** buys over the available cash are rejected, except %-sized buys (`sizeToCash: true`, set via `buyOrderFlags()`): those were sized at the signal close, so if the next open gaps up they fill as many shares as the cash covers (`requestedQuantity` on the trade, `resizedFills` in the metrics, plus a warning).
 - **Sizing:** `simulate()` passes `account: { cash, equity }` at each signal close, so `percent` sizing grows with the account.
 - **Monthly deposits:** `monthlyContribution` is credited on the first trading day of each new month, before that day's fills. Deposits are never profit: `profit` = end equity − `totalContributed`; CAGR, Sharpe and drawdown use time-weighted daily returns with the day's deposit stripped out; `moneyWeightedReturnPct` is the XIRR. The benchmark invests the same money on the same days. `initialCapital` may be 0 only with a deposit.
 - **Metrics** include `exposurePct`. With the default fixed `orderSize`, strategies are usually far less invested than the buy-and-hold benchmark; read the returns against exposure.

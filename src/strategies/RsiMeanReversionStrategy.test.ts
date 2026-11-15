@@ -54,6 +54,7 @@ describe("RsiMeanReversionStrategy", () => {
       dailyContext(bars, pctParams, { INFY: 0 }, { cash: 1000, equity: 1000 }),
     );
     assert.equal(buy.requestedOrders[0].quantity, 35); // floor(500 / 14)
+    assert.equal(buy.requestedOrders[0].sizeToCash, true, "percent-sized buys may be resized to fit cash");
 
     const [skipped] = await strategy.generateSignals(dailyContext(bars, pctParams, { INFY: 0 }));
     assert.deepEqual([skipped.requestedOrders, skipped.skippedReason], [[], "No account balance for % of equity sizing"]);

@@ -26,6 +26,11 @@ describe("MovingAverageCrossoverStrategy", () => {
     assert.equal(strategy.getWarmupBars({ ...params, maType: "ema" }), 15);
   });
 
+  it("doesn't mark fixed-share buys as resizable", async () => {
+    const [signal] = await strategy.generateSignals(dailyContext({ TCS: barsFrom("TCS", [10, 10, 10, 10, 10, 10, 11]) }, params));
+    assert.equal(signal.requestedOrders[0].sizeToCash, undefined);
+  });
+
   it("buys exactly once, on the day SMA3 crosses above SMA5", async () => {
     // Day 6: SMA3 = 10.33 > SMA5 = 10.2, the day before both were 10.
     const closes = [10, 10, 10, 10, 10, 10, 11, 12, 13];
