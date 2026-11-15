@@ -5,6 +5,8 @@ import type BrokerClient from "../brokers/BrokerClient";
 import type { StopLossMonitor } from "./StopLossMonitor";
 import type { PortfolioRepo } from "../db/repositories/PortfolioRepo";
 import logger from "../utils/logger";
+import { getHeapStatistics } from "node:v8";
+import { isIndianMarketHours } from "../utils/marketHours";
 
 /**
  * Health status for a single component
@@ -24,9 +26,13 @@ export interface SystemHealth {
     timestamp: Date;
     uptime: number; // seconds
     memory: {
-        used: number; // MB
-        total: number; // MB
-        percentUsed: number;
+        /** Resident set size: the process's real memory footprint (MB). */
+        rssMB: number;
+        heapUsedMB: number;
+        /** V8's maximum heap size (MB); the heap can grow up to this. */
+        heapLimitMB: number;
+        /** heapUsed / heapLimit, so 100% really means out of heap. */
+        heapPercentOfLimit: number;
     };
     components: ComponentHealth[];
     lastTick?: {
@@ -43,6 +49,8 @@ export interface HealthServiceDependencies {
     stopLossMonitor?: StopLossMonitor;
     tradingLoopService?: TradingLoopService;
     portfolioRepo?: PortfolioRepo;
+    /** Clock, for tests. */
+    now?: () => Date;
 }
 
 // Track server start time for uptime calculation
@@ -54,8 +62,11 @@ const serverStartTime = Date.now();
 export class HealthService {
     private readonly dependencies: HealthServiceDependencies;
 
+    private readonly now: () => Date;
+
     constructor(dependencies: HealthServiceDependencies) {
         this.dependencies = dependencies;
+        this.now = dependencies.now ?? (() => new Date());
     }
 
     /**
@@ -82,10 +93,11 @@ export class HealthService {
         // Determine overall status
         const overallStatus = this.determineOverallStatus(components);
 
-        // Get memory usage
+        // heapTotal is only what V8 has reserved so far and sits just above
+        // heapUsed, so compare against the heap limit instead.
         const memoryUsage = process.memoryUsage();
-        const usedMB = Math.round(memoryUsage.heapUsed / 1024 / 1024);
-        const totalMB = Math.round(memoryUsage.heapTotal / 1024 / 1024);
+        const toMB = (bytes: number) => Math.round(bytes / 1024 / 1024);
+        const heapLimit = getHeapStatistics().heap_size_limit;
 
         // Get last tick info
         const lastTick = this.getLastTickInfo();
@@ -95,9 +107,10 @@ export class HealthService {
             timestamp: new Date(),
             uptime: Math.floor((Date.now() - serverStartTime) / 1000),
             memory: {
-                used: usedMB,
-                total: totalMB,
-                percentUsed: Math.round((usedMB / totalMB) * 100 * 10) / 10,
+                rssMB: toMB(memoryUsage.rss),
+                heapUsedMB: toMB(memoryUsage.heapUsed),
+                heapLimitMB: toMB(heapLimit),
+                heapPercentOfLimit: Math.round((memoryUsage.heapUsed / heapLimit) * 1000) / 10,
             },
             components,
             lastTick,
@@ -152,6 +165,17 @@ export class HealthService {
             const ageMessage = lastTick
                 ? ` (last tick ${lastTick.ageSeconds}s ago)`
                 : "";
+
+            // The ticker is switched off on purpose outside the trading session,
+            // so a disconnected ticker only matters during market hours.
+            if (!isConnected && !isIndianMarketHours(this.now())) {
+                return {
+                    name: "ticker",
+                    status: "healthy",
+                    message: "Idle: market closed (connects 09:05 IST on weekdays)",
+                    lastUpdated: new Date(),
+                };
+            }
 
             // Consider unhealthy if no tick in >60 seconds during market hours
             let status: ComponentHealth["status"] = isConnected ? "healthy" : "unhealthy";
@@ -287,7 +311,7 @@ export class HealthService {
             });
 
             const ageSeconds = Math.floor(
-                (Date.now() - latestTick.timestamp.getTime()) / 1000
+                (this.now().getTime() - latestTick.timestamp.getTime()) / 1000
             );
 
             return {
