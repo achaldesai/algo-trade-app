@@ -7,6 +7,7 @@ import type {
   BrokerOrderExecution,
   BrokerOrderFailure,
   BrokerOrderRequest,
+  HistoricalCandle,
   MarketSnapshot,
   PortfolioSnapshot,
   StrategyEvaluationError,
@@ -77,7 +78,12 @@ export class TradingEngine extends EventEmitter {
     return this.strategies.get(id);
   }
 
-  async evaluate(strategyId: string, userId: string, paramsOverride?: Record<string, unknown>): Promise<StrategyEvaluationResult> {
+  async evaluate(
+    strategyId: string,
+    userId: string,
+    paramsOverride?: Record<string, unknown>,
+    options: { bars?: Record<string, HistoricalCandle[]> } = {},
+  ): Promise<StrategyEvaluationResult> {
     const strategy = this.strategies.get(strategyId);
     if (!strategy) {
       throw new HttpError(404, `Unknown strategy ${strategyId}`);
@@ -128,6 +134,7 @@ export class TradingEngine extends EventEmitter {
         broker,
         params: mergedParams,
         userId,
+        bars: options.bars,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to generate strategy signals";

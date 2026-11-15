@@ -12,7 +12,7 @@ interface PaperTrade extends Trade {
   brokerOrderId: string;
 }
 
-const MARKET_SLIPPAGE_BPS = 5; // 0.05%
+export const MARKET_SLIPPAGE_BPS = 5; // 0.05%
 
 export class PaperBroker implements BrokerClient {
   public readonly name = "paper";

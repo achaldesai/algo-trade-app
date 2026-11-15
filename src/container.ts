@@ -12,6 +12,9 @@ import { AuditLogRepo } from "./db/repositories/AuditLogRepo";
 import { TokenRepo } from "./db/repositories/TokenRepo";
 import { UserRepo } from "./db/repositories/UserRepo";
 import { StrategyConfigRepo } from "./db/repositories/StrategyConfigRepo";
+import { BacktestRepo } from "./db/repositories/BacktestRepo";
+import BacktestService from "./services/BacktestService";
+import DailyStrategyRunner from "./services/DailyStrategyRunner";
 import type { RiskLimits } from "./db/repositories/SettingsRepo";
 import MarketDataService from "./services/MarketDataService";
 import PortfolioService from "./services/PortfolioService";
@@ -62,6 +65,7 @@ export interface AppContainer {
   tokenRepo: TokenRepo;
   userRepo: UserRepo;
   strategyConfigRepo: StrategyConfigRepo;
+  backtestRepo: BacktestRepo;
 
   // Services
   portfolioService: PortfolioService;
@@ -73,6 +77,7 @@ export interface AppContainer {
   brokerClient: BrokerClient;
   brokerFactory: BrokerFactory;
   tradingEngine: TradingEngine;
+  backtestService: BacktestService;
   tickerClient: TickerClient | null;
   reconciliationService: ReconciliationService;
   riskManager: RiskManager;
@@ -84,6 +89,7 @@ export interface AppContainer {
   discordBotService: DiscordBotService;
   tradingLoopService: TradingLoopService;
   autoTradingService: AutoTradingService;
+  dailyStrategyRunner: DailyStrategyRunner;
   tokenRefreshService: TokenRefreshService;
   feedHealthMonitor: FeedHealthMonitor;
 
@@ -204,6 +210,7 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
 
   const strategyConfigRepo = new StrategyConfigRepo(dbManager);
   strategyConfigRepo.load(); // Populate cache from LMDB
+  const backtestRepo = new BacktestRepo(dbManager);
 
   // ── Core Services ────────────────────────────────────────────────────────
 
@@ -232,6 +239,8 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
   tradingEngine.registerStrategy(new VWAPStrategy());
   tradingEngine.registerStrategy(new MovingAverageCrossoverStrategy());
   tradingEngine.registerStrategy(new RsiMeanReversionStrategy());
+
+  const backtestService = new BacktestService(tradingEngine, historicalDataService, backtestRepo);
 
   const tickerClient = buildTicker(marketDataService, tokenRepo);
 
@@ -305,6 +314,15 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     tradingLoopService
   );
 
+  const dailyStrategyRunner = new DailyStrategyRunner({
+    tradingEngine,
+    marketData: marketDataService,
+    historicalData: historicalDataService,
+    userRepo,
+    strategyConfigRepo,
+    isTradingEnabled: () => tradingLoopService.getStatus().running,
+  });
+
   const tokenRefreshService = new TokenRefreshService(tokenRepo);
 
   // ── Feed Health Monitor (fail-safe kill switch on feed staleness) ────────
@@ -329,6 +347,9 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
 
   return {
     dbManager,
+    backtestRepo,
+    backtestService,
+    dailyStrategyRunner,
     portfolioRepo,
     settingsRepo,
     stopLossRepo,

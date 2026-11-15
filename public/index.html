@@ -188,6 +188,74 @@
                     </div>
                 </section>
             </div>
+            <details id="backtest-section" class="settings-section collapsible">
+                <summary><h2>📊 Backtest</h2></summary>
+                <div class="backtest-body">
+                    <form id="backtest-form" class="settings-form">
+                        <div class="form-group">
+                            <label for="bt-strategy">Strategy</label>
+                            <select id="bt-strategy" name="strategyId" required></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="bt-symbols">Symbols (comma-separated, max 10)</label>
+                            <input type="text" id="bt-symbols" name="symbols" value="RELIANCE, TCS" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="bt-from">From</label>
+                            <input type="date" id="bt-from" name="from" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="bt-to">To</label>
+                            <input type="date" id="bt-to" name="to" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="bt-capital">Starting Capital (₹)</label>
+                            <input type="number" id="bt-capital" name="initialCapital" value="1000000" min="1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="bt-cost">Costs per Side (bps)</label>
+                            <input type="number" id="bt-cost" name="costBps" value="10" min="0" max="500" step="1" required>
+                        </div>
+                        <div id="bt-params" class="bt-params"></div>
+                        <div class="form-actions">
+                            <button type="submit" id="bt-run-btn" class="btn btn-primary">Run Backtest</button>
+                        </div>
+                    </form>
+                    <p class="bt-note">Daily bars. Orders fill at the next day's open with slippage and the costs above. Live-tick strategies such as VWAP can't be backtested.</p>
+                    <div id="bt-message" class="notification-result hidden"></div>
+
+                    <div id="bt-results" class="hidden">
+                        <h3 id="bt-results-title" class="bt-subtitle"></h3>
+                        <div id="bt-metrics" class="bt-metrics"></div>
+                        <div id="bt-warnings" class="bt-warnings hidden"></div>
+                        <div id="bt-chart" class="bt-chart"></div>
+                        <details class="bt-trades">
+                            <summary id="bt-trades-summary">Trades</summary>
+                            <div class="positions-table-container">
+                                <table class="positions-table">
+                                    <thead>
+                                        <tr><th>Date</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Costs</th><th>P&amp;L</th></tr>
+                                    </thead>
+                                    <tbody id="bt-trades-body"></tbody>
+                                </table>
+                            </div>
+                        </details>
+                    </div>
+
+                    <h3 class="bt-subtitle">History</h3>
+                    <div class="positions-table-container">
+                        <table class="positions-table">
+                            <thead>
+                                <tr><th>Run</th><th>Strategy</th><th>Symbols</th><th>Period</th><th>Return</th><th>Buy &amp; Hold</th><th>Max DD</th><th></th></tr>
+                            </thead>
+                            <tbody id="bt-history-body">
+                                <tr><td colspan="8" class="empty-state">No saved backtests</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </details>
+
             <details class="settings-section collapsible">
                 <summary><h2>Risk Management Settings</h2></summary>
                 <form id="settings-form" class="settings-form">
@@ -266,6 +334,7 @@
         })();
     </script>
     <script src="dashboard.js"></script>
+    <script src="backtest.js"></script>
     <script>
         // Reveal the paper-mode Console link when the server is in paper mode.
         // /api/paper/pnl 404s outside paper mode, so a successful probe is the signal.
