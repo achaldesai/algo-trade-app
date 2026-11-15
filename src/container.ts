@@ -91,6 +91,7 @@ export interface AppContainer {
   tradingLoopService: TradingLoopService;
   autoTradingService: AutoTradingService;
   dailyStrategyRunner: DailyStrategyRunner;
+  accountService: AccountService;
   tokenRefreshService: TokenRefreshService;
   feedHealthMonitor: FeedHealthMonitor;
 
@@ -358,6 +359,7 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     backtestRepo,
     backtestService,
     dailyStrategyRunner,
+    accountService,
     portfolioRepo,
     settingsRepo,
     stopLossRepo,

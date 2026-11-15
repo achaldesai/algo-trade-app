@@ -8,8 +8,17 @@ export interface UserStrategyConfig {
     strategyId: string;
     enabled: boolean;
     params: Record<string, unknown>;
+    /** Daily strategies only: symbols to trade. Absent = every tracked symbol. */
+    symbols?: string[];
     updatedAt: string;
 }
+
+/** Copy so callers can't mutate the cache. */
+const copy = (c: UserStrategyConfig): UserStrategyConfig => ({
+    ...c,
+    params: { ...c.params },
+    ...(c.symbols ? { symbols: [...c.symbols] } : {}),
+});
 
 // ─── Repository ──────────────────────────────────────────────────────────────
 
@@ -49,6 +58,7 @@ export class StrategyConfigRepo {
                 strategyId: value.strategyId,
                 enabled: value.enabled,
                 params: value.params ?? {},
+                ...(value.symbols?.length ? { symbols: [...value.symbols] } : {}),
                 updatedAt: value.updatedAt,
             });
         }
@@ -71,7 +81,7 @@ export class StrategyConfigRepo {
         const userMap = this.cache.get(userId);
         if (!userMap) return null;
         const config = userMap.get(strategyId);
-        return config ? { ...config, params: { ...config.params } } : null;
+        return config ? copy(config) : null;
     }
 
     /**
@@ -81,10 +91,7 @@ export class StrategyConfigRepo {
     getAllConfigs(userId: string): UserStrategyConfig[] {
         const userMap = this.cache.get(userId);
         if (!userMap) return [];
-        return Array.from(userMap.values()).map((c) => ({
-            ...c,
-            params: { ...c.params },
-        }));
+        return Array.from(userMap.values()).map(copy);
     }
 
     /**
@@ -109,6 +116,7 @@ export class StrategyConfigRepo {
             strategyId: config.strategyId,
             enabled: config.enabled,
             params: config.params,
+            ...(config.symbols?.length ? { symbols: [...config.symbols] } : {}),
             updatedAt: config.updatedAt,
         };
 
@@ -120,10 +128,7 @@ export class StrategyConfigRepo {
             userMap = new Map();
             this.cache.set(userId, userMap);
         }
-        userMap.set(config.strategyId, {
-            ...config,
-            params: { ...config.params },
-        });
+        userMap.set(config.strategyId, copy(config));
     }
 
     /**

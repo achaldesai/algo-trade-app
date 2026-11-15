@@ -18,6 +18,8 @@ export interface DailyRunSummary {
   evaluations: number;
   orders: number;
   errors: number;
+  /** E.g. configured symbols that had no live price today and were skipped. */
+  warnings?: string[];
 }
 
 export interface DailyStrategyRunnerDeps {
@@ -116,7 +118,7 @@ export class DailyStrategyRunner {
       this.deps.strategyConfigRepo
         .getActiveStrategies(user.id)
         .filter((c) => daily.has(c.strategyId))
-        .map((c) => ({ userId: user.id, strategy: daily.get(c.strategyId)!, params: c.params })),
+        .map((c) => ({ userId: user.id, strategy: daily.get(c.strategyId)!, params: c.params, symbols: c.symbols })),
     );
     if (jobs.length === 0) {
       summary.skipped = "No users have a daily strategy enabled";
@@ -138,11 +140,19 @@ export class DailyStrategyRunner {
 
     const maxWarmup = Math.max(...jobs.map((j) => j.strategy.getWarmupBars({ ...j.strategy.getDefaultParams(), ...j.params })));
     const history = await this.loadBars(symbols, maxWarmup, ranAt, today);
+    const warnings: string[] = [];
 
     for (const job of jobs) {
       const resolved = { ...job.strategy.getDefaultParams(), ...job.params };
       const window = job.strategy.getWarmupBars(resolved) + 1;
-      const bars = Object.fromEntries(Object.entries(history).map(([s, b]) => [s, b.slice(-window)]));
+      // A config may name its own symbols; only those with a price today run.
+      const wanted = job.symbols?.length ? job.symbols : Object.keys(history);
+      const missing = wanted.filter((s) => !history[s]);
+      if (missing.length) {
+        warnings.push(`${job.strategy.id} (${job.userId}): no live price today for ${missing.join(", ")}; skipped (in WATCHLIST?)`);
+      }
+      const bars = Object.fromEntries(wanted.filter((s) => history[s]).map((s) => [s, history[s].slice(-window)]));
+      if (Object.keys(bars).length === 0) continue;
       try {
         // Jobs run one at a time and the balance is re-read for each, so an
         // earlier strategy's buys are already spent when the next one sizes.
@@ -159,6 +169,7 @@ export class DailyStrategyRunner {
       }
     }
 
+    if (warnings.length) summary.warnings = warnings;
     logger.info(summary, "Daily strategy run completed");
     return summary;
   }

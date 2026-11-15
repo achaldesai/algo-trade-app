@@ -99,6 +99,8 @@ export interface StrategyConfigRecord {
     strategyId: string;
     enabled: boolean;
     params: Record<string, unknown>;
+    /** Daily strategies only: symbols to trade. Absent = every tracked symbol. */
+    symbols?: string[];
     updatedAt: string;
 }
 

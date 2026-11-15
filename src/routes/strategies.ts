@@ -5,6 +5,12 @@ import { validateBody } from "../middleware/validateRequest";
 import { userAuthMiddleware } from "../middleware/userAuth";
 import { HttpError } from "../utils/HttpError";
 import { resolveStrategyParams } from "../strategies/validateParams";
+import { isPaperMode } from "../config/env";
+import { asyncHandler } from "../util/asyncHandler";
+import logger from "../utils/logger";
+
+/** Most symbols one daily strategy config may trade (same as a backtest). */
+export const MAX_CONFIG_SYMBOLS = 10;
 
 const router = Router();
 router.use(userAuthMiddleware);
@@ -27,6 +33,12 @@ const evaluateSchema = z.object({
 const strategyConfigSchema = z.object({
   enabled: z.boolean(),
   params: z.record(z.unknown()).optional(),
+  // Daily strategies only. Omitted or empty = every tracked (WATCHLIST) symbol.
+  symbols: z
+    .array(z.string().trim().min(1).max(30).regex(/^[A-Za-z0-9&-]+$/, "Symbols are letters, digits, & or -"))
+    .max(MAX_CONFIG_SYMBOLS)
+    .optional()
+    .transform((list) => (list ? [...new Set(list.map((s) => s.toUpperCase()))] : undefined)),
 });
 
 // ─── List all available strategies + param schemas ───────────────────────────
@@ -63,6 +75,7 @@ router.get("/config", (req, res, next) => {
         strategyId: strategy.id,
         name: strategy.name,
         description: strategy.description,
+        timeframe: strategy.timeframe,
         paramSchema: strategy.getParamSchema(),
         defaultParams: strategy.getDefaultParams(),
         // User's custom config (null if using defaults)
@@ -70,6 +83,7 @@ router.get("/config", (req, res, next) => {
           ? {
             enabled: userConfig.enabled,
             params: userConfig.params,
+            symbols: userConfig.symbols ?? null,
             updatedAt: userConfig.updatedAt,
           }
           : null,
@@ -103,11 +117,14 @@ router.put(
 
       // Merge user params with defaults and validate against the schema
       const mergedParams = resolveStrategyParams(strategy, body.params);
+      // Symbols only steer daily strategies; tick strategies follow the live feed.
+      const symbols = strategy.timeframe === "1day" && body.symbols?.length ? body.symbols : undefined;
 
       await strategyConfigRepo.saveConfig(userId, {
         strategyId,
         enabled: body.enabled,
         params: mergedParams,
+        ...(symbols ? { symbols } : {}),
         updatedAt: new Date().toISOString(),
       });
 
@@ -116,12 +133,64 @@ router.put(
           strategyId,
           enabled: body.enabled,
           params: mergedParams,
+          symbols: symbols ?? null,
         },
       });
     } catch (error) {
       next(error);
     }
   },
+);
+
+// ─── Daily strategy run status for the caller ────────────────────────────────
+//
+// What the dashboard's Live strategies panel needs to show whether the 15:15
+// IST run will do anything for this user. User-level, unlike /api/control/status.
+
+router.get(
+  "/daily-status",
+  asyncHandler(async (req, res) => {
+    const { dailyStrategyRunner, tradingLoopService, marketDataService, strategyConfigRepo, tradingEngine, accountService, brokerFactory } =
+      getContainer(req);
+    const userId = req.user!.userId;
+    const tracked = marketDataService.getTrackedSymbols();
+    const daily = new Map(tradingEngine.getStrategies().filter((s) => s.timeframe === "1day").map((s) => [s.id, s]));
+
+    const strategies = strategyConfigRepo
+      .getActiveStrategies(userId)
+      .filter((c) => daily.has(c.strategyId))
+      .map((c) => {
+        const symbols = c.symbols?.length ? c.symbols : tracked;
+        return {
+          strategyId: c.strategyId,
+          name: daily.get(c.strategyId)!.name,
+          symbols,
+          // Configured symbols without a live feed are skipped at run time.
+          notTracked: symbols.filter((s) => !tracked.includes(s)),
+          sizing: c.params.sizing === "percent" ? "percent" : "shares",
+        };
+      });
+
+    let account: { cash: number; equity: number } | null = null;
+    try {
+      account = (await accountService.getAccount(userId, await brokerFactory.getBroker(userId))) ?? null;
+    } catch (error) {
+      logger.warn({ err: error, userId }, "Could not read the account for daily status");
+    }
+
+    const runner = dailyStrategyRunner.getStatus();
+    res.json({
+      data: {
+        paperMode: isPaperMode(),
+        tradingOn: tradingLoopService.getStatus().running,
+        nextRunAt: runner.nextRunAt,
+        lastRun: runner.lastRun,
+        trackedSymbols: tracked,
+        account,
+        strategies,
+      },
+    });
+  }),
 );
 
 // ─── Delete strategy configuration (reset to defaults) ──────────────────────

@@ -120,4 +120,9 @@ export const env = {
 
 export type EnvConfig = typeof env;
 
+/** Paper mode: every order goes to PaperBroker (PAPER_TRADING=true or BROKER_PROVIDER=paper). */
+export function isPaperMode(config: Pick<EnvConfig, "paperTrading" | "brokerProvider"> = env): boolean {
+  return config.paperTrading || config.brokerProvider === "paper";
+}
+
 export default env;

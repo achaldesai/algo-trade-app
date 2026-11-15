@@ -1,5 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
-import env from "../config/env";
+import env, { isPaperMode as isPaperModeFor } from "../config/env";
 import { getContainer } from "../util/getContainer";
 import logger from "../utils/logger";
 import type {
@@ -13,7 +13,7 @@ import type {
  * It does not require auth because it is meant for local debugging.
  */
 function isPaperMode(): boolean {
-    return env.paperTrading || env.brokerProvider === "paper";
+    return isPaperModeFor(env);
 }
 
 /**
