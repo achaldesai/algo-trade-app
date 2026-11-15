@@ -39,6 +39,9 @@
 ### FD comparison (ACH-28)
 - Backtests can also compare with a fixed deposit at a rate you choose (`fdRatePct`, e.g. 7), funded with the same deposits on the same days. The dashboard shows an FD tile and a vs FD column. This is pre-tax and doesn't change the strategy's results. Idle cash in the strategy still earns 0%, like a Zerodha trading account.
 
+### Health check (ACH-30)
+- The dashboard no longer shows "Health unavailable" every evening. The price feed is switched off outside market hours, so it now reports "Idle: market closed" instead of unhealthy. When the system really is unhealthy, the header names the problem, e.g. "Unhealthy: ticker (Disconnected)". Memory is now reported as process RSS, with the heap measured against its limit; it used to read about 99% all the time.
+
 ### Known limitations (beta)
 - Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.

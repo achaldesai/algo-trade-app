@@ -269,7 +269,10 @@ async function updateSystemHealth() {
     try {
         const res = await apiFetch('/api/admin/health', {}, true);
 
-        if (!res.ok) {
+        // An unhealthy system answers 503 *with* a full report; only a 503
+        // without one (e.g. admin not configured) means health is unavailable.
+        const health = res.ok || res.status === 503 ? await res.json().catch(() => null) : null;
+        if (!health || !Array.isArray(health.components)) {
             const dot = document.getElementById('health-dot');
             const status = document.getElementById('health-status');
             dot.className = 'health-dot unhealthy';
@@ -283,8 +286,6 @@ async function updateSystemHealth() {
             }
             return;
         }
-
-        const health = await res.json();
 
         const dot = document.getElementById('health-dot');
         const status = document.getElementById('health-status');
@@ -305,7 +306,11 @@ async function updateSystemHealth() {
             status.textContent = `Degraded: ${degradedComponents}`;
             status.className = 'status-value pending';
         } else {
-            status.textContent = 'Unhealthy';
+            const failing = health.components
+                .filter(c => c.status === 'unhealthy')
+                .map(c => (c.message ? `${c.name} (${c.message})` : c.name))
+                .join(', ');
+            status.textContent = failing ? `Unhealthy: ${failing}` : 'Unhealthy';
             status.className = 'status-value disconnected';
         }
 
@@ -323,7 +328,10 @@ async function updateSystemHealth() {
         if (health.uptime) {
             const hours = Math.floor(health.uptime / 3600);
             const mins = Math.floor((health.uptime % 3600) / 60);
-            uptime.textContent = `Uptime: ${hours}h ${mins}m | Mem: ${health.memory.percentUsed}%`;
+            // Process memory (RSS); the heap figure is against V8's limit.
+            const mem = health.memory && health.memory.rssMB !== undefined ? health.memory : null;
+            uptime.textContent = `Uptime: ${hours}h ${mins}m${mem ? ` | Mem: ${mem.rssMB} MB` : ''}`;
+            uptime.title = mem ? `Heap: ${mem.heapUsedMB} of ${mem.heapLimitMB} MB (${mem.heapPercentOfLimit}% of limit)` : '';
         }
     } catch (error) {
         console.error('Failed to fetch system health:', error);
