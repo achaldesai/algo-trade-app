@@ -20,7 +20,9 @@ const runSchema = z.object({
   from: dateOnly,
   to: dateOnly,
   params: z.record(z.unknown()).optional(),
-  initialCapital: z.number().positive().max(1e12).default(1_000_000),
+  // May be 0 when there is a monthly contribution; the service checks the pair.
+  initialCapital: z.number().min(0).max(1e12).default(1_000_000),
+  monthlyContribution: z.number().min(0).max(1e10).default(0),
   costBps: z.number().min(0).max(500).default(DEFAULT_COST_BPS),
 });
 

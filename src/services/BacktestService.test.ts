@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import BaseStrategy, { type StrategyContext, type StrategyTimeframe } from "../strategies/BaseStrategy";
 import MovingAverageCrossoverStrategy from "../strategies/MovingAverageCrossoverStrategy";
 import VWAPStrategy from "../strategies/VWAPStrategy";
-import { BacktestService, computeMetrics, simulate, type BacktestRun } from "./BacktestService";
+import { BacktestService, computeMetrics, simulate, xirr, type BacktestRun } from "./BacktestService";
 import { DelistedSymbolError, type HistoricalDataService } from "./HistoricalDataService";
 import type TradingEngine from "./TradingEngine";
 import type { BacktestRepo } from "../db/repositories/BacktestRepo";
@@ -185,6 +185,88 @@ describe("simulate", () => {
   });
 });
 
+describe("monthly contributions", () => {
+  // Flat ₹100 prices across a month boundary: Jan 30, Jan 31, Feb 3, Feb 4, Mar 2.
+  const days = ["2025-01-30", "2025-01-31", "2025-02-03", "2025-02-04", "2025-03-03"];
+  const flat = (symbol: string, prices = days.map(() => 100)) =>
+    days.map((d, i) => ({
+      symbol,
+      open: prices[i],
+      high: prices[i],
+      low: prices[i],
+      close: prices[i],
+      volume: 1,
+      timestamp: new Date(`${d}T00:00:00.000Z`),
+    }));
+  const sim = (strategy: BaseStrategy, candles: Record<string, HistoricalCandle[]>, initialCapital = 1000) =>
+    simulate({
+      strategy,
+      params: {},
+      candles,
+      from: new Date("2025-01-30"),
+      to: new Date("2025-03-03"),
+      initialCapital,
+      monthlyContribution: 1000,
+      costBps: 0,
+      slippageBps: 0,
+    });
+
+  it("credits a deposit on the first trading day of each new month, and doesn't count it as profit", async () => {
+    const result = await sim(new ScriptedStrategy({}), { AAA: flat("AAA") });
+
+    assert.deepEqual(result.contributions, [
+      { date: "2025-02-03", amount: 1000 },
+      { date: "2025-03-03", amount: 1000 },
+    ]);
+    assert.deepEqual(
+      result.equityCurve.map((p) => [p.equity, p.contributed]),
+      [[1000, 1000], [1000, 1000], [2000, 2000], [2000, 2000], [3000, 3000]],
+    );
+    const m = result.metrics;
+    assert.equal(m.totalContributed, 3000);
+    assert.equal(m.profit, 0);
+    assert.equal(m.totalReturnPct, 0);
+    assert.equal(m.cagrPct, 0, "time-weighted: deposits are not growth");
+    assert.equal(m.maxDrawdownPct, 0);
+    assert.equal(m.moneyWeightedReturnPct, 0);
+    assert.equal(m.benchmarkProfit, 0, "flat prices: the monthly benchmark breaks even too");
+  });
+
+  it("credits the deposit before that day's fills, so a buy can use it", async () => {
+    // Signal on Jan 31 for 15 shares (₹1,500); only ₹1,000 until Feb 3's deposit.
+    const strategy = new ScriptedStrategy({ "2025-01-31": [order("BUY", 15)] });
+    const result = await sim(strategy, { AAA: flat("AAA") });
+    assert.deepEqual(result.trades.map((t) => [t.date, t.quantity]), [["2025-02-03", 15]]);
+    assert.deepEqual(result.rejections, []);
+  });
+
+  it("measures the benchmark with the same deposits, and gains with XIRR", async () => {
+    // Price doubles on the last day: the initial ₹1,000 and Feb's ₹1,000 bought at
+    // 100 are worth ₹4,000; March's ₹1,000 buys at the new open of 200.
+    const prices = [100, 100, 100, 100, 200];
+    const result = await sim(new ScriptedStrategy({}), { AAA: flat("AAA", prices) }, 1000);
+    const m = result.metrics;
+    assert.equal(m.benchmarkProfit, 2000); // 4000 + 1000 - 3000
+    assert.ok(m.benchmarkMoneyWeightedReturnPct! > 1000, "a 67% gain in about a month annualises to a huge XIRR");
+    assert.equal(m.profit, 0, "the strategy never bought");
+  });
+
+  it("allows starting from ₹0 with deposits only", async () => {
+    const result = await sim(new ScriptedStrategy({}), { AAA: flat("AAA") }, 0);
+    assert.equal(result.metrics.totalContributed, 2000);
+    assert.equal(result.metrics.cagrPct, 0, "days with zero equity are skipped, not divided by");
+  });
+});
+
+describe("xirr", () => {
+  it("solves simple cases and returns null without a sign change", () => {
+    const r = xirr([{ date: "2024-01-01", amount: -100 }, { date: "2024-12-31", amount: 110 }]);
+    assert.ok(Math.abs(r! - 0.1) < 1e-6);
+    assert.equal(xirr([{ date: "2024-01-01", amount: -100 }, { date: "2024-12-31", amount: -5 }]), null);
+    assert.equal(xirr([{ date: "2024-01-01", amount: -100 }]), null);
+  });
+});
+
 describe("computeMetrics", () => {
   it("computes CAGR, Sharpe, win rate and profit factor", () => {
     const curve = [
@@ -196,13 +278,17 @@ describe("computeMetrics", () => {
       { date: "x", symbol: "A", side: "SELL" as const, quantity: 1, price: 1, cost: 0, pnl: -10 },
       { date: "x", symbol: "A", side: "BUY" as const, quantity: 1, price: 1, cost: 0 },
     ];
-    const m = computeMetrics(100, curve, trades, 0.05);
+    const m = computeMetrics(100, curve, trades, 105);
     assert.equal(m.totalReturnPct, 10);
     assert.ok(Math.abs(m.cagrPct - 9.99) < 0.05, `cagr ${m.cagrPct}`);
     assert.equal(m.roundTrips, 2);
     assert.equal(m.winRatePct, 50);
     assert.equal(m.profitFactor, 3);
     assert.equal(m.benchmarkReturnPct, 5);
+    assert.equal(m.profit, 10);
+    assert.equal(m.totalContributed, 100);
+    // Lump sum: XIRR ~ CAGR (366 days in 2024 vs a 365-day XIRR year).
+    assert.ok(Math.abs(m.moneyWeightedReturnPct! - 9.97) < 0.05, `xirr ${m.moneyWeightedReturnPct}`);
     // Daily returns [0, 0.1]: mean 0.05, sd 0.0707 -> 0.707 * sqrt(252)
     assert.equal(m.sharpe, 11.22);
     assert.equal(computeMetrics(100, [{ date: "2024-01-01", equity: 100 }, { date: "2024-01-02", equity: 100 }], [], 0).sharpe, null);
@@ -300,6 +386,9 @@ describe("BacktestService.run", () => {
       /^400 Strategy rejected/,
     );
     assert.match(await status(service.run("u1", { ...base, strategyId: "nope" })), /^404/);
+    assert.match(await status(service.run("u1", { ...base, initialCapital: 0 })), /^400 'initialCapital'/);
+    assert.equal(await status(service.run("u1", { ...base, initialCapital: 0, monthlyContribution: 5000 })), "ok");
+    assert.match(await status(service.run("u1", { ...base, monthlyContribution: -1 })), /^400 'monthlyContribution'/);
   });
 
   it("skips delisted symbols with a warning, and 422s when nothing is left", async () => {

@@ -21,6 +21,9 @@
 ### Position sizing (ACH-24)
 - Daily strategies can size buys as a % of account equity (`sizing: "percent"`, `positionPct`), capped at the cash available. The default is still a fixed number of shares. Backtests supply the account balance; live runs don't yet, so percent-sized configs only sell until the broker can report funds (ACH-25).
 
+### Monthly deposits in backtests (ACH-23)
+- Backtests take an optional `monthlyContribution`, added on the first trading day of each month. Deposits don't count as profit: results show money put in, profit, XIRR, and a time-weighted CAGR. The buy-and-hold benchmark invests the same deposits on the same days. The dashboard has a Monthly Deposit field, deposit tiles, and a "money put in" line on the equity chart.
+
 ### Known limitations (beta)
 - Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.

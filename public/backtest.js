@@ -15,6 +15,7 @@
     let activeRunId = null;
     let chart = null;
     let equitySeries = null;
+    let contributedSeries = null;
     let strategiesLoaded = false;
 
     function escapeHtml(value) {
@@ -132,6 +133,7 @@
             from: document.getElementById('bt-from').value,
             to: document.getElementById('bt-to').value,
             initialCapital: Number(document.getElementById('bt-capital').value),
+            monthlyContribution: Number(document.getElementById('bt-deposit').value) || 0,
             costBps: Number(document.getElementById('bt-cost').value),
             params: readParams(),
         };
@@ -167,11 +169,23 @@
         document.getElementById('bt-results-title').textContent =
             `${run.strategyName} · ${run.symbols.join(', ')} · ${run.from} → ${run.to}`;
 
+        // Runs saved before deposits existed have no monthlyContribution.
+        const deposits = (run.monthlyContribution || 0) > 0;
+        const depositTiles = deposits ? [
+            metricTile('Money Put In', formatCurrency(m.totalContributed), '',
+                `${formatCurrency(run.initialCapital)} + ${formatCurrency(run.monthlyContribution)}/month`),
+            metricTile('Profit', formatCurrency(m.profit), tone(m.profit), `Buy &amp; hold: ${formatCurrency(m.benchmarkProfit)}`),
+            metricTile('XIRR', pct(m.moneyWeightedReturnPct), tone(m.moneyWeightedReturnPct ?? 0),
+                `Buy &amp; hold: ${pct(m.benchmarkMoneyWeightedReturnPct)} · yearly return on your deposits`),
+        ] : [];
         document.getElementById('bt-metrics').innerHTML = [
-            metricTile('Total Return', pct(m.totalReturnPct), tone(m.totalReturnPct), `${formatCurrency(m.startEquity)} → ${formatCurrency(m.endEquity)}`),
-            metricTile('Buy &amp; Hold', pct(m.benchmarkReturnPct), tone(m.benchmarkReturnPct), 'equal weight, fully invested'),
+            ...depositTiles,
+            metricTile('Total Return', pct(m.totalReturnPct), tone(m.totalReturnPct),
+                `${formatCurrency(deposits ? m.totalContributed : m.startEquity)} → ${formatCurrency(m.endEquity)}`),
+            metricTile('Buy &amp; Hold', pct(m.benchmarkReturnPct), tone(m.benchmarkReturnPct),
+                deposits ? 'equal weight, each deposit invested' : 'equal weight, fully invested'),
             metricTile('Avg. Exposure', `${m.exposurePct.toFixed(1)}%`, '', 'of equity in positions'),
-            metricTile('CAGR', pct(m.cagrPct), tone(m.cagrPct)),
+            metricTile('CAGR', pct(m.cagrPct), tone(m.cagrPct), deposits ? 'time-weighted, deposits excluded' : ''),
             metricTile('Max Drawdown', `${m.maxDrawdownPct.toFixed(2)}%`, m.maxDrawdownPct > 0 ? 'loss' : ''),
             metricTile('Sharpe', num(m.sharpe), tone(m.sharpe ?? 0)),
             metricTile('Round Trips', String(m.roundTrips), '', `${m.trades} fills`),
@@ -210,7 +224,14 @@
         const color = (name) => css.getPropertyValue(name).trim();
         if (!chart) {
             chart = LightweightCharts.createChart(container, { width: container.clientWidth, height: 280 });
-            equitySeries = chart.addLineSeries({ lineWidth: 2 });
+            equitySeries = chart.addLineSeries({ lineWidth: 2, title: 'Equity' });
+            contributedSeries = chart.addLineSeries({
+                lineWidth: 1,
+                lineStyle: 2, // dashed
+                lineType: 1, // steps: deposits arrive as jumps
+                title: 'Put in',
+                priceLineVisible: false,
+            });
             window.addEventListener('resize', () => chart.applyOptions({ width: container.clientWidth }));
         }
         // Re-read theme colors each time so a theme switch is picked up on the next run.
@@ -220,6 +241,10 @@
         });
         equitySeries.applyOptions({ color: color('--accent') });
         equitySeries.setData(curve.map((p) => ({ time: p.date, value: p.equity })));
+        // Only runs with deposits get the "money put in" line.
+        const stepped = curve.some((p, i) => i > 0 && p.contributed !== curve[0].contributed);
+        contributedSeries.applyOptions({ color: color('--text-secondary'), visible: stepped });
+        contributedSeries.setData(stepped ? curve.map((p) => ({ time: p.date, value: p.contributed })) : []);
         chart.timeScale().fitContent();
     }
 

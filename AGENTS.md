@@ -107,6 +107,7 @@ Rules for `1day` strategies:
 - **Fills:** `PaperBroker`'s slippage plus `costBps` per side.
 - **Long-only:** buys over the available cash are rejected, not resized.
 - **Sizing:** `simulate()` passes `account: { cash, equity }` at each signal close, so `percent` sizing grows with the account.
+- **Monthly deposits:** `monthlyContribution` is credited on the first trading day of each new month, before that day's fills. Deposits are never profit: `profit` = end equity − `totalContributed`; CAGR, Sharpe and drawdown use time-weighted daily returns with the day's deposit stripped out; `moneyWeightedReturnPct` is the XIRR. The benchmark invests the same money on the same days. `initialCapital` may be 0 only with a deposit.
 - **Metrics** include `exposurePct`. With the default fixed `orderSize`, strategies are usually far less invested than the buy-and-hold benchmark; read the returns against exposure.
 - **Not backtestable:** tick strategies (VWAP).
 - **Storage:** runs are saved per user in LMDB through `BacktestRepo`.
@@ -120,7 +121,7 @@ All under `/api/*`, mounted in `src/app.ts`.
 | `/api/users` | mixed | `login` public; `register` public only for bootstrap (first user = ADMIN) and dev self-signup; rest require user JWT |
 | `/api/auth` | user | Zerodha + Angel One OAuth, token mgmt |
 | `/api/stocks`, `/trades`, `/strategies`, `/market-data`, `/pnl`, `/settings`, `/notifications`, `/reconciliation`, `/stop-loss` | user | Standard app routes |
-| `/api/backtest` | user | Run (`POST`), list, get, delete saved backtests. Max 10 symbols / 10 years; tick strategies → 400 |
+| `/api/backtest` | user | Run (`POST`, optional `monthlyContribution`), list, get, delete saved backtests. Max 10 symbols / 10 years; tick strategies → 400 |
 | `/api/scanner` | mixed | Listed scans require admin |
 | `/api/admin` | admin | DB stats, backup/restore, health |
 | `/api/control` | admin | Trading loop start/stop, panic-sell |
