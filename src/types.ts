@@ -32,6 +32,12 @@ export interface BrokerOrderRequest {
   type: "MARKET" | "LIMIT";
   price?: number;
   tag?: string;
+  /**
+   * The quantity was sized from cash ("% of equity"), so a backtest may fill
+   * fewer shares if the price gapped up, rather than rejecting the whole buy.
+   * Brokers ignore it.
+   */
+  sizeToCash?: boolean;
 }
 
 export interface BrokerOrderQuote {

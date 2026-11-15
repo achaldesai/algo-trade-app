@@ -3,7 +3,7 @@ import BaseStrategy, {
   type StrategyParamDefinition,
   type StrategyTimeframe,
 } from "./BaseStrategy";
-import { DEFAULT_SIZING_PARAMS, SIZING_PARAM_SCHEMA, buySizer, buySkipReason, lastTwo, numberParam, rsi } from "./dailyIndicators";
+import { DEFAULT_SIZING_PARAMS, SIZING_PARAM_SCHEMA, buyOrderFlags, buySizer, buySkipReason, lastTwo, numberParam, rsi } from "./dailyIndicators";
 import type { StrategySignal } from "../types";
 
 const DEFAULT_PERIOD = 14;
@@ -104,6 +104,7 @@ export class RsiMeanReversionStrategy extends BaseStrategy {
             price: close,
             type: "MARKET",
             tag: `RSI-${context.market.asOf.getTime()}`,
+            ...(side === "BUY" ? buyOrderFlags(context.params) : {}),
           },
         ],
       });

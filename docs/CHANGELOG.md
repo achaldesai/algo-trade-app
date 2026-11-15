@@ -45,6 +45,9 @@
 ### Dashboard charts (ACH-31)
 - The Live Market Data chart no longer spills over the panel below it, and follows the light/dark theme, as does the Backtest chart now, even after toggling. Uptime and memory moved into the health indicator's tooltip, so the header status strip stays on one line.
 
+### Gap-up buys (ACH-32)
+- In backtests, a %-sized buy whose price opens higher the next day now buys as many shares as the cash covers, instead of being rejected outright, and the run says how many buys were resized. %-sized buys also keep 0.5% of cash back for costs and slippage. Your 50% RSI run (2021–2026) went from 3 rejected buys to none.
+
 ### Known limitations (beta)
 - Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.

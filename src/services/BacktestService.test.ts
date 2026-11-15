@@ -4,7 +4,7 @@ import BaseStrategy, { type StrategyContext, type StrategyTimeframe } from "../s
 import MovingAverageCrossoverStrategy from "../strategies/MovingAverageCrossoverStrategy";
 import RsiMeanReversionStrategy from "../strategies/RsiMeanReversionStrategy";
 import VWAPStrategy from "../strategies/VWAPStrategy";
-import { BacktestService, computeMetrics, fdMetrics, simulate, xirr, type BacktestRun } from "./BacktestService";
+import { BacktestService, computeMetrics, fdMetrics, signalWarnings, simulate, xirr, type BacktestRun } from "./BacktestService";
 import { DelistedSymbolError, type HistoricalDataService } from "./HistoricalDataService";
 import type TradingEngine from "./TradingEngine";
 import type { BacktestRepo } from "../db/repositories/BacktestRepo";
@@ -126,6 +126,44 @@ describe("simulate", () => {
         { price: 100.9495, cost: 1.01, pnl: -13.05 },
       ],
     );
+  });
+
+  it("fills a %-sized buy with fewer shares when the price gaps up, instead of rejecting it", async () => {
+    // Signal at day 0's close (100), sized for ₹1,000 -> 10 shares; day 1 opens at 102.
+    const resizable = { ...order("BUY", 10), sizeToCash: true };
+    const result = await simulate({
+      strategy: new ScriptedStrategy({ [key(0)]: [resizable] }),
+      params: {},
+      candles: { AAA },
+      from: date(0),
+      to: date(4),
+      initialCapital: 1000,
+      costBps: 0,
+      slippageBps: 0,
+    });
+    assert.deepEqual(result.rejections, []);
+    assert.deepEqual(
+      result.trades.map(({ date, quantity, requestedQuantity }) => ({ date, quantity, requestedQuantity })),
+      [{ date: key(1), quantity: 9, requestedQuantity: 10 }],
+    );
+    assert.equal(result.metrics.resizedFills, 1);
+    assert.match(signalWarnings(result, key(0), key(4)).join(), /1 buy\(s\) filled with fewer shares/);
+  });
+
+  it("still rejects a %-sized buy when not even one share fits", async () => {
+    const result = await simulate({
+      strategy: new ScriptedStrategy({ [key(0)]: [{ ...order("BUY", 1), sizeToCash: true }] }),
+      params: {},
+      candles: { AAA },
+      from: date(0),
+      to: date(4),
+      initialCapital: 100, // day 1 opens at 102
+      costBps: 0,
+      slippageBps: 0,
+    });
+    assert.deepEqual(result.trades, []);
+    assert.match(result.rejections[0].reason, /Insufficient cash: need 102, have 100/);
+    assert.equal(result.metrics.resizedFills, 0);
   });
 
   it("rejects buys that exceed available cash", async () => {

@@ -53,6 +53,8 @@ export type SizingMode = "shares" | "percent";
 const DEFAULT_SIZING: SizingMode = "shares";
 const DEFAULT_POSITION_PCT = 25;
 const DEFAULT_ORDER_SIZE = 10;
+/** Share of cash percent sizing leaves unspent, so costs and slippage still fit. */
+export const CASH_BUFFER = 0.005;
 
 /** Sizing params shared by the daily strategies; append to their schemas. */
 export const SIZING_PARAM_SCHEMA: StrategyParamDefinition[] = [
@@ -100,8 +102,14 @@ export const DEFAULT_SIZING_PARAMS = {
  * evaluation. In "percent" mode it sizes from `account` and spends down a local
  * copy of the cash, so several buys in the same evaluation can't overspend.
  * Without `account` it returns 0: percent sizing never falls back to a share
- * count, which could place a wrongly sized live order.
+ * count, which could place a wrongly sized live order. It keeps CASH_BUFFER of
+ * the cash unspent so costs and slippage fit.
  */
+/** Order fields for a buy: percent-sized buys may be resized to fit cash. */
+export function buyOrderFlags(params: Record<string, unknown>): { sizeToCash?: true } {
+  return params.sizing === "percent" ? { sizeToCash: true } : {};
+}
+
 /** Why a buy signal sized to 0 shares, for StrategySignal.skippedReason. */
 export function buySkipReason(params: Record<string, unknown>, account?: StrategyAccount): string {
   return params.sizing === "percent" && !account
@@ -117,7 +125,7 @@ export function buySizer(params: Record<string, unknown>, account?: StrategyAcco
   if (!account) return () => 0;
 
   const budget = (numberParam(params, "positionPct", DEFAULT_POSITION_PCT) / 100) * account.equity;
-  let cash = account.cash;
+  let cash = account.cash * (1 - CASH_BUFFER);
   return (price) => {
     if (!(price > 0)) return 0;
     const quantity = Math.max(0, Math.floor(Math.min(budget, cash) / price));

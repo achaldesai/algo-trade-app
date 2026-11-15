@@ -56,6 +56,8 @@ export interface BacktestTrade {
   quantity: number;
   price: number;
   cost: number;
+  /** Set when a %-sized buy filled fewer shares than signalled (price gapped up). */
+  requestedQuantity?: number;
   /** Realized P&L (net of costs on both legs), set on sells. */
   pnl?: number;
 }
@@ -135,6 +137,8 @@ export interface BacktestMetrics {
   signalCount?: number;
   /** Buy signals that placed no order (e.g. budget below one share). */
   skippedSignals?: number;
+  /** %-sized buys filled with fewer shares because the price gapped up. */
+  resizedFills?: number;
 }
 
 export interface BacktestRun {
@@ -216,7 +220,8 @@ const noopBroker = {
  * Signals generated from day t's close are filled at day t+1's open (no
  * look-ahead), with slippage against the trader and `costBps` per side.
  * Long-only: sells are capped at the held quantity. Buys that exceed cash are
- * rejected rather than resized. `monthlyContribution` is credited at the start
+ * rejected, except %-sized buys (`sizeToCash`), which fill as many shares as
+ * the cash covers. `monthlyContribution` is credited at the start
  * of the first trading day of each new month, before that day's fills.
  */
 export async function simulate(input: SimulationInput): Promise<SimulationResult> {
@@ -253,6 +258,7 @@ export async function simulate(input: SimulationInput): Promise<SimulationResult
   const contributions: Contribution[] = [];
   let signalCount = 0;
   let skippedSignals = 0;
+  let resizedFills = 0;
   const equityCurve: EquityPoint[] = [];
   let exposureSum = 0;
   let pending: BrokerOrderRequest[] = [];
@@ -282,17 +288,32 @@ export async function simulate(input: SimulationInput): Promise<SimulationResult
 
       if (order.side === "BUY") {
         const price = open * (1 + slippage);
-        const notional = price * order.quantity;
+        const allIn = price * (1 + costBps / 10_000);
+        let quantity = order.quantity;
+        // A %-sized buy was sized at yesterday's close; if today opens higher,
+        // buy what the cash covers rather than nothing.
+        if (quantity * allIn > cash && order.sizeToCash) quantity = Math.floor(cash / allIn);
+        const notional = price * quantity;
         const cost = (notional * costBps) / 10_000;
-        if (notional + cost > cash) {
-          reject(`Insufficient cash: need ${round(notional + cost)}, have ${round(cash)}`);
+        if (quantity <= 0 || notional + cost > cash) {
+          const need = price * order.quantity * (1 + costBps / 10_000);
+          reject(`Insufficient cash: need ${round(need)}, have ${round(cash)}`);
           continue;
         }
+        if (quantity < order.quantity) resizedFills++;
         cash -= notional + cost;
-        const qty = (held?.quantity ?? 0) + order.quantity;
+        const qty = (held?.quantity ?? 0) + quantity;
         const basis = ((held?.quantity ?? 0) * (held?.basis ?? 0) + notional + cost) / qty;
         positions.set(order.symbol, { quantity: qty, basis });
-        trades.push({ date: day, symbol: order.symbol, side: "BUY", quantity: order.quantity, price: round(price, 4), cost: round(cost) });
+        trades.push({
+          date: day,
+          symbol: order.symbol,
+          side: "BUY",
+          quantity,
+          price: round(price, 4),
+          cost: round(cost),
+          ...(quantity < order.quantity ? { requestedQuantity: order.quantity } : {}),
+        });
       } else {
         const quantity = Math.min(order.quantity, held?.quantity ?? 0);
         if (!held || quantity <= 0) {
@@ -373,6 +394,7 @@ export async function simulate(input: SimulationInput): Promise<SimulationResult
       ...(input.fdRatePct != null ? fdMetrics(input.fdRatePct, flows, equityCurve) : {}),
       signalCount,
       skippedSignals,
+      resizedFills,
     },
   };
 }
@@ -569,7 +591,15 @@ export function computeMetrics(
 
 /** Explain runs that traded little or nothing, so they don't look broken. */
 export function signalWarnings(result: SimulationResult, from: string, to: string): string[] {
-  const { signalCount = 0, skippedSignals = 0 } = result.metrics;
+  const { signalCount = 0, skippedSignals = 0, resizedFills = 0 } = result.metrics;
+  const notes: string[] = [];
+  if (resizedFills > 0) {
+    notes.push(`${resizedFills} buy(s) filled with fewer shares than signalled: the price opened higher than the close they were sized at.`);
+  }
+  return [...signalCountWarnings(signalCount, skippedSignals, from, to), ...notes];
+}
+
+function signalCountWarnings(signalCount: number, skippedSignals: number, from: string, to: string): string[] {
   if (signalCount === 0) {
     return [`No signals fired between ${from} and ${to}. The thresholds may be too strict for these symbols and dates.`];
   }
