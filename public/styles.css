@@ -771,7 +771,6 @@ details.settings-section > *:not(summary) { padding: 0 16px 14px; }
     font-size: 13px;
     line-height: 1.45;
 }
-.bt-field-hint { display: block; margin-top: 4px; color: var(--text-muted); font-size: 11px; }
 .bt-chart { height: 280px; margin-top: 14px; }
 .bt-trades { margin-top: 12px; }
 .bt-trades > summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; padding: 6px 0; }
