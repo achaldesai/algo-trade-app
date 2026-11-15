@@ -63,7 +63,7 @@ LMDB is the **primary** store. Despite a recent commit titled "remove LMDB persi
 Two middlewares with **the same secret** (`ADMIN_API_KEY`, falling back to `"fallback-secret-for-dev"` in non-production):
 
 - **`userAuth.ts`** — verifies JWT in `Authorization: Bearer …`. Required for most `/api/*` routes.
-- **`adminAuth.ts`** — tries the same JWT but additionally requires `role === "ADMIN"`; falls back to a timing-safe `X-Admin-API-Key` header check. Used on `/api/admin`, `/api/control`, `/api/audit-logs`, parts of `/api/scanner`, `/api/stop-loss`.
+- **`adminAuth.ts`** — tries the same JWT but additionally requires `role === "ADMIN"`; falls back to a timing-safe `X-Admin-API-Key` header check. A valid JWT without the ADMIN role gets **403**, never 401: the dashboard logs the user out on any 401. Used on `/api/admin`, `/api/control`, `/api/audit-logs`, parts of `/api/scanner`, `/api/stop-loss`.
 
 Important: **if `ADMIN_API_KEY` is unset in production, all admin endpoints return 503**. In dev they work via the fallback secret, but a JWT signed with the fallback won't verify if you later set a real key — re-login after changing it.
 

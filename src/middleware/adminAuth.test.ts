@@ -4,6 +4,8 @@ import type { Request, Response, NextFunction } from "express";
 import { adminAuthMiddleware } from "./adminAuth";
 import { HttpError } from "../utils/HttpError";
 import env from "../config/env";
+import jwt from "jsonwebtoken";
+import { getJwtSecret } from "../utils/jwtSecret";
 
 describe("Admin Auth Middleware", () => {
     let req: Partial<Request>;
@@ -92,6 +94,37 @@ describe("Admin Auth Middleware", () => {
             await adminAuthMiddleware(req as Request, res as Response, next);
             assert.strictEqual(next.mock.callCount(), 1);
             assert.strictEqual(next.mock.calls[0].arguments[0], undefined);
+        } finally {
+            env.adminApiKey = originalKey;
+        }
+    });
+
+    it("should throw 403 (not 401) for a valid non-admin JWT", async () => {
+        const originalKey = env.adminApiKey;
+        env.adminApiKey = "secret";
+        const token = jwt.sign({ userId: "u1", role: "USER" }, getJwtSecret());
+        req.headers!["authorization"] = `Bearer ${token}`;
+
+        try {
+            await adminAuthMiddleware(req as Request, res as Response, next);
+            assert.strictEqual(next.mock.callCount(), 1);
+            const err = next.mock.calls[0].arguments[0] as HttpError;
+            assert.ok(err instanceof HttpError);
+            assert.strictEqual(err.statusCode, 403);
+        } finally {
+            env.adminApiKey = originalKey;
+        }
+    });
+
+    it("should still throw 401 for an invalid JWT", async () => {
+        const originalKey = env.adminApiKey;
+        env.adminApiKey = "secret";
+        req.headers!["authorization"] = `Bearer ${jwt.sign({ userId: "u1", role: "USER" }, "other-secret")}`;
+
+        try {
+            await adminAuthMiddleware(req as Request, res as Response, next);
+            const err = next.mock.calls[0].arguments[0] as HttpError;
+            assert.strictEqual(err.statusCode, 401);
         } finally {
             env.adminApiKey = originalKey;
         }

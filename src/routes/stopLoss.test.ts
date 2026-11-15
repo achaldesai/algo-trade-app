@@ -154,8 +154,8 @@ describe("/api/stop-loss routes", () => {
 
   describe("start/stop (global monitor)", () => {
     it("is forbidden for normal users", async () => {
-      assert.equal((await call("POST", "/stop", tokens.alice)).status, 401);
-      assert.equal((await call("POST", "/start", tokens.alice)).status, 401);
+      assert.equal((await call("POST", "/stop", tokens.alice)).status, 403);
+      assert.equal((await call("POST", "/start", tokens.alice)).status, 403);
     });
 
     it("is allowed for admins", async () => {
