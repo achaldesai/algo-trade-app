@@ -113,6 +113,7 @@ describe("/api/backtest routes", () => {
     assert.equal(run.initialCapital, 1_000_000, "default capital");
     assert.equal(run.costBps, 10, "default costs");
     assert.equal(run.monthlyContribution, 0, "no deposits by default");
+    assert.equal(run.metrics.indexSymbol, "NIFTYBEES", "compared with the Nifty 50 ETF by default");
     assert.equal(run.to, "2025-01-21", "inclusive end date");
     assert.equal(run.equityCurve.at(-1)!.date, "2025-01-21");
     assert.ok(run.trades.length > 0);
@@ -141,6 +142,14 @@ describe("/api/backtest routes", () => {
     ]) {
       const res = await call("POST", "/", tokens.alice, body);
       assert.equal(res.status, 400, JSON.stringify(body));
+    }
+  });
+
+  it("turns the index comparison off with an empty or null benchmarkSymbol", async () => {
+    for (const benchmarkSymbol of ["", null]) {
+      const res = await call("POST", "/", tokens.alice, { ...validBody, benchmarkSymbol });
+      assert.equal(res.status, 201);
+      assert.equal(((await res.json()).data as BacktestRun).metrics.indexSymbol, undefined, String(benchmarkSymbol));
     }
   });
 

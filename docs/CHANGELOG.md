@@ -33,6 +33,9 @@
 ### Bad historical bars (ACH-29)
 - Backtests and the live daily runner now drop short price spikes that are data errors. One example is Yahoo's NIFTYBEES, BANKBEES and GOLDBEES at a tenth of their price on 2019-12-19/20. Backtests say which dates were removed. Real crashes are kept. A spike in the most recent bars can't be confirmed yet and is kept.
 
+### Index comparison (ACH-27)
+- Every backtest is now also compared with investing the same money, on the same days, in an index ETF (default NIFTYBEES, the Nifty 50). Results show the index's profit and XIRR and the strategy's gap in points. The dashboard has a Compare with Index field, an index tile and a vs Index column in the history. If the index can't be fetched, the run still completes, with a warning.
+
 ### Known limitations (beta)
 - Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.

@@ -134,6 +134,7 @@
             to: document.getElementById('bt-to').value,
             initialCapital: Number(document.getElementById('bt-capital').value),
             monthlyContribution: Number(document.getElementById('bt-deposit').value) || 0,
+            benchmarkSymbol: document.getElementById('bt-index').value.trim(),
             costBps: Number(document.getElementById('bt-cost').value),
             params: readParams(),
         };
@@ -162,6 +163,20 @@
             (hint ? `<div class="hint">${hint}</div>` : '') + '</div>';
     }
 
+    // Strategy minus index, in percentage points: XIRR when the run has deposits
+    // (that's what a monthly investor earns), plain return otherwise. Null on
+    // runs without an index comparison.
+    function vsIndex(run) {
+        const m = run.metrics;
+        if (!m.indexSymbol) return null;
+        const deposits = (run.monthlyContribution || 0) > 0;
+        const mine = deposits ? m.moneyWeightedReturnPct : m.totalReturnPct;
+        const theirs = deposits ? m.indexMoneyWeightedReturnPct : m.indexReturnPct;
+        return mine === null || mine === undefined || theirs === null || theirs === undefined ? null : mine - theirs;
+    }
+
+    const pts = (v) => (v === null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(1)} pts`);
+
     // signalCount is missing on runs saved before it existed.
     function noTradesText(m) {
         if (m.signalCount === undefined) return 'No trades in this period';
@@ -185,8 +200,16 @@
             metricTile('XIRR', pct(m.moneyWeightedReturnPct), tone(m.moneyWeightedReturnPct ?? 0),
                 `Buy &amp; hold: ${pct(m.benchmarkMoneyWeightedReturnPct)} · yearly return on your deposits`),
         ] : [];
+        const gap = vsIndex(run);
+        const indexTile = m.indexSymbol ? [
+            metricTile(`${escapeHtml(m.indexSymbol)} (same money)`,
+                deposits ? pct(m.indexMoneyWeightedReturnPct) : pct(m.indexReturnPct),
+                tone(deposits ? m.indexMoneyWeightedReturnPct ?? 0 : m.indexReturnPct),
+                `${deposits ? 'XIRR · ' : ''}profit ${formatCurrency(m.indexProfit)} · strategy ${pts(gap)}`),
+        ] : [];
         document.getElementById('bt-metrics').innerHTML = [
             ...depositTiles,
+            ...indexTile,
             metricTile('Total Return', pct(m.totalReturnPct), tone(m.totalReturnPct),
                 `${formatCurrency(deposits ? m.totalContributed : m.startEquity)} → ${formatCurrency(m.endEquity)}`),
             metricTile('Buy &amp; Hold', pct(m.benchmarkReturnPct), tone(m.benchmarkReturnPct),
@@ -276,10 +299,11 @@
                 <td>${escapeHtml(r.from)} → ${escapeHtml(r.to)}</td>
                 <td class="${tone(r.metrics.totalReturnPct)}">${pct(r.metrics.totalReturnPct)}</td>
                 <td>${pct(r.metrics.benchmarkReturnPct)}</td>
+                <td class="${tone(vsIndex(r) ?? 0)}" title="${escapeHtml(r.metrics.indexSymbol || 'no index comparison')}">${pts(vsIndex(r))}</td>
                 <td>${r.metrics.maxDrawdownPct.toFixed(2)}%</td>
                 <td><button type="button" class="btn btn-danger btn-sm" data-delete="${escapeHtml(r.id)}">Delete</button></td>
             </tr>`).join('')
-            : '<tr><td colspan="8" class="empty-state">No saved backtests</td></tr>';
+            : '<tr><td colspan="9" class="empty-state">No saved backtests</td></tr>';
         highlightHistory();
     }
 

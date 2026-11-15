@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getContainer } from "../util/getContainer";
 import { asyncHandler } from "../util/asyncHandler";
 import { userAuthMiddleware } from "../middleware/userAuth";
-import { DEFAULT_COST_BPS, MAX_SYMBOLS } from "../services/BacktestService";
+import { DEFAULT_COST_BPS, DEFAULT_INDEX_SYMBOL, MAX_SYMBOLS } from "../services/BacktestService";
 
 const router = Router();
 router.use(userAuthMiddleware);
@@ -24,6 +24,8 @@ const runSchema = z.object({
   initialCapital: z.number().min(0).max(1e12).default(1_000_000),
   monthlyContribution: z.number().min(0).max(1e10).default(0),
   costBps: z.number().min(0).max(500).default(DEFAULT_COST_BPS),
+  // Compare with this index bought with the same deposits; "" or null turns it off.
+  benchmarkSymbol: z.string().max(30).nullable().default(DEFAULT_INDEX_SYMBOL),
 });
 
 // Run a backtest, save it to the caller's history, return the full result.
