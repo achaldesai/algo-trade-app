@@ -259,6 +259,73 @@ describe("monthly contributions", () => {
   });
 });
 
+describe("index comparison", () => {
+  // AAA (traded) rallies; IDX (index) is flat at 100, then doubles on the last day.
+  const days = ["2025-01-30", "2025-01-31", "2025-02-03", "2025-02-04", "2025-03-03"];
+  const bars = (symbol: string, prices: number[]) =>
+    days.map((d, i) => ({
+      symbol,
+      open: prices[i],
+      high: prices[i],
+      low: prices[i],
+      close: prices[i],
+      volume: 1,
+      timestamp: new Date(`${d}T00:00:00.000Z`),
+    }));
+  const AAA = bars("AAA", [100, 110, 120, 130, 140]);
+  const run = (strategy: BaseStrategy, idx: number[], monthlyContribution = 0) =>
+    simulate({
+      strategy,
+      params: {},
+      candles: { AAA },
+      index: { symbol: "IDX", candles: bars("IDX", idx) },
+      from: new Date("2025-01-30"),
+      to: new Date("2025-03-03"),
+      initialCapital: 1000,
+      monthlyContribution,
+      costBps: 0,
+      slippageBps: 0,
+    });
+
+  it("invests the same money in the index on the same days", async () => {
+    const lump = (await run(new ScriptedStrategy({}), [100, 100, 100, 100, 100])).metrics;
+    assert.deepEqual([lump.indexSymbol, lump.indexProfit, lump.indexReturnPct], ["IDX", 0, 0]);
+
+    // ₹1,000 at 100, + ₹1,000 on Feb 3 at 100, + ₹1,000 on Mar 3 at the new open 200.
+    // End: 10 + 10 + 5 units at 200 = 5,000 on 3,000 put in.
+    const sip = (await run(new ScriptedStrategy({}), [100, 100, 100, 100, 200], 1000)).metrics;
+    assert.deepEqual([sip.indexProfit, sip.indexReturnPct], [2000, 66.67]);
+    assert.ok(sip.indexMoneyWeightedReturnPct! > 0);
+    // The same-symbols benchmark is separate: AAA bought at 100, 120 and 140, worth 140 at the end.
+    assert.equal(sip.benchmarkProfit, 566.67);
+  });
+
+  it("never shows the index to the strategy", async () => {
+    const strategy = new ScriptedStrategy({});
+    await run(strategy, [100, 100, 100, 100, 100]);
+    assert.ok(strategy.seen.length > 0);
+    for (const ctx of strategy.seen) {
+      assert.deepEqual(Object.keys(ctx.bars!), ["AAA"]);
+      assert.deepEqual(ctx.market.ticks.map((t) => t.symbol), ["AAA"]);
+    }
+  });
+
+  it("leaves the index metrics out when the index has no bars in range", async () => {
+    const m = (await simulate({
+      strategy: new ScriptedStrategy({}),
+      params: {},
+      candles: { AAA },
+      index: { symbol: "IDX", candles: [] },
+      from: new Date("2025-01-30"),
+      to: new Date("2025-03-03"),
+      initialCapital: 1000,
+      costBps: 0,
+    })).metrics;
+    assert.equal(m.indexSymbol, undefined);
+    assert.equal(m.indexProfit, undefined);
+  });
+});
+
 describe("xirr", () => {
   it("solves simple cases and returns null without a sign change", () => {
     const r = xirr([{ date: "2024-01-01", amount: -100 }, { date: "2024-12-31", amount: 110 }]);
@@ -421,6 +488,28 @@ describe("BacktestService.run", () => {
     assert.deepEqual(run.trades, []);
     assert.match(run.warnings.join(" | "), new RegExp(`GLITCH: removed 2 bad bars \\(${key(5)}, ${key(6)}\\)`));
     assert.ok(!run.equityCurve.some((p) => p.date === key(5) || p.date === key(6)), "glitch days are not trading days");
+  });
+
+  it("adds an index comparison when asked, and never fails the run over it", async () => {
+    const IDX = candles("IDX", Array.from({ length: 21 }, () => [100, 100] as [number, number]), -9);
+    const { service } = makeService({ TREND, IDX });
+
+    const withIndex = await service.run("u1", { ...base, benchmarkSymbol: "idx" });
+    assert.deepEqual([withIndex.metrics.indexSymbol, withIndex.metrics.indexProfit], ["IDX", 0]);
+    assert.deepEqual(withIndex.warnings, []);
+
+    const off = await service.run("u1", base);
+    assert.equal(off.metrics.indexSymbol, undefined, "no benchmarkSymbol, no comparison");
+
+    const broken = await service.run("u1", { ...base, benchmarkSymbol: "BROKEN" });
+    assert.equal(broken.metrics.indexSymbol, undefined);
+    assert.match(broken.warnings.join(), /Index benchmark BROKEN unavailable \(socket hang up\)/);
+
+    const empty = await service.run("u1", { ...base, benchmarkSymbol: "MISSING" });
+    assert.match(empty.warnings.join(), /Index benchmark MISSING: no data in the backtest dates/);
+
+    const traded = await service.run("u1", { ...base, benchmarkSymbol: "TREND" });
+    assert.equal(traded.metrics.indexSymbol, "TREND", "reuses the traded symbol's candles");
   });
 
   it("refuses tick strategies such as VWAP", async () => {

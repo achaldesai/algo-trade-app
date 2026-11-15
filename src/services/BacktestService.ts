@@ -22,6 +22,8 @@ import logger from "../utils/logger";
 export const MAX_SYMBOLS = 10;
 export const MAX_RANGE_YEARS = 10;
 export const DEFAULT_COST_BPS = 10;
+/** Nifty 50 ETF: the API's default index comparison. */
+export const DEFAULT_INDEX_SYMBOL = "NIFTYBEES";
 const TRADING_DAYS_PER_YEAR = 252;
 
 export interface BacktestRequest {
@@ -35,6 +37,11 @@ export interface BacktestRequest {
   monthlyContribution?: number;
   /** Brokerage + taxes per side, in basis points of notional. */
   costBps?: number;
+  /**
+   * Index to compare against, bought with the same deposits (e.g. NIFTYBEES).
+   * Never shown to the strategy. Empty / absent = no index comparison.
+   */
+  benchmarkSymbol?: string | null;
 }
 
 export interface BacktestTrade {
@@ -104,6 +111,14 @@ export interface BacktestMetrics {
    * against this: the benchmark is always 100% invested.
    */
   exposurePct: number;
+  /**
+   * The same cash flows invested in an index (e.g. a Nifty 50 ETF) on the same
+   * days, no costs. Absent when no index was requested or it had no data.
+   */
+  indexSymbol?: string;
+  indexProfit?: number;
+  indexReturnPct?: number;
+  indexMoneyWeightedReturnPct?: number | null;
   /** Strategy signals, including skipped buys. Absent on older runs. */
   signalCount?: number;
   /** Buy signals that placed no order (e.g. budget below one share). */
@@ -154,6 +169,8 @@ export interface SimulationInput {
   costBps: number;
   slippageBps?: number;
   userId?: string;
+  /** Index series for the index comparison; not shown to the strategy. */
+  index?: { symbol: string; candles: HistoricalCandle[] };
 }
 
 export interface SimulationResult {
@@ -338,9 +355,34 @@ export async function simulate(input: SimulationInput): Promise<SimulationResult
     contributions,
     metrics: {
       ...computeMetrics(initialCapital, equityCurve, trades, benchmarkEnd, days.length ? exposureSum / days.length : 0),
+      ...(input.index ? indexMetrics(input.index, flows, fromKey, toKey, equityCurve) : {}),
       signalCount,
       skippedSignals,
     },
+  };
+}
+
+/** The same money invested in the index on the same days; {} if it has no bars in range. */
+function indexMetrics(
+  index: { symbol: string; candles: HistoricalCandle[] },
+  flows: Contribution[],
+  fromKey: string,
+  toKey: string,
+  equityCurve: EquityPoint[],
+): Partial<BacktestMetrics> {
+  const inRange = index.candles.filter((b) => dayKey(b.timestamp) >= fromKey && dayKey(b.timestamp) <= toKey);
+  const last = inRange.reduce<HistoricalCandle | undefined>((a, b) => (!a || b.timestamp > a.timestamp ? b : a), undefined);
+  const lastDate = equityCurve.at(-1)?.date;
+  if (!last || !lastDate) return {};
+
+  const end = benchmarkValue({ [index.symbol]: inRange }, flows, fromKey, toKey, new Map([[index.symbol, last.close]]));
+  const contributed = flows.reduce((sum, f) => sum + f.amount, 0);
+  const rate = xirr([...flows.map((f) => ({ date: f.date, amount: -f.amount })), { date: lastDate, amount: end }]);
+  return {
+    indexSymbol: index.symbol,
+    indexProfit: round(end - contributed),
+    indexReturnPct: contributed > 0 ? round((end / contributed - 1) * 100) : 0,
+    indexMoneyWeightedReturnPct: rate === null ? null : round(rate * 100),
   };
 }
 
@@ -568,6 +610,8 @@ export class BacktestService {
       throw new HttpError(422, "No historical data for any requested symbol", { warnings });
     }
 
+    const index = await this.loadIndex(request, candles, warnings);
+
     const result = await simulate({
       strategy,
       params,
@@ -578,7 +622,11 @@ export class BacktestService {
       monthlyContribution,
       costBps,
       userId,
+      index,
     });
+    if (index && result.metrics.indexSymbol === undefined) {
+      warnings.push(`Index benchmark ${index.symbol}: no data in the backtest dates, skipped`);
+    }
     if (result.equityCurve.length === 0) {
       throw new HttpError(422, "No trading days in the requested range", { warnings });
     }
@@ -606,6 +654,35 @@ export class BacktestService {
       "Backtest completed",
     );
     return run;
+  }
+
+  /**
+   * Candles for the index comparison, or undefined. Unlike strategy symbols, a
+   * missing index never fails the run: it becomes a warning.
+   */
+  private async loadIndex(
+    request: BacktestRequest,
+    candles: Record<string, HistoricalCandle[]>,
+    warnings: string[],
+  ): Promise<SimulationInput["index"]> {
+    const symbol = request.benchmarkSymbol?.trim().toUpperCase();
+    if (!symbol) return undefined;
+    if (candles[symbol]) return { symbol, candles: candles[symbol] };
+    try {
+      const bars = await this.historicalData.getHistoricalData({
+        symbol,
+        interval: "1day",
+        fromDate: request.from,
+        toDate: request.to,
+      });
+      const { candles: clean, removed } = cleanCandles(bars);
+      const note = badBarsNote(symbol, removed);
+      if (note) warnings.push(note);
+      return { symbol, candles: clean };
+    } catch (error) {
+      warnings.push(`Index benchmark ${symbol} unavailable (${(error as Error).message}), skipped`);
+      return undefined;
+    }
   }
 
   list(userId: string): BacktestSummary[] {
