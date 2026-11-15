@@ -42,6 +42,9 @@
 ### Health check (ACH-30)
 - The dashboard no longer shows "Health unavailable" every evening. The price feed is switched off outside market hours, so it now reports "Idle: market closed" instead of unhealthy. When the system really is unhealthy, the header names the problem, e.g. "Unhealthy: ticker (Disconnected)". Memory is now reported as process RSS, with the heap measured against its limit; it used to read about 99% all the time.
 
+### Dashboard charts (ACH-31)
+- The Live Market Data chart no longer spills over the panel below it, and follows the light/dark theme, as does the Backtest chart now, even after toggling. Uptime and memory moved into the health indicator's tooltip, so the header status strip stays on one line.
+
 ### Known limitations (beta)
 - Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.

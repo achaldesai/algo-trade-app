@@ -154,11 +154,6 @@ header {
 .health-dot.unhealthy { background: var(--error); box-shadow: 0 0 6px var(--error); }
 .health-dot.pending { background: var(--text-muted); }
 
-.health-uptime {
-    color: var(--text-muted);
-    font-size: 11px;
-}
-
 .header-actions {
     display: flex;
     align-items: center;
@@ -360,6 +355,7 @@ header {
 #chart-container {
     height: 300px;
     width: 100%;
+    overflow: hidden; /* never let the canvas spill over the next panel */
     background: var(--card-bg-soft);
     border-radius: 6px;
 }

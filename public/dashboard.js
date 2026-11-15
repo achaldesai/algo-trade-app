@@ -1,30 +1,36 @@
-// Initialize Chart
+// Initialize Chart. Its size comes from #chart-container's CSS and its colours
+// from the theme tokens, so it fits its panel and follows the theme toggle.
 const chartContainer = document.getElementById('chart-container');
 const chart = LightweightCharts.createChart(chartContainer, {
-    layout: {
-        background: { type: 'solid', color: '#1e1e1e' },
-        textColor: '#d1d4dc',
-    },
-    grid: {
-        vertLines: { color: '#333' },
-        horzLines: { color: '#333' },
-    },
     width: chartContainer.clientWidth,
-    height: 400,
+    height: chartContainer.clientHeight,
 });
 
-const candlestickSeries = chart.addCandlestickSeries({
-    upColor: '#26a69a',
-    downColor: '#ef5350',
-    borderVisible: false,
-    wickUpColor: '#26a69a',
-    wickDownColor: '#ef5350',
-});
+const candlestickSeries = chart.addCandlestickSeries({ borderVisible: false });
 
-// Handle resize
-window.addEventListener('resize', () => {
-    chart.applyOptions({ width: chartContainer.clientWidth });
-});
+function applyChartTheme() {
+    const css = getComputedStyle(document.documentElement);
+    const color = (name) => css.getPropertyValue(name).trim();
+    chart.applyOptions({
+        layout: { background: { type: 'solid', color: color('--card-bg') }, textColor: color('--text-secondary') },
+        grid: { vertLines: { color: color('--border') }, horzLines: { color: color('--border') } },
+        rightPriceScale: { borderColor: color('--border') },
+        timeScale: { borderColor: color('--border') },
+    });
+    candlestickSeries.applyOptions({
+        upColor: color('--success'),
+        downColor: color('--error'),
+        wickUpColor: color('--success'),
+        wickDownColor: color('--error'),
+    });
+}
+applyChartTheme();
+new MutationObserver(applyChartTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+// Follow the container's size, not just the window's.
+new ResizeObserver(() => {
+    chart.applyOptions({ width: chartContainer.clientWidth, height: chartContainer.clientHeight });
+}).observe(chartContainer);
 
 // Constants
 const POLL_INTERVAL_MARKET = 1000;
@@ -289,7 +295,7 @@ async function updateSystemHealth() {
 
         const dot = document.getElementById('health-dot');
         const status = document.getElementById('health-status');
-        const uptime = document.getElementById('health-uptime');
+        const healthChip = document.getElementById('health-chip');
 
         // Update dot color
         dot.className = `health-dot ${health.status}`;
@@ -330,8 +336,12 @@ async function updateSystemHealth() {
             const mins = Math.floor((health.uptime % 3600) / 60);
             // Process memory (RSS); the heap figure is against V8's limit.
             const mem = health.memory && health.memory.rssMB !== undefined ? health.memory : null;
-            uptime.textContent = `Uptime: ${hours}h ${mins}m${mem ? ` | Mem: ${mem.rssMB} MB` : ''}`;
-            uptime.title = mem ? `Heap: ${mem.heapUsedMB} of ${mem.heapLimitMB} MB (${mem.heapPercentOfLimit}% of limit)` : '';
+            // Details live in the chip's tooltip so the status strip stays on one line.
+            healthChip.title = [
+                'Service health',
+                `Uptime: ${hours}h ${mins}m`,
+                mem ? `Memory: ${mem.rssMB} MB (heap ${mem.heapUsedMB} of ${mem.heapLimitMB} MB, ${mem.heapPercentOfLimit}% of limit)` : '',
+            ].filter(Boolean).join('\n');
         }
     } catch (error) {
         console.error('Failed to fetch system health:', error);
