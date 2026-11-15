@@ -220,6 +220,10 @@
                             <label for="bt-index">Compare with Index</label>
                             <input type="text" id="bt-index" name="benchmarkSymbol" value="NIFTYBEES" placeholder="e.g. NIFTYBEES">
                         </div>
+                        <div class="form-group" title="Also put the same money, on the same days, in a fixed deposit at this yearly rate. Pre-tax. Leave empty to skip.">
+                            <label for="bt-fd">Compare with FD (% / yr)</label>
+                            <input type="number" id="bt-fd" name="fdRatePct" min="0" max="20" step="0.1" placeholder="e.g. 7">
+                        </div>
                         <div class="form-group">
                             <label for="bt-cost">Costs per Side (bps)</label>
                             <input type="number" id="bt-cost" name="costBps" value="10" min="0" max="500" step="1" required>
@@ -255,7 +259,7 @@
                     <div class="positions-table-container">
                         <table class="positions-table">
                             <thead>
-                                <tr><th>Run</th><th>Strategy</th><th>Symbols</th><th>Period</th><th>Return</th><th>Buy &amp; Hold</th><th>vs Index</th><th>Max DD</th><th></th></tr>
+                                <tr><th>Run</th><th>Strategy</th><th>Symbols</th><th>Period</th><th>Return</th><th>Buy &amp; Hold</th><th>vs Index</th><th>vs FD</th><th>Max DD</th><th></th></tr>
                             </thead>
                             <tbody id="bt-history-body">
                                 <tr><td colspan="8" class="empty-state">No saved backtests</td></tr>

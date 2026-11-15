@@ -36,6 +36,9 @@
 ### Index comparison (ACH-27)
 - Every backtest is now also compared with investing the same money, on the same days, in an index ETF (default NIFTYBEES, the Nifty 50). Results show the index's profit and XIRR and the strategy's gap in points. The dashboard has a Compare with Index field, an index tile and a vs Index column in the history. If the index can't be fetched, the run still completes, with a warning.
 
+### FD comparison (ACH-28)
+- Backtests can also compare with a fixed deposit at a rate you choose (`fdRatePct`, e.g. 7), funded with the same deposits on the same days. The dashboard shows an FD tile and a vs FD column. This is pre-tax and doesn't change the strategy's results. Idle cash in the strategy still earns 0%, like a Zerodha trading account.
+
 ### Known limitations (beta)
 - Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.

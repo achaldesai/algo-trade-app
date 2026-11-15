@@ -26,6 +26,8 @@ const runSchema = z.object({
   costBps: z.number().min(0).max(500).default(DEFAULT_COST_BPS),
   // Compare with this index bought with the same deposits; "" or null turns it off.
   benchmarkSymbol: z.string().max(30).nullable().default(DEFAULT_INDEX_SYMBOL),
+  // Also compare with an FD at this annual rate (%); absent / null turns it off.
+  fdRatePct: z.number().min(0).max(20).nullable().optional(),
 });
 
 // Run a backtest, save it to the caller's history, return the full result.

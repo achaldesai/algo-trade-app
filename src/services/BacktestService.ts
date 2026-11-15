@@ -42,6 +42,11 @@ export interface BacktestRequest {
    * Never shown to the strategy. Empty / absent = no index comparison.
    */
   benchmarkSymbol?: string | null;
+  /**
+   * Compare with a fixed deposit at this annual effective rate (%), funded
+   * with the same cash flows. Absent / null = no FD comparison.
+   */
+  fdRatePct?: number | null;
 }
 
 export interface BacktestTrade {
@@ -119,6 +124,13 @@ export interface BacktestMetrics {
   indexProfit?: number;
   indexReturnPct?: number;
   indexMoneyWeightedReturnPct?: number | null;
+  /**
+   * The same cash flows in a fixed deposit at `fdRatePct` (annual effective,
+   * pre-tax). Absent when no FD rate was given.
+   */
+  fdRatePct?: number;
+  fdProfit?: number;
+  fdReturnPct?: number;
   /** Strategy signals, including skipped buys. Absent on older runs. */
   signalCount?: number;
   /** Buy signals that placed no order (e.g. budget below one share). */
@@ -171,6 +183,8 @@ export interface SimulationInput {
   userId?: string;
   /** Index series for the index comparison; not shown to the strategy. */
   index?: { symbol: string; candles: HistoricalCandle[] };
+  /** Annual effective FD rate (%) for the FD comparison. */
+  fdRatePct?: number | null;
 }
 
 export interface SimulationResult {
@@ -356,9 +370,29 @@ export async function simulate(input: SimulationInput): Promise<SimulationResult
     metrics: {
       ...computeMetrics(initialCapital, equityCurve, trades, benchmarkEnd, days.length ? exposureSum / days.length : 0),
       ...(input.index ? indexMetrics(input.index, flows, fromKey, toKey, equityCurve) : {}),
+      ...(input.fdRatePct != null ? fdMetrics(input.fdRatePct, flows, equityCurve) : {}),
       signalCount,
       skippedSignals,
     },
+  };
+}
+
+/**
+ * The same money in a fixed deposit: each flow compounds at the annual
+ * effective rate from its own date to the last backtest day. Pre-tax.
+ */
+export function fdMetrics(ratePct: number, flows: Contribution[], equityCurve: EquityPoint[]): Partial<BacktestMetrics> {
+  const lastDate = equityCurve.at(-1)?.date;
+  if (!lastDate) return {};
+  const end = flows.reduce(
+    (sum, f) => sum + f.amount * (1 + ratePct / 100) ** ((Date.parse(lastDate) - Date.parse(f.date)) / (365 * 86_400_000)),
+    0,
+  );
+  const contributed = flows.reduce((sum, f) => sum + f.amount, 0);
+  return {
+    fdRatePct: ratePct,
+    fdProfit: round(end - contributed),
+    fdReturnPct: contributed > 0 ? round((end / contributed - 1) * 100) : 0,
   };
 }
 
@@ -572,6 +606,9 @@ export class BacktestService {
     maxTo.setFullYear(maxTo.getFullYear() + MAX_RANGE_YEARS);
     if (request.to > maxTo) throw new HttpError(400, `Date range can be at most ${MAX_RANGE_YEARS} years`);
 
+    if (request.fdRatePct != null && !(request.fdRatePct >= 0 && request.fdRatePct <= 20)) {
+      throw new HttpError(400, "'fdRatePct' must be between 0 and 20");
+    }
     const monthlyContribution = request.monthlyContribution ?? 0;
     if (!(monthlyContribution >= 0)) throw new HttpError(400, "'monthlyContribution' must be 0 or more");
     if (!(request.initialCapital >= 0) || (request.initialCapital === 0 && monthlyContribution === 0)) {
@@ -623,6 +660,7 @@ export class BacktestService {
       costBps,
       userId,
       index,
+      fdRatePct: request.fdRatePct,
     });
     if (index && result.metrics.indexSymbol === undefined) {
       warnings.push(`Index benchmark ${index.symbol}: no data in the backtest dates, skipped`);

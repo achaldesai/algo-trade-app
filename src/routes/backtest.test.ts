@@ -114,6 +114,7 @@ describe("/api/backtest routes", () => {
     assert.equal(run.costBps, 10, "default costs");
     assert.equal(run.monthlyContribution, 0, "no deposits by default");
     assert.equal(run.metrics.indexSymbol, "NIFTYBEES", "compared with the Nifty 50 ETF by default");
+    assert.equal(run.metrics.fdRatePct, undefined, "no FD comparison by default");
     assert.equal(run.to, "2025-01-21", "inclusive end date");
     assert.equal(run.equityCurve.at(-1)!.date, "2025-01-21");
     assert.ok(run.trades.length > 0);
@@ -137,6 +138,8 @@ describe("/api/backtest routes", () => {
       { ...validBody, initialCapital: -5 },
       { ...validBody, initialCapital: 0 },
       { ...validBody, monthlyContribution: -1 },
+      { ...validBody, fdRatePct: -1 },
+      { ...validBody, fdRatePct: 25 },
       { ...validBody, strategyId: "vwap" },
       { ...validBody, from: "2025-01-21", to: "2025-01-10" },
     ]) {
@@ -151,6 +154,15 @@ describe("/api/backtest routes", () => {
       assert.equal(res.status, 201);
       assert.equal(((await res.json()).data as BacktestRun).metrics.indexSymbol, undefined, String(benchmarkSymbol));
     }
+  });
+
+  it("adds an FD comparison when given a rate, and not for null", async () => {
+    let res = await call("POST", "/", tokens.alice, { ...validBody, fdRatePct: 7 });
+    assert.equal(res.status, 201);
+    assert.equal(((await res.json()).data as BacktestRun).metrics.fdRatePct, 7);
+    res = await call("POST", "/", tokens.alice, { ...validBody, fdRatePct: null });
+    assert.equal(res.status, 201);
+    assert.equal(((await res.json()).data as BacktestRun).metrics.fdRatePct, undefined);
   });
 
   it("accepts deposits-only runs (₹0 start plus a monthly contribution)", async () => {
