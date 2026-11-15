@@ -135,6 +135,7 @@
             initialCapital: Number(document.getElementById('bt-capital').value),
             monthlyContribution: Number(document.getElementById('bt-deposit').value) || 0,
             benchmarkSymbol: document.getElementById('bt-index').value.trim(),
+            fdRatePct: document.getElementById('bt-fd').value === '' ? null : Number(document.getElementById('bt-fd').value),
             costBps: Number(document.getElementById('bt-cost').value),
             params: readParams(),
         };
@@ -170,8 +171,20 @@
         const m = run.metrics;
         if (!m.indexSymbol) return null;
         const deposits = (run.monthlyContribution || 0) > 0;
-        const mine = deposits ? m.moneyWeightedReturnPct : m.totalReturnPct;
-        const theirs = deposits ? m.indexMoneyWeightedReturnPct : m.indexReturnPct;
+        return gapPts(run, deposits ? m.indexMoneyWeightedReturnPct : m.indexReturnPct);
+    }
+
+    // Strategy minus FD: an FD's XIRR is its rate, so with deposits compare XIRR to the rate.
+    function vsFd(run) {
+        const m = run.metrics;
+        if (m.fdRatePct === undefined) return null;
+        const deposits = (run.monthlyContribution || 0) > 0;
+        return gapPts(run, deposits ? m.fdRatePct : m.fdReturnPct);
+    }
+
+    function gapPts(run, theirs) {
+        const m = run.metrics;
+        const mine = (run.monthlyContribution || 0) > 0 ? m.moneyWeightedReturnPct : m.totalReturnPct;
         return mine === null || mine === undefined || theirs === null || theirs === undefined ? null : mine - theirs;
     }
 
@@ -207,9 +220,14 @@
                 tone(deposits ? m.indexMoneyWeightedReturnPct ?? 0 : m.indexReturnPct),
                 `${deposits ? 'XIRR · ' : ''}profit ${formatCurrency(m.indexProfit)} · strategy ${pts(gap)}`),
         ] : [];
+        const fdTile = m.fdRatePct !== undefined ? [
+            metricTile(`FD at ${m.fdRatePct}% (same money)`, formatCurrency(m.fdProfit), tone(m.fdProfit),
+                `pre-tax profit · strategy ${pts(vsFd(run))}`),
+        ] : [];
         document.getElementById('bt-metrics').innerHTML = [
             ...depositTiles,
             ...indexTile,
+            ...fdTile,
             metricTile('Total Return', pct(m.totalReturnPct), tone(m.totalReturnPct),
                 `${formatCurrency(deposits ? m.totalContributed : m.startEquity)} → ${formatCurrency(m.endEquity)}`),
             metricTile('Buy &amp; Hold', pct(m.benchmarkReturnPct), tone(m.benchmarkReturnPct),
@@ -300,10 +318,11 @@
                 <td class="${tone(r.metrics.totalReturnPct)}">${pct(r.metrics.totalReturnPct)}</td>
                 <td>${pct(r.metrics.benchmarkReturnPct)}</td>
                 <td class="${tone(vsIndex(r) ?? 0)}" title="${escapeHtml(r.metrics.indexSymbol || 'no index comparison')}">${pts(vsIndex(r))}</td>
+                <td class="${tone(vsFd(r) ?? 0)}" title="${r.metrics.fdRatePct === undefined ? 'no FD comparison' : `FD at ${r.metrics.fdRatePct}%`}">${pts(vsFd(r))}</td>
                 <td>${r.metrics.maxDrawdownPct.toFixed(2)}%</td>
                 <td><button type="button" class="btn btn-danger btn-sm" data-delete="${escapeHtml(r.id)}">Delete</button></td>
             </tr>`).join('')
-            : '<tr><td colspan="9" class="empty-state">No saved backtests</td></tr>';
+            : '<tr><td colspan="10" class="empty-state">No saved backtests</td></tr>';
         highlightHistory();
     }
 

@@ -4,7 +4,7 @@ import BaseStrategy, { type StrategyContext, type StrategyTimeframe } from "../s
 import MovingAverageCrossoverStrategy from "../strategies/MovingAverageCrossoverStrategy";
 import RsiMeanReversionStrategy from "../strategies/RsiMeanReversionStrategy";
 import VWAPStrategy from "../strategies/VWAPStrategy";
-import { BacktestService, computeMetrics, simulate, xirr, type BacktestRun } from "./BacktestService";
+import { BacktestService, computeMetrics, fdMetrics, simulate, xirr, type BacktestRun } from "./BacktestService";
 import { DelistedSymbolError, type HistoricalDataService } from "./HistoricalDataService";
 import type TradingEngine from "./TradingEngine";
 import type { BacktestRepo } from "../db/repositories/BacktestRepo";
@@ -326,6 +326,41 @@ describe("index comparison", () => {
   });
 });
 
+describe("FD comparison", () => {
+  const curveTo = (date: string) => [{ date, equity: 0 }];
+
+  it("compounds a lump sum at the annual effective rate", () => {
+    const m = fdMetrics(7, [{ date: "2025-01-01", amount: 10_000 }], curveTo("2026-01-01"));
+    assert.deepEqual(m, { fdRatePct: 7, fdProfit: 700, fdReturnPct: 7 });
+  });
+
+  it("compounds each deposit only from its own date, so its XIRR is the rate", () => {
+    const flows = [
+      { date: "2025-01-01", amount: 1000 },
+      { date: "2025-07-02", amount: 1000 }, // 183 days before the end
+      { date: "2026-01-01", amount: 1000 }, // deposited on the last day: no interest
+    ];
+    const m = fdMetrics(10, flows, curveTo("2026-01-01"));
+    const end = 1000 * 1.1 + 1000 * 1.1 ** (183 / 365) + 1000;
+    assert.equal(m.fdProfit, Number((end - 3000).toFixed(2)));
+    const rate = xirr([...flows.map((f) => ({ date: f.date, amount: -f.amount })), { date: "2026-01-01", amount: end }]);
+    assert.ok(Math.abs(rate! - 0.1) < 1e-6, `xirr ${rate}`);
+  });
+
+  it("never changes the strategy's own numbers", async () => {
+    const strategy = () => new ScriptedStrategy({ [key(0)]: [order("BUY", 10)], [key(2)]: [order("SELL", 10)] });
+    const input = { params: {}, candles: { AAA }, from: date(0), to: date(4), initialCapital: 10_000, costBps: 10 };
+    const without = await simulate({ strategy: strategy(), ...input });
+    const withFd = await simulate({ strategy: strategy(), ...input, fdRatePct: 7 });
+    const { fdRatePct, fdProfit, fdReturnPct, ...rest } = withFd.metrics;
+    assert.deepEqual(rest, without.metrics);
+    assert.equal(fdRatePct, 7);
+    assert.ok(fdProfit! > 0 && fdReturnPct! > 0);
+    assert.deepEqual(withFd.equityCurve, without.equityCurve);
+    assert.equal(without.metrics.fdRatePct, undefined, "off unless asked");
+  });
+});
+
 describe("xirr", () => {
   it("solves simple cases and returns null without a sign change", () => {
     const r = xirr([{ date: "2024-01-01", amount: -100 }, { date: "2024-12-31", amount: 110 }]);
@@ -532,6 +567,8 @@ describe("BacktestService.run", () => {
     assert.match(await status(service.run("u1", { ...base, initialCapital: 0 })), /^400 'initialCapital'/);
     assert.equal(await status(service.run("u1", { ...base, initialCapital: 0, monthlyContribution: 5000 })), "ok");
     assert.match(await status(service.run("u1", { ...base, monthlyContribution: -1 })), /^400 'monthlyContribution'/);
+    assert.match(await status(service.run("u1", { ...base, fdRatePct: 25 })), /^400 'fdRatePct'/);
+    assert.equal((await service.run("u1", { ...base, fdRatePct: 7 })).metrics.fdRatePct, 7);
   });
 
   it("skips delisted symbols with a warning, and 422s when nothing is left", async () => {
