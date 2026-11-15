@@ -15,6 +15,7 @@ import { StrategyConfigRepo } from "./db/repositories/StrategyConfigRepo";
 import { BacktestRepo } from "./db/repositories/BacktestRepo";
 import BacktestService from "./services/BacktestService";
 import DailyStrategyRunner from "./services/DailyStrategyRunner";
+import AccountService from "./services/AccountService";
 import type { RiskLimits } from "./db/repositories/SettingsRepo";
 import MarketDataService from "./services/MarketDataService";
 import PortfolioService from "./services/PortfolioService";
@@ -229,11 +230,18 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
 
   const riskManager = new RiskManager(settingsRepo);
 
+  const accountService = new AccountService({
+    portfolioService,
+    settingsRepo,
+    priceLookup: (symbol) => marketDataService.getTick(symbol)?.price,
+  });
+
   const tradingEngine = new TradingEngine({
     brokerFactory: (userId: string) => brokerFactory.getBroker(userId),
     marketData: marketDataService,
     portfolioService,
     riskManager,
+    accountService,
   });
 
   tradingEngine.registerStrategy(new VWAPStrategy());

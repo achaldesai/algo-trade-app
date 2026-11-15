@@ -295,3 +295,33 @@ describe("ZerodhaBroker MARKET order fill resolution", () => {
     assert.equal(execution.averagePrice, 0);
   });
 });
+
+describe("ZerodhaBroker.getFunds", () => {
+  const liveBroker = (getMargins: () => Promise<unknown>) =>
+    new ZerodhaBroker(
+      { apiKey: "key", accessToken: "access", defaultExchange: "NSE", product: "CNC" },
+      { dependencies: { createClient: () => ({ ...buildKiteStub().stub, getMargins }) as unknown as Connect, now: () => now } },
+    );
+
+  it("returns the equity segment's live balance", async () => {
+    const broker = liveBroker(async () => ({ equity: { net: 9000, available: { cash: 10_000, live_balance: 7_250.5 } } }));
+    await broker.connect();
+    assert.deepEqual(await broker.getFunds(), { cash: 7_250.5 });
+  });
+
+  it("returns null without a session, on errors, or on a malformed response (no paper fallback)", async () => {
+    const noSession = new ZerodhaBroker(baseConfig);
+    await noSession.connect();
+    assert.equal(await noSession.getFunds(), null);
+
+    const failing = liveBroker(async () => {
+      throw new Error("TokenException");
+    });
+    await failing.connect();
+    assert.equal(await failing.getFunds(), null);
+
+    const malformed = liveBroker(async () => ({ equity: {} }));
+    await malformed.connect();
+    assert.equal(await malformed.getFunds(), null);
+  });
+});

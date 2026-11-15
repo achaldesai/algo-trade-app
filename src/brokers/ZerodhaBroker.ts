@@ -3,6 +3,7 @@ import { authenticator } from "otplib";
 import { KiteConnect } from "kiteconnect";
 import PaperBroker from "./PaperBroker";
 import type BrokerClient from "./BrokerClient";
+import type { BrokerFunds } from "./BrokerClient";
 import type {
   BrokerOrderExecution,
   BrokerOrderRequest,
@@ -451,6 +452,23 @@ export class ZerodhaBroker implements BrokerClient {
     }
 
     await this.fallback.cancelOrder(orderId);
+  }
+
+  /**
+   * Equity segment's current available balance (`available.live_balance`).
+   * Null without a live session: unlike quotes and positions, there is no
+   * paper fallback, since a made-up balance could size real orders.
+   */
+  async getFunds(): Promise<BrokerFunds | null> {
+    if (!this.kiteSessionActive || !this.kite) return null;
+    try {
+      const margins = await this.kite.getMargins("equity");
+      const cash = margins?.equity?.available?.live_balance;
+      return typeof cash === "number" && Number.isFinite(cash) ? { cash } : null;
+    } catch (error) {
+      logger.warn({ err: error }, "Failed to fetch Zerodha funds");
+      return null;
+    }
   }
 
   async getQuote(symbol: string, side: TradeSide): Promise<BrokerOrderQuote | null> {

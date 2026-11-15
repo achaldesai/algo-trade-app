@@ -13,6 +13,7 @@ import type PortfolioService from "./PortfolioService";
 import TradingEngine from "./TradingEngine";
 import BaseStrategy, { type StrategyContext, type StrategyParamDefinition } from "../strategies/BaseStrategy";
 import { RiskManager } from "./RiskManager";
+import type AccountService from "./AccountService";
 import type { SettingsRepo } from "../db/repositories/SettingsRepo";
 
 function createTestRiskManager(): RiskManager {
@@ -227,6 +228,30 @@ describe("TradingEngine broker fallback", () => {
     const result = await engine.evaluate(strategy.id, "test-user");
     assert.deepEqual(result.executions, []);
     assert.deepEqual(result.errors, []);
+  });
+
+  it("passes the account to the strategy only when asked", async () => {
+    const broker = new PlaceOrderFailingBroker();
+    const seen: unknown[] = [];
+    class AccountProbe extends TestStrategy {
+      override async generateSignals(context: StrategyContext): Promise<StrategySignal[]> {
+        seen.push(context.account);
+        return [];
+      }
+    }
+    const engine = new TradingEngine({
+      brokerFactory: async () => broker,
+      portfolioService: createPortfolioServiceStub().service,
+      marketData: new MarketDataService(),
+      riskManager: createTestRiskManager(),
+      accountService: { getAccount: async () => ({ cash: 5000, equity: 8000 }) } as unknown as AccountService,
+    });
+    const strategy = new AccountProbe(broker);
+    engine.registerStrategy(strategy);
+
+    await engine.evaluate(strategy.id, "u1");
+    await engine.evaluate(strategy.id, "u1", undefined, { withAccount: true });
+    assert.deepEqual(seen, [undefined, { cash: 5000, equity: 8000 }]);
   });
 
   it("throttles broker-unavailable alerts to one per cooldown window", async () => {

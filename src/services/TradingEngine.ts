@@ -17,6 +17,8 @@ import type {
 } from "../types";
 import logger from "../utils/logger";
 import type BaseStrategy from "../strategies/BaseStrategy";
+import type { StrategyAccount } from "../strategies/BaseStrategy";
+import type AccountService from "./AccountService";
 import { HttpError } from "../utils/HttpError";
 import env from "../config/env";
 
@@ -27,6 +29,8 @@ export interface TradingEngineOptions {
   portfolioService: PortfolioService;
   marketData: MarketDataService;
   riskManager: RiskManager;
+  /** Needed for `evaluate(..., { withAccount: true })`. */
+  accountService?: AccountService;
 }
 
 export interface StrategyEvaluationResult {
@@ -50,6 +54,8 @@ export class TradingEngine extends EventEmitter {
 
   private readonly riskManager: RiskManager;
 
+  private readonly accountService?: AccountService;
+
   private readonly brokerAlertAt = new Map<string, number>();
 
   constructor(options: TradingEngineOptions) {
@@ -58,6 +64,7 @@ export class TradingEngine extends EventEmitter {
     this.portfolioService = options.portfolioService;
     this.marketData = options.marketData;
     this.riskManager = options.riskManager;
+    this.accountService = options.accountService;
   }
 
   private async ensureBrokerConnected(broker: BrokerClient): Promise<void> {
@@ -82,7 +89,12 @@ export class TradingEngine extends EventEmitter {
     strategyId: string,
     userId: string,
     paramsOverride?: Record<string, unknown>,
-    options: { bars?: Record<string, HistoricalCandle[]> } = {},
+    /**
+     * `withAccount`: read the account balance from the broker and pass it to
+     * the strategy as `context.account` (for "% of equity" sizing). If it
+     * can't be read, the strategy gets no account and sizes no buys.
+     */
+    options: { bars?: Record<string, HistoricalCandle[]>; withAccount?: boolean } = {},
   ): Promise<StrategyEvaluationResult> {
     const strategy = this.strategies.get(strategyId);
     if (!strategy) {
@@ -122,6 +134,12 @@ export class TradingEngine extends EventEmitter {
 
     const broker = activeBroker;
 
+    let account: StrategyAccount | undefined;
+    if (options.withAccount) {
+      account = await this.accountService?.getAccount(userId, broker);
+      if (!account) logger.warn({ strategyId, userId, broker: broker.name }, "Account balance unavailable; % sized buys will be skipped");
+    }
+
     // Merge strategy defaults with user overrides
     const strategyDefaults = strategy.getDefaultParams();
     const mergedParams = { ...strategyDefaults, ...paramsOverride };
@@ -135,6 +153,7 @@ export class TradingEngine extends EventEmitter {
         params: mergedParams,
         userId,
         bars: options.bars,
+        account,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to generate strategy signals";
