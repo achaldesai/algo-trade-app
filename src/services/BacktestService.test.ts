@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import BaseStrategy, { type StrategyContext, type StrategyTimeframe } from "../strategies/BaseStrategy";
 import MovingAverageCrossoverStrategy from "../strategies/MovingAverageCrossoverStrategy";
+import RsiMeanReversionStrategy from "../strategies/RsiMeanReversionStrategy";
 import VWAPStrategy from "../strategies/VWAPStrategy";
 import { BacktestService, computeMetrics, simulate, xirr, type BacktestRun } from "./BacktestService";
 import { DelistedSymbolError, type HistoricalDataService } from "./HistoricalDataService";
@@ -301,6 +302,7 @@ function makeService(data: Record<string, HistoricalCandle[]>) {
   const strategies = new Map<string, BaseStrategy>([
     ["vwap", new VWAPStrategy()],
     ["ma-crossover", new MovingAverageCrossoverStrategy()],
+    ["rsi-reversion", new RsiMeanReversionStrategy()],
   ]);
   const saved: BacktestRun[] = [];
   const service = new BacktestService(
@@ -389,6 +391,36 @@ describe("BacktestService.run", () => {
     const fine = await service.run("u1", base);
     assert.equal(fine.metrics.signalCount, 2);
     assert.deepEqual(fine.warnings, []);
+  });
+
+  it("removes bad bars before the strategy sees them, with a warning", async () => {
+    // Quiet market (RSI near 50) with a two-day ÷10 glitch on days 5 and 6.
+    const closes = Array.from({ length: 21 }, (_, i) => (i === 14 || i === 15 ? 10 : i % 2 ? 101 : 100));
+    const GLITCH = candles("GLITCH", closes.map((c) => [c, c] as [number, number]), -9);
+    const request = {
+      ...base,
+      strategyId: "rsi-reversion",
+      symbols: ["GLITCH"],
+      params: { period: 2, oversold: 30, exitLevel: 55, orderSize: 1 },
+    };
+
+    // Without cleaning, the fake crash is a textbook RSI buy.
+    const raw = await simulate({
+      strategy: new RsiMeanReversionStrategy(),
+      params: { ...new RsiMeanReversionStrategy().getDefaultParams(), ...request.params },
+      candles: { GLITCH },
+      from: base.from,
+      to: base.to,
+      initialCapital: 100_000,
+      costBps: 0,
+    });
+    assert.ok(raw.trades.some((t) => t.side === "BUY"), "the glitch would trigger a buy");
+
+    const { service } = makeService({ GLITCH });
+    const run = await service.run("u1", request);
+    assert.deepEqual(run.trades, []);
+    assert.match(run.warnings.join(" | "), new RegExp(`GLITCH: removed 2 bad bars \\(${key(5)}, ${key(6)}\\)`));
+    assert.ok(!run.equityCurve.some((p) => p.date === key(5) || p.date === key(6)), "glitch days are not trading days");
   });
 
   it("refuses tick strategies such as VWAP", async () => {

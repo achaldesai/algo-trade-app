@@ -14,6 +14,7 @@ import type {
   TradeSide,
 } from "../types";
 import { HttpError } from "../utils/HttpError";
+import { badBarsNote, cleanCandles } from "../utils/candles";
 import logger from "../utils/logger";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -550,8 +551,11 @@ export class BacktestService {
           fromDate: fetchFrom,
           toDate: request.to,
         });
-        if (bars.length === 0) warnings.push(`${symbol}: no data in range, skipped`);
-        else candles[symbol] = bars;
+        const { candles: clean, removed } = cleanCandles(bars);
+        const note = badBarsNote(symbol, removed);
+        if (note) warnings.push(note);
+        if (clean.length === 0) warnings.push(`${symbol}: no data in range, skipped`);
+        else candles[symbol] = clean;
       } catch (error) {
         if (error instanceof DelistedSymbolError) {
           warnings.push(`${symbol}: no historical data (delisted or unsupported), skipped`);
