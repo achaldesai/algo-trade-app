@@ -3,7 +3,15 @@ import BaseStrategy, {
   type StrategyParamDefinition,
   type StrategyTimeframe,
 } from "./BaseStrategy";
-import { DEFAULT_SIZING_PARAMS, SIZING_PARAM_SCHEMA, buySizer, lastTwo, movingAverage, numberParam } from "./dailyIndicators";
+import {
+  DEFAULT_SIZING_PARAMS,
+  SIZING_PARAM_SCHEMA,
+  buySizer,
+  buySkipReason,
+  lastTwo,
+  movingAverage,
+  numberParam,
+} from "./dailyIndicators";
 import type { StrategySignal } from "../types";
 
 const DEFAULT_FAST = 20;
@@ -92,7 +100,17 @@ export class MovingAverageCrossoverStrategy extends BaseStrategy {
         side = "SELL";
         quantity = held;
       }
-      if (!side || quantity <= 0) continue;
+      if (!side) continue;
+      if (quantity <= 0) {
+        const skippedReason = buySkipReason(context.params, context.account);
+        signals.push({
+          strategyId: this.id,
+          description: `BUY ${symbol} @ ${close.toFixed(2)} skipped: ${skippedReason}`,
+          requestedOrders: [],
+          skippedReason,
+        });
+        continue;
+      }
 
       signals.push({
         strategyId: this.id,

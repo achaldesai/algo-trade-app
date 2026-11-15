@@ -162,6 +162,13 @@
             (hint ? `<div class="hint">${hint}</div>` : '') + '</div>';
     }
 
+    // signalCount is missing on runs saved before it existed.
+    function noTradesText(m) {
+        if (m.signalCount === undefined) return 'No trades in this period';
+        if (m.signalCount === 0) return 'No trades: 0 signals fired in this period';
+        return `No trades: ${m.signalCount} signal(s) fired but none filled (see the note above)`;
+    }
+
     function renderRun(run) {
         activeRunId = run.id;
         const m = run.metrics;
@@ -188,7 +195,8 @@
             metricTile('CAGR', pct(m.cagrPct), tone(m.cagrPct), deposits ? 'time-weighted, deposits excluded' : ''),
             metricTile('Max Drawdown', `${m.maxDrawdownPct.toFixed(2)}%`, m.maxDrawdownPct > 0 ? 'loss' : ''),
             metricTile('Sharpe', num(m.sharpe), tone(m.sharpe ?? 0)),
-            metricTile('Round Trips', String(m.roundTrips), '', `${m.trades} fills`),
+            metricTile('Round Trips', String(m.roundTrips), '',
+                `${m.trades} fills${m.signalCount === undefined ? '' : ` · ${m.signalCount} signals`}`),
             metricTile('Win Rate', m.winRatePct === null ? '—' : `${m.winRatePct.toFixed(1)}%`),
             metricTile('Profit Factor', num(m.profitFactor)),
         ].join('');
@@ -212,7 +220,7 @@
                 <td>${formatCurrency(t.cost)}</td>
                 <td class="${t.pnl === undefined ? 'neutral' : tone(t.pnl)}">${t.pnl === undefined ? '—' : formatCurrency(t.pnl)}</td>
             </tr>`).join('')
-            : '<tr><td colspan="7" class="empty-state">No trades — the strategy never signalled in this period</td></tr>';
+            : `<tr><td colspan="7" class="empty-state">${escapeHtml(noTradesText(m))}</td></tr>`;
 
         drawEquity(run.equityCurve);
         highlightHistory();

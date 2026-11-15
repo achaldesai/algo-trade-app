@@ -85,6 +85,11 @@ export interface StrategySignal {
   strategyId: string;
   description: string;
   requestedOrders: BrokerOrderRequest[];
+  /**
+   * Set when the strategy's condition fired but it placed no order (e.g. the
+   * position budget is below one share). `requestedOrders` is then empty.
+   */
+  skippedReason?: string;
 }
 
 export interface StrategyExecutionResult {

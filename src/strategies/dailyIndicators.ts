@@ -102,6 +102,13 @@ export const DEFAULT_SIZING_PARAMS = {
  * Without `account` it returns 0: percent sizing never falls back to a share
  * count, which could place a wrongly sized live order.
  */
+/** Why a buy signal sized to 0 shares, for StrategySignal.skippedReason. */
+export function buySkipReason(params: Record<string, unknown>, account?: StrategyAccount): string {
+  return params.sizing === "percent" && !account
+    ? "No account balance for % of equity sizing"
+    : "Position budget below one share";
+}
+
 export function buySizer(params: Record<string, unknown>, account?: StrategyAccount): (price: number) => number {
   if (params.sizing !== "percent") {
     const orderSize = numberParam(params, "orderSize", DEFAULT_ORDER_SIZE);

@@ -208,6 +208,27 @@ describe("TradingEngine broker fallback", () => {
     assert.equal(failedEvents.length, 1);
   });
 
+  it("does not execute a skipped signal (no orders)", async () => {
+    const broker = new PlaceOrderFailingBroker();
+    const engine = new TradingEngine({
+      brokerFactory: async () => broker,
+      portfolioService: createPortfolioServiceStub().service,
+      marketData: new MarketDataService(),
+      riskManager: createTestRiskManager(),
+    });
+    class SkippingStrategy extends TestStrategy {
+      override async generateSignals(): Promise<StrategySignal[]> {
+        return [{ strategyId: this.id, description: "BUY AAPL skipped", requestedOrders: [], skippedReason: "budget" }];
+      }
+    }
+    const strategy = new SkippingStrategy(broker);
+    engine.registerStrategy(strategy);
+
+    const result = await engine.evaluate(strategy.id, "test-user");
+    assert.deepEqual(result.executions, []);
+    assert.deepEqual(result.errors, []);
+  });
+
   it("throttles broker-unavailable alerts to one per cooldown window", async () => {
     const failingBroker = new FailingBroker();
     const { service: portfolioService } = createPortfolioServiceStub();

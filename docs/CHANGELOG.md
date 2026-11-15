@@ -24,6 +24,9 @@
 ### Monthly deposits in backtests (ACH-23)
 - Backtests take an optional `monthlyContribution`, added on the first trading day of each month. Deposits don't count as profit: results show money put in, profit, XIRR, and a time-weighted CAGR. The buy-and-hold benchmark invests the same deposits on the same days. The dashboard has a Monthly Deposit field, deposit tiles, and a "money put in" line on the equity chart.
 
+### Backtest warnings (ACH-26)
+- A backtest that fires no signals, or whose buys were below one share, now says so instead of showing a silent 0%. Results report `signalCount` and `skippedSignals`. The dashboard shows these notes above the metrics and gives a Zerodha cost hint next to the costs field.
+
 ### Known limitations (beta)
 - Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.

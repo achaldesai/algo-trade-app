@@ -55,7 +55,8 @@ describe("RsiMeanReversionStrategy", () => {
     );
     assert.equal(buy.requestedOrders[0].quantity, 35); // floor(500 / 14)
 
-    assert.deepEqual(await strategy.generateSignals(dailyContext(bars, pctParams, { INFY: 0 })), [], "no account, no buy");
+    const [skipped] = await strategy.generateSignals(dailyContext(bars, pctParams, { INFY: 0 }));
+    assert.deepEqual([skipped.requestedOrders, skipped.skippedReason], [[], "No account balance for % of equity sizing"]);
     const [sell] = await strategy.generateSignals(dailyContext({ INFY: barsFrom("INFY", rising) }, pctParams, { INFY: 9 }));
     assert.deepEqual([sell.requestedOrders[0].side, sell.requestedOrders[0].quantity], ["SELL", 9]);
   });
