@@ -33,7 +33,7 @@ export class BacktestRepo {
     return [...this.range(userId)]
       .map(({ value }) => {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { equityCurve, trades, rejections, ...summary } = value as unknown as BacktestRun;
+        const { equityCurve, trades, rejections, contributions, ...summary } = value as unknown as BacktestRun;
         return summary;
       })
       .reverse();
