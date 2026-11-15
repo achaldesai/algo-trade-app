@@ -103,6 +103,10 @@ export interface BacktestMetrics {
    * against this: the benchmark is always 100% invested.
    */
   exposurePct: number;
+  /** Strategy signals, including skipped buys. Absent on older runs. */
+  signalCount?: number;
+  /** Buy signals that placed no order (e.g. budget below one share). */
+  skippedSignals?: number;
 }
 
 export interface BacktestRun {
@@ -215,6 +219,8 @@ export async function simulate(input: SimulationInput): Promise<SimulationResult
   const trades: BacktestTrade[] = [];
   const rejections: BacktestRejection[] = [];
   const contributions: Contribution[] = [];
+  let signalCount = 0;
+  let skippedSignals = 0;
   const equityCurve: EquityPoint[] = [];
   let exposureSum = 0;
   let pending: BrokerOrderRequest[] = [];
@@ -316,6 +322,8 @@ export async function simulate(input: SimulationInput): Promise<SimulationResult
     } catch (error) {
       throw new HttpError(400, `Strategy rejected the parameters: ${(error as Error).message}`);
     }
+    signalCount += signals.length;
+    skippedSignals += signals.filter((s) => s.skippedReason).length;
     pending = signals.flatMap((s) => s.requestedOrders);
   }
 
@@ -327,13 +335,11 @@ export async function simulate(input: SimulationInput): Promise<SimulationResult
     trades,
     rejections,
     contributions,
-    metrics: computeMetrics(
-      initialCapital,
-      equityCurve,
-      trades,
-      benchmarkEnd,
-      days.length ? exposureSum / days.length : 0,
-    ),
+    metrics: {
+      ...computeMetrics(initialCapital, equityCurve, trades, benchmarkEnd, days.length ? exposureSum / days.length : 0),
+      signalCount,
+      skippedSignals,
+    },
   };
 }
 
@@ -484,6 +490,21 @@ export function computeMetrics(
   };
 }
 
+/** Explain runs that traded little or nothing, so they don't look broken. */
+export function signalWarnings(result: SimulationResult, from: string, to: string): string[] {
+  const { signalCount = 0, skippedSignals = 0 } = result.metrics;
+  if (signalCount === 0) {
+    return [`No signals fired between ${from} and ${to}. The thresholds may be too strict for these symbols and dates.`];
+  }
+  if (skippedSignals > 0) {
+    return [
+      `${skippedSignals} of ${signalCount} signals placed no order: the position budget was below one share. ` +
+        "Raise the position size or the capital, or pick cheaper symbols.",
+    ];
+  }
+  return [];
+}
+
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 export class BacktestService {
@@ -557,6 +578,7 @@ export class BacktestService {
     if (result.equityCurve.length === 0) {
       throw new HttpError(422, "No trading days in the requested range", { warnings });
     }
+    warnings.push(...signalWarnings(result, dayKey(request.from), dayKey(request.to)));
 
     const run: BacktestRun = {
       id: `${Date.now().toString(36).padStart(9, "0")}-${randomBytes(3).toString("hex")}`,

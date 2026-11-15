@@ -144,6 +144,10 @@ export class TradingEngine extends EventEmitter {
 
     const executions: StrategyExecutionResult[] = [];
     for (const signal of signals) {
+      if (signal.requestedOrders.length === 0) {
+        logger.info({ strategyId, userId, reason: signal.skippedReason }, signal.description);
+        continue;
+      }
       try {
         const executed = await this.executeSignal(userId, broker, signal);
         executions.push(executed);

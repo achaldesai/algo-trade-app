@@ -369,6 +369,28 @@ describe("BacktestService.run", () => {
     assert.ok(run.metrics.exposurePct > 20, "far more invested than 10 fixed shares");
   });
 
+  it("warns when no signals fire, and when buys are below one share", async () => {
+    const FLAT = candles("FLAT", Array.from({ length: 21 }, () => [100, 100] as [number, number]), -9);
+    const { service } = makeService({ TREND, FLAT });
+
+    const none = await service.run("u1", { ...base, symbols: ["FLAT"] });
+    assert.equal(none.metrics.signalCount, 0);
+    assert.match(none.warnings.join(), /No signals fired between .* and /);
+
+    // 1% of ₹1,000 = ₹10, below the ₹104 share price.
+    const tiny = await service.run("u1", {
+      ...base,
+      initialCapital: 1000,
+      params: { fastPeriod: 3, slowPeriod: 5, sizing: "percent", positionPct: 1 },
+    });
+    assert.deepEqual([tiny.metrics.signalCount, tiny.metrics.skippedSignals, tiny.trades.length], [1, 1, 0]);
+    assert.match(tiny.warnings.join(), /1 of 1 signals placed no order/);
+
+    const fine = await service.run("u1", base);
+    assert.equal(fine.metrics.signalCount, 2);
+    assert.deepEqual(fine.warnings, []);
+  });
+
   it("refuses tick strategies such as VWAP", async () => {
     const { service } = makeService({ TREND });
     assert.match(await status(service.run("u1", { ...base, strategyId: "vwap" })), /^400 .*live ticks/);

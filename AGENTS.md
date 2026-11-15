@@ -99,6 +99,7 @@ Rules for `1day` strategies:
 - **Return `[]` when `context.bars` is absent.**
 - **Declare `getWarmupBars(params)` honestly.** Callers pass exactly `warmup + 1` bars, both live and in backtests.
 - **Size buys with `buySizer(params, context.account)`** and spread `SIZING_PARAM_SCHEMA` / `DEFAULT_SIZING_PARAMS` into the schema and defaults (`src/strategies/dailyIndicators.ts`). `sizing: "shares"` (default) buys `orderSize`; `"percent"` buys `positionPct`% of equity, capped at cash, and **buys nothing without `context.account`**. Never fall back to a share count.
+- **When a buy sizes to 0 shares, still return the signal** with `requestedOrders: []` and `skippedReason` (from `buySkipReason()`). `TradingEngine.evaluate` logs and skips it; backtests count it (`signalCount`, `skippedSignals`) and warn when nothing fired or buys were below one share.
 
 ### Backtesting
 

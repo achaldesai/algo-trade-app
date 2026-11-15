@@ -66,7 +66,22 @@ describe("MovingAverageCrossoverStrategy", () => {
       signals.map((s) => [s.requestedOrders[0].symbol, s.requestedOrders[0].quantity]),
       [["TCS", 54], ["INFY", 36]],
     );
-    assert.deepEqual(await strategy.generateSignals(dailyContext(bars, pctParams)), [], "no account, no buy");
+    const noAccount = await strategy.generateSignals(dailyContext(bars, pctParams));
+    assert.deepEqual(
+      noAccount.map((s) => [s.requestedOrders.length, s.skippedReason]),
+      [[0, "No account balance for % of equity sizing"], [0, "No account balance for % of equity sizing"]],
+      "no account: the signal is reported as skipped, with no order",
+    );
+  });
+
+  it("reports a buy below one share as a skipped signal with no order", async () => {
+    const bars = { TCS: barsFrom("TCS", [10, 10, 10, 10, 10, 10, 11]) };
+    const [signal] = await strategy.generateSignals(
+      dailyContext(bars, { ...params, sizing: "percent", positionPct: 1 }, {}, { cash: 500, equity: 500 }),
+    );
+    assert.deepEqual(signal.requestedOrders, []); // ₹5 budget < ₹11
+    assert.equal(signal.skippedReason, "Position budget below one share");
+    assert.match(signal.description, /skipped/);
   });
 
   it("lists the sizing params, with the share count as the default", () => {
