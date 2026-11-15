@@ -1,4 +1,4 @@
-import type { StrategyContext } from "./BaseStrategy";
+import type { StrategyAccount, StrategyContext } from "./BaseStrategy";
 import type BrokerClient from "../brokers/BrokerClient";
 import type { HistoricalCandle } from "../types";
 
@@ -23,6 +23,7 @@ export function dailyContext(
   bars: Record<string, HistoricalCandle[]>,
   params: Record<string, unknown>,
   held: Record<string, number> = {},
+  account?: StrategyAccount,
 ): StrategyContext {
   const last = Object.values(bars)[0]?.at(-1)?.timestamp ?? new Date(START);
   return {
@@ -44,5 +45,6 @@ export function dailyContext(
     params,
     userId: "user-1",
     bars,
+    account,
   };
 }

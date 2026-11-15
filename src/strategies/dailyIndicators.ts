@@ -1,5 +1,6 @@
 import { IncrementalEMA, IncrementalRSI, IncrementalSMA } from "../services/IncrementalIndicators";
 import type { HistoricalCandle } from "../types";
+import type { StrategyAccount, StrategyParamDefinition } from "./BaseStrategy";
 
 interface Indicator {
   update(price: number): unknown;
@@ -43,4 +44,77 @@ export function warmupFetchStart(date: Date, warmupBars: number): Date {
   const start = new Date(date);
   start.setDate(start.getDate() - Math.ceil(warmupBars * 1.5) - 10);
   return start;
+}
+
+// ─── Position sizing ─────────────────────────────────────────────────────────
+
+export type SizingMode = "shares" | "percent";
+
+const DEFAULT_SIZING: SizingMode = "shares";
+const DEFAULT_POSITION_PCT = 25;
+const DEFAULT_ORDER_SIZE = 10;
+
+/** Sizing params shared by the daily strategies; append to their schemas. */
+export const SIZING_PARAM_SCHEMA: StrategyParamDefinition[] = [
+  {
+    key: "sizing",
+    label: "Position Sizing",
+    type: "select",
+    default: DEFAULT_SIZING,
+    options: [
+      { value: "shares", label: "Fixed number of shares" },
+      { value: "percent", label: "% of account equity" },
+    ],
+  },
+  {
+    key: "positionPct",
+    label: "Position Size (% of equity)",
+    type: "number",
+    default: DEFAULT_POSITION_PCT,
+    description: "Each new position uses this share of equity, capped at the cash available",
+    min: 1,
+    max: 100,
+    step: 1,
+    visibleWhen: { key: "sizing", equals: "percent" },
+  },
+  {
+    key: "orderSize",
+    label: "Order Size (shares)",
+    type: "number",
+    default: DEFAULT_ORDER_SIZE,
+    min: 1,
+    max: 10000,
+    step: 1,
+    visibleWhen: { key: "sizing", equals: "shares" },
+  },
+];
+
+export const DEFAULT_SIZING_PARAMS = {
+  sizing: DEFAULT_SIZING,
+  positionPct: DEFAULT_POSITION_PCT,
+  orderSize: DEFAULT_ORDER_SIZE,
+};
+
+/**
+ * Returns a function giving the number of shares to buy at `price`, for one
+ * evaluation. In "percent" mode it sizes from `account` and spends down a local
+ * copy of the cash, so several buys in the same evaluation can't overspend.
+ * Without `account` it returns 0: percent sizing never falls back to a share
+ * count, which could place a wrongly sized live order.
+ */
+export function buySizer(params: Record<string, unknown>, account?: StrategyAccount): (price: number) => number {
+  if (params.sizing !== "percent") {
+    const orderSize = numberParam(params, "orderSize", DEFAULT_ORDER_SIZE);
+    return () => orderSize;
+  }
+  if (!account) return () => 0;
+
+  const budget = (numberParam(params, "positionPct", DEFAULT_POSITION_PCT) / 100) * account.equity;
+  let cash = account.cash;
+  return (price) => {
+    if (!(price > 0)) return 0;
+    const quantity = Math.max(0, Math.floor(Math.min(budget, cash) / price));
+    cash -= quantity * price;
+    return quantity;
+  };
 }

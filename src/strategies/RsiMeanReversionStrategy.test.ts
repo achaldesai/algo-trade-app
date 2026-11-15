@@ -47,6 +47,19 @@ describe("RsiMeanReversionStrategy", () => {
     assert.equal((await run(falling.slice(0, 6), 0)).length, 1);
   });
 
+  it("sizes buys from the account in percent mode, and still sells without one", async () => {
+    const pctParams = { ...params, sizing: "percent", positionPct: 50 };
+    const bars = { INFY: barsFrom("INFY", falling) }; // last close 14
+    const [buy] = await strategy.generateSignals(
+      dailyContext(bars, pctParams, { INFY: 0 }, { cash: 1000, equity: 1000 }),
+    );
+    assert.equal(buy.requestedOrders[0].quantity, 35); // floor(500 / 14)
+
+    assert.deepEqual(await strategy.generateSignals(dailyContext(bars, pctParams, { INFY: 0 })), [], "no account, no buy");
+    const [sell] = await strategy.generateSignals(dailyContext({ INFY: barsFrom("INFY", rising) }, pctParams, { INFY: 9 }));
+    assert.deepEqual([sell.requestedOrders[0].side, sell.requestedOrders[0].quantity], ["SELL", 9]);
+  });
+
   it("rejects oversold >= exitLevel", async () => {
     await assert.rejects(run(falling, 0, { ...params, oversold: 60 }), /oversold/);
   });

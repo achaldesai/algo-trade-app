@@ -275,6 +275,7 @@ export async function simulate(input: SimulationInput): Promise<SimulationResult
         params,
         userId: input.userId ?? "backtest",
         bars,
+        account: { cash, equity },
       });
     } catch (error) {
       throw new HttpError(400, `Strategy rejected the parameters: ${(error as Error).message}`);

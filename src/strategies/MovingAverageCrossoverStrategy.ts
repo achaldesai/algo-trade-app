@@ -3,13 +3,12 @@ import BaseStrategy, {
   type StrategyParamDefinition,
   type StrategyTimeframe,
 } from "./BaseStrategy";
-import { lastTwo, movingAverage, numberParam } from "./dailyIndicators";
+import { DEFAULT_SIZING_PARAMS, SIZING_PARAM_SCHEMA, buySizer, lastTwo, movingAverage, numberParam } from "./dailyIndicators";
 import type { StrategySignal } from "../types";
 
 const DEFAULT_FAST = 20;
 const DEFAULT_SLOW = 50;
 const DEFAULT_MA_TYPE = "sma";
-const DEFAULT_ORDER_SIZE = 10;
 
 // ─── Moving Average Crossover (daily, trend following) ───────────────────────
 
@@ -47,12 +46,12 @@ export class MovingAverageCrossoverStrategy extends BaseStrategy {
           { value: "ema", label: "Exponential (EMA)" },
         ],
       },
-      { key: "orderSize", label: "Order Size", type: "number", default: DEFAULT_ORDER_SIZE, min: 1, max: 10000, step: 1 },
+      ...SIZING_PARAM_SCHEMA,
     ];
   }
 
   getDefaultParams(): Record<string, unknown> {
-    return { fastPeriod: DEFAULT_FAST, slowPeriod: DEFAULT_SLOW, maType: DEFAULT_MA_TYPE, orderSize: DEFAULT_ORDER_SIZE };
+    return { fastPeriod: DEFAULT_FAST, slowPeriod: DEFAULT_SLOW, maType: DEFAULT_MA_TYPE, ...DEFAULT_SIZING_PARAMS };
   }
 
   override getWarmupBars(params: Record<string, unknown>): number {
@@ -67,7 +66,7 @@ export class MovingAverageCrossoverStrategy extends BaseStrategy {
     const fast = numberParam(context.params, "fastPeriod", DEFAULT_FAST);
     const slow = numberParam(context.params, "slowPeriod", DEFAULT_SLOW);
     const maType = context.params.maType === "ema" ? "ema" : "sma";
-    const orderSize = numberParam(context.params, "orderSize", DEFAULT_ORDER_SIZE);
+    const sizeBuy = buySizer(context.params, context.account);
     if (fast >= slow) {
       throw new Error(`fastPeriod (${fast}) must be less than slowPeriod (${slow})`);
     }
@@ -88,12 +87,12 @@ export class MovingAverageCrossoverStrategy extends BaseStrategy {
       let quantity = 0;
       if (crossedUp && held <= 0) {
         side = "BUY";
-        quantity = orderSize;
+        quantity = sizeBuy(close);
       } else if (crossedDown && held > 0) {
         side = "SELL";
         quantity = held;
       }
-      if (!side) continue;
+      if (!side || quantity <= 0) continue;
 
       signals.push({
         strategyId: this.id,

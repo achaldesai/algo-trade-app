@@ -18,8 +18,11 @@
 - **Live**: daily strategies run once a day at 15:15 IST while trading is on, for users who enabled them (ACH-21).
 - **Fix**: a user who disabled every strategy, or enabled only a daily one, no longer falls back to running all tick strategies with defaults (ACH-21).
 
+### Position sizing (ACH-24)
+- Daily strategies can size buys as a % of account equity (`sizing: "percent"`, `positionPct`), capped at the cash available. The default is still a fixed number of shares. Backtests supply the account balance; live runs don't yet, so percent-sized configs only sell until the broker can report funds (ACH-25).
+
 ### Known limitations (beta)
-- Backtests use daily bars only, since the historical providers have no intraday data. Strategies size orders as a fixed number of shares, so backtests are usually far less invested than buy-and-hold (see `exposurePct`).
+- Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.
 - Angel One is used for market data only; live orders route through Zerodha.
 - Single-tenant: one deployment per operator. Additional users must be created by an admin in production.

@@ -85,8 +85,20 @@
                 const type = p.type === 'number' ? 'number' : 'text';
                 input = `<input type="${type}" id="${id}" data-param="${escapeHtml(p.key)}" data-type="${escapeHtml(p.type)}" value="${escapeHtml(p.default)}"${attrs}>`;
             }
-            return `<div class="form-group"${title}><label for="${id}">${escapeHtml(p.label)}</label>${input}</div>`;
+            const when = p.visibleWhen
+                ? ` data-visible-key="${escapeHtml(p.visibleWhen.key)}" data-visible-equals="${escapeHtml(p.visibleWhen.equals)}"`
+                : '';
+            return `<div class="form-group"${title}${when}><label for="${id}">${escapeHtml(p.label)}</label>${input}</div>`;
         }).join('');
+        updateParamVisibility();
+    }
+
+    // Hide params that only apply to another choice (e.g. order size vs % of equity).
+    function updateParamVisibility() {
+        const values = readParams();
+        paramsEl.querySelectorAll('[data-visible-key]').forEach((group) => {
+            group.classList.toggle('hidden', String(values[group.dataset.visibleKey]) !== group.dataset.visibleEquals);
+        });
     }
 
     function readParams() {
@@ -266,6 +278,7 @@
     // ─── Wiring ──────────────────────────────────────────────────────────────
 
     strategySelect.addEventListener('change', renderParams);
+    paramsEl.addEventListener('change', updateParamVisibility);
     form.addEventListener('submit', runBacktest);
     setDefaultDates();
 

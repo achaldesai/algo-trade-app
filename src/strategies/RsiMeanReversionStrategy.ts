@@ -3,13 +3,12 @@ import BaseStrategy, {
   type StrategyParamDefinition,
   type StrategyTimeframe,
 } from "./BaseStrategy";
-import { lastTwo, numberParam, rsi } from "./dailyIndicators";
+import { DEFAULT_SIZING_PARAMS, SIZING_PARAM_SCHEMA, buySizer, lastTwo, numberParam, rsi } from "./dailyIndicators";
 import type { StrategySignal } from "../types";
 
 const DEFAULT_PERIOD = 14;
 const DEFAULT_OVERSOLD = 30;
 const DEFAULT_EXIT = 55;
-const DEFAULT_ORDER_SIZE = 10;
 
 // ─── RSI Mean Reversion (daily) ──────────────────────────────────────────────
 
@@ -38,12 +37,12 @@ export class RsiMeanReversionStrategy extends BaseStrategy {
         max: 99,
         step: 1,
       },
-      { key: "orderSize", label: "Order Size", type: "number", default: DEFAULT_ORDER_SIZE, min: 1, max: 10000, step: 1 },
+      ...SIZING_PARAM_SCHEMA,
     ];
   }
 
   getDefaultParams(): Record<string, unknown> {
-    return { period: DEFAULT_PERIOD, oversold: DEFAULT_OVERSOLD, exitLevel: DEFAULT_EXIT, orderSize: DEFAULT_ORDER_SIZE };
+    return { period: DEFAULT_PERIOD, oversold: DEFAULT_OVERSOLD, exitLevel: DEFAULT_EXIT, ...DEFAULT_SIZING_PARAMS };
   }
 
   override getWarmupBars(params: Record<string, unknown>): number {
@@ -57,7 +56,7 @@ export class RsiMeanReversionStrategy extends BaseStrategy {
     const period = numberParam(context.params, "period", DEFAULT_PERIOD);
     const oversold = numberParam(context.params, "oversold", DEFAULT_OVERSOLD);
     const exitLevel = numberParam(context.params, "exitLevel", DEFAULT_EXIT);
-    const orderSize = numberParam(context.params, "orderSize", DEFAULT_ORDER_SIZE);
+    const sizeBuy = buySizer(context.params, context.account);
     if (oversold >= exitLevel) {
       throw new Error(`oversold (${oversold}) must be less than exitLevel (${exitLevel})`);
     }
@@ -75,12 +74,12 @@ export class RsiMeanReversionStrategy extends BaseStrategy {
       let quantity = 0;
       if (value < oversold && held <= 0) {
         side = "BUY";
-        quantity = orderSize;
+        quantity = sizeBuy(close);
       } else if (value > exitLevel && held > 0) {
         side = "SELL";
         quantity = held;
       }
-      if (!side) continue;
+      if (!side || quantity <= 0) continue;
 
       signals.push({
         strategyId: this.id,
