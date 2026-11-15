@@ -167,3 +167,123 @@ describe("/api/strategies routes", () => {
     assert.deepEqual(payload.data[0].defaultParams, { threshold: 0.01, orderSize: 10 });
   });
 });
+
+// ─── Per-config symbols and daily status (ACH-33) ────────────────────────────
+
+describe("/api/strategies config symbols and daily status", () => {
+  const tick = {
+    id: "vwap",
+    name: "VWAP",
+    description: "",
+    timeframe: "tick",
+    getParamSchema: () => [],
+    getDefaultParams: () => ({}),
+  };
+  const daily = {
+    id: "rsi-reversion",
+    name: "RSI Mean Reversion",
+    description: "",
+    timeframe: "1day",
+    getParamSchema: () => [{ key: "sizing", label: "Sizing", type: "select" as const, default: "shares", options: [{ value: "shares", label: "s" }, { value: "percent", label: "p" }] }],
+    getDefaultParams: () => ({ sizing: "shares" }),
+  };
+  type Saved = { strategyId: string; enabled: boolean; params: Record<string, unknown>; symbols?: string[] };
+  let saved: Saved[];
+  let account: { cash: number; equity: number } | undefined;
+
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (req as any).user = { userId: "alice" };
+    next();
+  });
+  app.locals.container = {
+    tradingEngine: { getStrategies: () => [tick, daily], getStrategy: (id: string) => [tick, daily].find((s) => s.id === id) },
+    strategyConfigRepo: {
+      getAllConfigs: () => saved,
+      getActiveStrategies: () => saved.filter((c) => c.enabled),
+      saveConfig: async (_userId: string, c: Saved) => void saved.push(c),
+    },
+    marketDataService: { getTrackedSymbols: () => ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"] },
+    dailyStrategyRunner: { getStatus: () => ({ scheduled: true, nextRunAt: "2026-11-16T09:45:00.000Z", lastRun: null }) },
+    tradingLoopService: { getStatus: () => ({ running: false }) },
+    brokerFactory: { getBroker: async () => ({ name: "paper" }) },
+    accountService: { getAccount: async () => account },
+  } as unknown as AppContainer;
+  app.use("/api/strategies", strategiesRouter);
+  app.use(errorHandler);
+
+  const call = async (method: RequestMethod, url: string, body?: unknown) => {
+    const req = createRequest({ method, url, headers: { "content-type": "application/json" } });
+    if (body !== undefined) req.body = body;
+    const res = createResponse({ eventEmitter: EventEmitter });
+    const done = once(res, "end");
+    app(req, res);
+    req.emit("end");
+    await done;
+    return { status: res.statusCode, body: res._getJSONData() };
+  };
+
+  beforeEach(() => {
+    saved = [];
+    account = undefined;
+  });
+
+  it("saves a daily strategy's symbols uppercased and de-duplicated", async () => {
+    const res = await call("PUT", "/api/strategies/config/rsi-reversion", {
+      enabled: true,
+      params: { sizing: "percent" },
+      symbols: ["reliance", " TCS ", "RELIANCE", "m&m"],
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.data.symbols, ["RELIANCE", "TCS", "M&M"]);
+    assert.deepEqual(saved[0].symbols, ["RELIANCE", "TCS", "M&M"]);
+  });
+
+  it("ignores symbols for tick strategies, and treats an empty list as 'all tracked'", async () => {
+    await call("PUT", "/api/strategies/config/vwap", { enabled: true, symbols: ["TCS"] });
+    await call("PUT", "/api/strategies/config/rsi-reversion", { enabled: true, symbols: [] });
+    assert.deepEqual(saved.map((c) => c.symbols), [undefined, undefined]);
+  });
+
+  it("rejects more than 10 symbols or malformed ones", async () => {
+    const eleven = Array.from({ length: 11 }, (_, i) => `S${i}`);
+    assert.equal((await call("PUT", "/api/strategies/config/rsi-reversion", { enabled: true, symbols: eleven })).status, 400);
+    assert.equal((await call("PUT", "/api/strategies/config/rsi-reversion", { enabled: true, symbols: ["TCS; DROP"] })).status, 400);
+    assert.equal(saved.length, 0);
+  });
+
+  it("returns timeframe and symbols with the user's configs", async () => {
+    saved = [{ strategyId: "rsi-reversion", enabled: true, params: {}, symbols: ["TCS"] }];
+    const res = await call("GET", "/api/strategies/config");
+    const rsi = res.body.data.find((s: { strategyId: string }) => s.strategyId === "rsi-reversion");
+    assert.equal(rsi.timeframe, "1day");
+    assert.deepEqual(rsi.userConfig.symbols, ["TCS"]);
+  });
+
+  it("reports the caller's daily setup: trading state, next run, account, symbols not tracked", async () => {
+    saved = [
+      { strategyId: "rsi-reversion", enabled: true, params: { sizing: "percent" }, symbols: ["TCS", "M&M"] },
+      { strategyId: "vwap", enabled: true, params: {} },
+    ];
+    account = { cash: 5000, equity: 5000 };
+    const { status, body } = await call("GET", "/api/strategies/daily-status");
+    assert.equal(status, 200);
+    assert.equal(body.data.tradingOn, false);
+    assert.equal(body.data.nextRunAt, "2026-11-16T09:45:00.000Z");
+    assert.deepEqual(body.data.account, { cash: 5000, equity: 5000 });
+    assert.equal(typeof body.data.paperMode, "boolean");
+    assert.deepEqual(body.data.strategies, [
+      { strategyId: "rsi-reversion", name: "RSI Mean Reversion", symbols: ["TCS", "M&M"], notTracked: ["M&M"], sizing: "percent" },
+    ], "only enabled daily strategies");
+  });
+
+  it("falls back to every tracked symbol, and to no account when it can't be read", async () => {
+    saved = [{ strategyId: "rsi-reversion", enabled: true, params: {} }];
+    const { body } = await call("GET", "/api/strategies/daily-status");
+    assert.deepEqual(body.data.strategies[0].symbols, ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"]);
+    assert.deepEqual(body.data.strategies[0].notTracked, []);
+    assert.equal(body.data.account, null);
+  });
+});

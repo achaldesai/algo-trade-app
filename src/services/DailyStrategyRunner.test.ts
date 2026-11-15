@@ -48,7 +48,7 @@ describe("DailyStrategyRunner.runOnce", () => {
 
   function setup(opts: {
     tradingOn?: boolean;
-    configs?: Record<string, { strategyId: string; enabled: boolean; params: Record<string, unknown> }[]>;
+    configs?: Record<string, { strategyId: string; enabled: boolean; params: Record<string, unknown>; symbols?: string[] }[]>;
     ticks?: Record<string, MarketTick>;
     history?: (symbol: string) => HistoricalCandle[];
   }) {
@@ -149,6 +149,33 @@ describe("DailyStrategyRunner.runOnce", () => {
     const bars = calls[0].bars!.TCS;
     assert.ok(bars.every((b) => b.close !== 10), "glitch bars removed");
     assert.equal(bars.length, 7, "window is still full: warm-up + today");
+  });
+
+  it("runs each config on its own symbols, and reports configured symbols with no price today", async () => {
+    const tick = (symbol: string) => ({ symbol, price: 123, volume: 9, timestamp: ist("2026-11-06T15:14:30") });
+    const { runner, calls } = setup({
+      ticks: { TCS: tick("TCS"), INFY: tick("INFY"), RELIANCE: tick("RELIANCE") },
+      configs: {
+        u1: [{ strategyId: "ma-crossover", enabled: true, params: { fastPeriod: 3, slowPeriod: 5 }, symbols: ["TCS", "M&M"] }],
+        u2: [{ strategyId: "ma-crossover", enabled: true, params: { fastPeriod: 3, slowPeriod: 5 } }],
+      },
+    });
+    const summary = await runner.runOnce();
+
+    assert.deepEqual(Object.keys(calls[0].bars!), ["TCS"], "u1 trades only its configured symbols that have a price");
+    assert.deepEqual(Object.keys(calls[1].bars!).sort(), ["INFY", "RELIANCE", "TCS"], "u2 has no list: every tracked symbol");
+    assert.equal(summary.evaluations, 2);
+    assert.deepEqual(summary.warnings, ["ma-crossover (u1): no live price today for M&M; skipped (in WATCHLIST?)"]);
+  });
+
+  it("doesn't evaluate a config none of whose symbols has a price today", async () => {
+    const { runner, calls } = setup({
+      configs: { u1: [{ strategyId: "ma-crossover", enabled: true, params: { fastPeriod: 3, slowPeriod: 5 }, symbols: ["M&M"] }] },
+    });
+    const summary = await runner.runOnce();
+    assert.equal(calls.length, 0);
+    assert.equal(summary.evaluations, 0);
+    assert.equal(summary.warnings?.length, 1);
   });
 
   it("skips the run when no symbol has a tick today (holiday / feed down)", async () => {
