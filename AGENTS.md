@@ -81,7 +81,7 @@ When extending: implement the interface, register the implementation in `contain
 - `TradingLoopService` evaluates registered **tick** strategies on each tick. A user with any saved strategy config gets exactly their enabled tick strategies; only a user with no configs at all falls back to every tick strategy with defaults. Modes: `parallel` (default, concurrent eval, ticks dropped if previous eval still running) or `sequential`. Latency >50ms is logged.
 - `StopLossMonitor` runs alongside the loop. Per-symbol promise queues serialize tick processing for a given symbol to avoid races on stop-loss state. Both FIXED and TRAILING types.
 - `RiskManager` enforces `MAX_DAILY_LOSS`, `MAX_POSITION_SIZE`, `MAX_OPEN_POSITIONS`. Circuit breaker state is persisted, survives restart, resets daily. **Stop-loss execution and panic-sell bypass the circuit breaker** — that's deliberate.
-- `DailyStrategyRunner` runs enabled `1day` strategies at 15:15 IST on weekdays. It is **opt-in** (no defaults fallback) and runs **only while the trading loop is on**, so START/STOP, panic-sell and the feed-health kill switch govern it too. Status is on `GET /api/control/status` → `dailyStrategies`.
+- `DailyStrategyRunner` runs enabled `1day` strategies at 15:15 IST on weekdays. It is **opt-in** (no defaults fallback) and runs **only while the trading loop is on**, so START/STOP, panic-sell and the feed-health kill switch govern it too. Status is on `GET /api/control/status` → `dailyStrategies`. It passes no `account` yet, so configs sized as `percent` only sell; their buys are skipped with a warning.
 - `POST /api/control/panic-sell` requires `confirmToken: "PANIC-CONFIRM"` in the body. Stops the loop, liquidates all open positions, bypasses circuit breaker, returns 503 if broker unavailable.
 
 ### Strategies
@@ -98,6 +98,7 @@ Rules for `1day` strategies:
 - **No wall clock.** Use `context.market.asOf`, never `Date.now()`.
 - **Return `[]` when `context.bars` is absent.**
 - **Declare `getWarmupBars(params)` honestly.** Callers pass exactly `warmup + 1` bars, both live and in backtests.
+- **Size buys with `buySizer(params, context.account)`** and spread `SIZING_PARAM_SCHEMA` / `DEFAULT_SIZING_PARAMS` into the schema and defaults (`src/strategies/dailyIndicators.ts`). `sizing: "shares"` (default) buys `orderSize`; `"percent"` buys `positionPct`% of equity, capped at cash, and **buys nothing without `context.account`**. Never fall back to a share count.
 
 ### Backtesting
 
@@ -105,7 +106,8 @@ Rules for `1day` strategies:
 - **No look-ahead:** signals from day t's close fill at day t+1's open.
 - **Fills:** `PaperBroker`'s slippage plus `costBps` per side.
 - **Long-only:** buys over the available cash are rejected, not resized.
-- **Metrics** include `exposurePct`. Strategies use a fixed `orderSize`, so they are usually far less invested than the buy-and-hold benchmark; read the returns against exposure.
+- **Sizing:** `simulate()` passes `account: { cash, equity }` at each signal close, so `percent` sizing grows with the account.
+- **Metrics** include `exposurePct`. With the default fixed `orderSize`, strategies are usually far less invested than the buy-and-hold benchmark; read the returns against exposure.
 - **Not backtestable:** tick strategies (VWAP).
 - **Storage:** runs are saved per user in LMDB through `BacktestRepo`.
 

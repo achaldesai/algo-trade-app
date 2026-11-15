@@ -15,6 +15,8 @@ export interface StrategyParamDefinition {
   step?: number;
   // Options (for "select" type)
   options?: { value: string; label: string }[];
+  /** Only relevant (and shown in forms) when another param has this value. */
+  visibleWhen?: { key: string; equals: string };
 }
 
 // ─── Strategy Context ────────────────────────────────────────────────────────
@@ -32,6 +34,18 @@ export interface StrategyContext {
    * on the live tick loop.
    */
   bars?: Record<string, HistoricalCandle[]>;
+  /**
+   * Account balance for sizing orders as a share of equity. Supplied by
+   * backtests; absent on live runs until the broker can report funds.
+   */
+  account?: StrategyAccount;
+}
+
+export interface StrategyAccount {
+  /** Cash available to buy with. */
+  cash: number;
+  /** Cash plus open positions at the latest close. */
+  equity: number;
 }
 
 /**

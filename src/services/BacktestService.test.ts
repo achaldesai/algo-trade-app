@@ -144,6 +144,23 @@ describe("simulate", () => {
     assert.ok(result.equityCurve.every((p) => p.equity === 500));
   });
 
+  it("shows the strategy the account's cash and equity at each signal close", async () => {
+    const strategy = new ScriptedStrategy({ [key(0)]: [order("BUY", 10)] });
+    await simulate({
+      strategy,
+      params: {},
+      candles: { AAA },
+      from: date(0),
+      to: date(4),
+      initialCapital: 10_000,
+      costBps: 0,
+      slippageBps: 0,
+    });
+    assert.deepEqual(strategy.seen[0].account, { cash: 10_000, equity: 10_000 });
+    // Bought 10 @ 102 on day 1; day 1 closes at 104.
+    assert.deepEqual(strategy.seen[1].account, { cash: 8_980, equity: 10_020 });
+  });
+
   it("never shows the strategy a future bar, and passes warm-up history from before `from`", async () => {
     const history = candles("AAA", [[90, 90], [91, 91], [92, 92]], -3);
     const strategy = new ScriptedStrategy({}, 2);
@@ -256,6 +273,14 @@ describe("BacktestService.run", () => {
     assert.equal(run.equityCurve.length, 12);
     assert.equal(run.from, key(0));
     assert.deepEqual(saved.map((r) => r.id), [run.id]);
+  });
+
+  it("sizes buys as a % of equity end to end", async () => {
+    const { service } = makeService({ TREND });
+    const run = await service.run("u1", { ...base, params: { fastPeriod: 3, slowPeriod: 5, sizing: "percent", positionPct: 50 } });
+    // 50% of ₹1,00,000 at the day-1 close of 104 -> floor(50000 / 104) = 480 shares.
+    assert.equal(run.trades[0].quantity, 480);
+    assert.ok(run.metrics.exposurePct > 20, "far more invested than 10 fixed shares");
   });
 
   it("refuses tick strategies such as VWAP", async () => {

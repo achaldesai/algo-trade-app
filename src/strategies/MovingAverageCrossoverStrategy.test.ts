@@ -56,6 +56,24 @@ describe("MovingAverageCrossoverStrategy", () => {
     assert.equal(signal.requestedOrders[0].price, 11);
   });
 
+  it("sizes each symbol's buy from the shared cash in percent mode", async () => {
+    const cross = [10, 10, 10, 10, 10, 10, 11]; // crosses up on the last bar, close 11
+    const bars = { TCS: barsFrom("TCS", cross), INFY: barsFrom("INFY", cross) };
+    const pctParams = { ...params, sizing: "percent", positionPct: 60 };
+    const signals = await strategy.generateSignals(dailyContext(bars, pctParams, {}, { cash: 1000, equity: 1000 }));
+    // TCS: floor(600 / 11) = 54 (₹594). INFY: capped at the ₹406 left -> 36.
+    assert.deepEqual(
+      signals.map((s) => [s.requestedOrders[0].symbol, s.requestedOrders[0].quantity]),
+      [["TCS", 54], ["INFY", 36]],
+    );
+    assert.deepEqual(await strategy.generateSignals(dailyContext(bars, pctParams)), [], "no account, no buy");
+  });
+
+  it("lists the sizing params, with the share count as the default", () => {
+    assert.deepEqual(strategy.getParamSchema().slice(-3).map((p) => p.key), ["sizing", "positionPct", "orderSize"]);
+    assert.equal(strategy.getDefaultParams().sizing, "shares");
+  });
+
   it("rejects fastPeriod >= slowPeriod", async () => {
     const ctx = dailyContext({ TCS: barsFrom("TCS", [10, 11]) }, { ...params, fastPeriod: 5 });
     await assert.rejects(strategy.generateSignals(ctx), /fastPeriod/);
