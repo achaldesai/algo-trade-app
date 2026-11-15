@@ -96,9 +96,9 @@ describe("auth middleware", () => {
       assert.equal(await run(adminAuthMiddleware, makeReq(sign("u-admin", "ADMIN"))), "ok");
     });
 
-    it("rejects a USER JWT", async () => {
+    it("rejects a USER JWT with 403 (401 would log the dashboard out)", async () => {
       const err = await run(adminAuthMiddleware, makeReq(sign("u-user", "USER")));
-      assert.ok(err instanceof HttpError && err.statusCode === 401);
+      assert.ok(err instanceof HttpError && err.statusCode === 403);
     });
 
     it("accepts the X-Admin-API-Key header and rejects a wrong one", async () => {

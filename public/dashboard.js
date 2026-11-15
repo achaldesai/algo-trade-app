@@ -678,8 +678,8 @@ toggleBtn.addEventListener('click', async () => {
 
         if (!res.ok) {
             const data = await res.json().catch(() => ({}));
-            if (res.status === 401 || res.status === 503) {
-                alert('Authentication required. Click on the health status to enter your Admin API Key.');
+            if (res.status === 401 || res.status === 403 || res.status === 503) {
+                alert('Admin access required. Log in with an ADMIN account to start or stop trading.');
             } else {
                 alert(`Failed to toggle trading: ${data.message || res.statusText}`);
             }

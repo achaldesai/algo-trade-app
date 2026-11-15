@@ -22,6 +22,10 @@ export async function adminAuthMiddleware(
   next: NextFunction
 ): Promise<void> {
 
+  // A valid JWT for a non-admin user. Such callers must get 403, not 401:
+  // the dashboard treats 401 as "session expired" and logs the user out.
+  let authenticatedNonAdmin = false;
+
   // First try JWT authentication if Authorization header is present
   const authHeader = req.headers["authorization"];
   if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -29,6 +33,7 @@ export async function adminAuthMiddleware(
     try {
       const secret = getJwtSecret();
       const decoded = jwt.verify(token, secret) as TokenPayload;
+      authenticatedNonAdmin = decoded.role !== "ADMIN";
 
       if (decoded.role === "ADMIN") {
         const repo = getContainer(req).userRepo;
@@ -61,6 +66,11 @@ export async function adminAuthMiddleware(
 
   const headerVal = req.headers["x-admin-api-key"];
   const providedKey = Array.isArray(headerVal) ? headerVal[0] : headerVal;
+
+  if (!providedKey && authenticatedNonAdmin) {
+    logger.warn({ path: req.path, ip: req.ip }, "Non-admin user denied admin endpoint");
+    return next(new HttpError(403, "Admin role required."));
+  }
 
   if (!providedKey) {
     logger.warn({ path: req.path, ip: req.ip }, "Admin endpoint accessed without API key or valid JWT");
