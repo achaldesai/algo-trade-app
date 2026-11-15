@@ -1,4 +1,4 @@
-/* global apiFetch, formatCurrency -- defined in dashboard.js, loaded first */
+/* global apiFetch, formatCurrency, ParamsForm -- from dashboard.js and params-form.js, loaded first */
 // Backtest panel. Loaded after dashboard.js; uses its apiFetch() and formatCurrency().
 // Nothing here polls: data loads when the panel is opened and after each action.
 (function () {
@@ -13,6 +13,7 @@
 
     let strategies = [];
     let activeRunId = null;
+    let activeRun = null;
     let chart = null;
     let equitySeries = null;
     let contributedSeries = null;
@@ -62,56 +63,12 @@
         document.getElementById('bt-from').value = from.toISOString().slice(0, 10);
     }
 
-    function renderParams() {
+    function renderParams(values) {
         const strategy = strategies.find((s) => s.id === strategySelect.value);
-        if (!strategy) {
-            paramsEl.innerHTML = '';
-            return;
-        }
-        paramsEl.innerHTML = strategy.paramSchema.map((p) => {
-            const id = `bt-param-${escapeHtml(p.key)}`;
-            const title = p.description ? ` title="${escapeHtml(p.description)}"` : '';
-            let input;
-            if (p.type === 'select') {
-                input = `<select id="${id}" data-param="${escapeHtml(p.key)}" data-type="select">${
-                    (p.options || []).map((o) => `<option value="${escapeHtml(o.value)}"${
-                        o.value === p.default ? ' selected' : ''}>${escapeHtml(o.label)}</option>`).join('')
-                }</select>`;
-            } else if (p.type === 'boolean') {
-                input = `<input type="checkbox" id="${id}" data-param="${escapeHtml(p.key)}" data-type="boolean"${p.default ? ' checked' : ''}>`;
-            } else {
-                const attrs = ['min', 'max', 'step']
-                    .filter((k) => p[k] !== undefined)
-                    .map((k) => ` ${k}="${escapeHtml(p[k])}"`).join('');
-                const type = p.type === 'number' ? 'number' : 'text';
-                input = `<input type="${type}" id="${id}" data-param="${escapeHtml(p.key)}" data-type="${escapeHtml(p.type)}" value="${escapeHtml(p.default)}"${attrs}>`;
-            }
-            const when = p.visibleWhen
-                ? ` data-visible-key="${escapeHtml(p.visibleWhen.key)}" data-visible-equals="${escapeHtml(p.visibleWhen.equals)}"`
-                : '';
-            return `<div class="form-group"${title}${when}><label for="${id}">${escapeHtml(p.label)}</label>${input}</div>`;
-        }).join('');
-        updateParamVisibility();
+        ParamsForm.render(paramsEl, strategy ? strategy.paramSchema : [], values, 'bt-param');
     }
 
-    // Hide params that only apply to another choice (e.g. order size vs % of equity).
-    function updateParamVisibility() {
-        const values = readParams();
-        paramsEl.querySelectorAll('[data-visible-key]').forEach((group) => {
-            group.classList.toggle('hidden', String(values[group.dataset.visibleKey]) !== group.dataset.visibleEquals);
-        });
-    }
-
-    function readParams() {
-        const params = {};
-        paramsEl.querySelectorAll('[data-param]').forEach((el) => {
-            const type = el.dataset.type;
-            if (type === 'boolean') params[el.dataset.param] = el.checked;
-            else if (type === 'number') params[el.dataset.param] = Number(el.value);
-            else params[el.dataset.param] = el.value;
-        });
-        return params;
-    }
+    const readParams = () => ParamsForm.read(paramsEl);
 
     async function loadStrategies() {
         const res = await apiFetch('/api/strategies', {}, true);
@@ -199,6 +156,7 @@
 
     function renderRun(run) {
         activeRunId = run.id;
+        activeRun = run;
         const m = run.metrics;
         resultsEl.classList.remove('hidden');
         document.getElementById('bt-results-title').textContent =
@@ -349,14 +307,7 @@
         const set = (id, value) => { document.getElementById(id).value = value; };
         if (strategies.some((s) => s.id === run.strategyId)) {
             strategySelect.value = run.strategyId;
-            renderParams();
-            paramsEl.querySelectorAll('[data-param]').forEach((el) => {
-                const value = run.params[el.dataset.param];
-                if (value === undefined) return;
-                if (el.dataset.type === 'boolean') el.checked = Boolean(value);
-                else el.value = value;
-            });
-            updateParamVisibility();
+            renderParams(run.params);
         }
         set('bt-symbols', run.symbols.join(', '));
         set('bt-from', run.from);
@@ -389,8 +340,11 @@
 
     // ─── Wiring ──────────────────────────────────────────────────────────────
 
-    strategySelect.addEventListener('change', renderParams);
-    paramsEl.addEventListener('change', updateParamVisibility);
+    strategySelect.addEventListener('change', () => renderParams());
+    document.getElementById('bt-use-live').addEventListener('click', () => {
+        if (activeRun && window.LivePanel) window.LivePanel.prefill(activeRun).catch((error) => showMessage(error.message, 'error'));
+    });
+    ParamsForm.bind(paramsEl);
     form.addEventListener('submit', runBacktest);
     setDefaultDates();
 

@@ -5,7 +5,7 @@ import { validateBody } from "../middleware/validateRequest";
 import { userAuthMiddleware } from "../middleware/userAuth";
 import { HttpError } from "../utils/HttpError";
 import { resolveStrategyParams } from "../strategies/validateParams";
-import { isPaperMode } from "../config/env";
+import env, { isPaperMode } from "../config/env";
 import { asyncHandler } from "../util/asyncHandler";
 import logger from "../utils/logger";
 
@@ -153,7 +153,9 @@ router.get(
     const { dailyStrategyRunner, tradingLoopService, marketDataService, strategyConfigRepo, tradingEngine, accountService, brokerFactory } =
       getContainer(req);
     const userId = req.user!.userId;
-    const tracked = marketDataService.getTrackedSymbols();
+    // Symbols that get live prices: the WATCHLIST (subscribed at startup), plus
+    // any others already ticking. getTrackedSymbols() alone is empty off-hours.
+    const tracked = [...new Set([...env.watchlist.map((s) => s.toUpperCase()), ...marketDataService.getTrackedSymbols()])];
     const daily = new Map(tradingEngine.getStrategies().filter((s) => s.timeframe === "1day").map((s) => [s.id, s]));
 
     const strategies = strategyConfigRepo

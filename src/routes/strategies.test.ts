@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import express from "express";
 import { EventEmitter, once } from "node:events";
-import { describe, it, mock, beforeEach } from "node:test";
+import { after, describe, it, mock, beforeEach } from "node:test";
 import { createRequest, createResponse, type RequestMethod } from "node-mocks-http";
 import errorHandler from "../middleware/errorHandler";
 import strategiesRouter from "./strategies";
 import type { AppContainer } from "../container";
 import { HttpError } from "../utils/HttpError";
+import env from "../config/env";
 
 interface RequestOptions {
   method: RequestMethod;
@@ -205,7 +206,8 @@ describe("/api/strategies config symbols and daily status", () => {
       getActiveStrategies: () => saved.filter((c) => c.enabled),
       saveConfig: async (_userId: string, c: Saved) => void saved.push(c),
     },
-    marketDataService: { getTrackedSymbols: () => ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"] },
+    // Off-hours nothing has ticked yet: the WATCHLIST alone decides what gets prices.
+    marketDataService: { getTrackedSymbols: () => [] },
     dailyStrategyRunner: { getStatus: () => ({ scheduled: true, nextRunAt: "2026-11-16T09:45:00.000Z", lastRun: null }) },
     tradingLoopService: { getStatus: () => ({ running: false }) },
     brokerFactory: { getBroker: async () => ({ name: "paper" }) },
@@ -225,9 +227,14 @@ describe("/api/strategies config symbols and daily status", () => {
     return { status: res.statusCode, body: res._getJSONData() };
   };
 
+  const originalWatchlist = env.watchlist;
   beforeEach(() => {
     saved = [];
     account = undefined;
+    env.watchlist = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "icicibank"];
+  });
+  after(() => {
+    env.watchlist = originalWatchlist;
   });
 
   it("saves a daily strategy's symbols uppercased and de-duplicated", async () => {
