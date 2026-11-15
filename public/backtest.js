@@ -330,7 +330,34 @@
         hideMessage();
         const res = await apiFetch(`/api/backtest/${encodeURIComponent(id)}`, {}, true);
         if (!res.ok) throw new Error(await readError(res));
-        renderRun((await res.json()).data);
+        const run = (await res.json()).data;
+        fillForm(run);
+        renderRun(run);
+    }
+
+    // Load a saved run's settings into the form, so it can be tweaked and re-run.
+    function fillForm(run) {
+        const set = (id, value) => { document.getElementById(id).value = value; };
+        if (strategies.some((s) => s.id === run.strategyId)) {
+            strategySelect.value = run.strategyId;
+            renderParams();
+            paramsEl.querySelectorAll('[data-param]').forEach((el) => {
+                const value = run.params[el.dataset.param];
+                if (value === undefined) return;
+                if (el.dataset.type === 'boolean') el.checked = Boolean(value);
+                else el.value = value;
+            });
+            updateParamVisibility();
+        }
+        set('bt-symbols', run.symbols.join(', '));
+        set('bt-from', run.from);
+        set('bt-to', run.to);
+        set('bt-capital', run.initialCapital);
+        set('bt-deposit', run.monthlyContribution || 0);
+        set('bt-cost', run.costBps);
+        // Older runs predate these comparisons: keep the current index, clear the FD.
+        if (run.metrics.indexSymbol) set('bt-index', run.metrics.indexSymbol);
+        set('bt-fd', run.metrics.fdRatePct ?? '');
     }
 
     async function deleteRun(id) {
