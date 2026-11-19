@@ -3,19 +3,21 @@ import { getContainer } from "../util/getContainer";
 import logger from "../utils/logger";
 import { HttpError } from "../utils/HttpError";
 import { adminAuthMiddleware } from "../middleware/adminAuth";
+import { asyncHandler } from "../util/asyncHandler";
 
 const router = Router();
 router.use(adminAuthMiddleware);
 
 router.get("/status", (req, res) => {
     try {
-        const { tradingLoopService, stopLossMonitor, dailyStrategyRunner } = getContainer(req);
+        const { tradingLoopService, stopLossMonitor, dailyStrategyRunner, autoTradingService } = getContainer(req);
         const loopStatus = tradingLoopService.getStatus();
         const stopLossStatus = stopLossMonitor.getStatus();
 
         res.json({
             ...loopStatus,
             dailyStrategies: dailyStrategyRunner.getStatus(),
+            autoStart: autoTradingService.getAutoStartStatus(),
             stopLoss: {
                 monitoring: stopLossStatus.monitoring,
                 activeCount: stopLossStatus.activeStopLosses,
@@ -29,7 +31,8 @@ router.get("/status", (req, res) => {
 
 router.post("/start", (req, res) => {
     try {
-        const { tradingLoopService, stopLossMonitor } = getContainer(req);
+        const { tradingLoopService, stopLossMonitor, autoTradingService } = getContainer(req);
+        autoTradingService.clearManualStop();
         tradingLoopService.start();
         stopLossMonitor.start();
         res.json({ success: true, message: "Trading loop and stop-loss monitor started" });
@@ -41,7 +44,9 @@ router.post("/start", (req, res) => {
 
 router.post("/stop", (req, res) => {
     try {
-        const { tradingLoopService, stopLossMonitor } = getContainer(req);
+        const { tradingLoopService, stopLossMonitor, autoTradingService } = getContainer(req);
+        // Stays stopped: the morning auto-start won't switch it back on.
+        autoTradingService.markManualStop();
         tradingLoopService.stop();
         stopLossMonitor.stop();
         res.json({ success: true, message: "Trading loop and stop-loss monitor stopped" });
@@ -50,6 +55,19 @@ router.post("/stop", (req, res) => {
         throw new HttpError(500, "Failed to stop trading loop");
     }
 });
+
+// Whether the 09:00 IST auto-trading routine may switch trading on by itself.
+router.get("/auto-start", (req, res) => {
+    res.json({ data: getContainer(req).autoTradingService.getAutoStartStatus() });
+});
+
+router.put("/auto-start", asyncHandler(async (req, res) => {
+    if (typeof req.body?.enabled !== "boolean") throw new HttpError(400, "'enabled' must be true or false");
+    const { settingsRepo, autoTradingService } = getContainer(req);
+    await settingsRepo.saveAutoStartTrading(req.body.enabled);
+    logger.warn({ enabled: req.body.enabled }, "Auto-start trading setting changed");
+    res.json({ data: autoTradingService.getAutoStartStatus() });
+}));
 
 router.post("/panic-sell", async (req, res, next) => {
     try {
@@ -60,9 +78,10 @@ router.post("/panic-sell", async (req, res, next) => {
 
         logger.warn("🚨 PANIC SELL TRIGGERED 🚨");
 
-        const { tradingLoopService, stopLossMonitor, tradingEngine, userRepo, stopLossRepo } = getContainer(req);
+        const { tradingLoopService, stopLossMonitor, tradingEngine, userRepo, stopLossRepo, autoTradingService } = getContainer(req);
 
-        // Stop loop and monitor first
+        // Stop loop and monitor first, and keep them stopped until START.
+        autoTradingService.markManualStop();
         try {
             tradingLoopService.stop();
             stopLossMonitor.stop();

@@ -33,6 +33,16 @@ const mockStopLossRepo = {
     delete: mock.fn(async () => undefined),
 };
 
+let autoStart = { enabled: false, manuallyStopped: false };
+const mockAutoTrading = {
+    markManualStop: mock.fn(() => { autoStart = { ...autoStart, manuallyStopped: true }; }),
+    clearManualStop: mock.fn(() => { autoStart = { ...autoStart, manuallyStopped: false }; }),
+    getAutoStartStatus: mock.fn(() => autoStart),
+};
+const mockSettingsRepo = {
+    saveAutoStartTrading: mock.fn(async (enabled: boolean) => { autoStart = { ...autoStart, enabled }; }),
+};
+
 const mockUserRepo = {
     listUsers: mock.fn(() => [{ id: "test-panic-user", username: "test_panic_user", role: "USER" }]),
 };
@@ -44,6 +54,8 @@ const mockContainer = {
     tradingLoopService: mockLoopService,
     userRepo: mockUserRepo,
     stopLossRepo: mockStopLossRepo,
+    autoTradingService: mockAutoTrading,
+    settingsRepo: mockSettingsRepo,
     dailyStrategyRunner: {
         getStatus: () => ({ scheduled: true, nextRunAt: "2026-11-09T09:45:00.000Z", lastRun: null }),
     },
@@ -93,6 +105,9 @@ describe("Control Routes", () => {
         mockStopLossMonitor.stop.mock.resetCalls();
         mockTradingEngine.sellAllPositions.mock.resetCalls();
         mockStopLossRepo.delete.mock.resetCalls();
+        mockAutoTrading.markManualStop.mock.resetCalls();
+        mockAutoTrading.clearManualStop.mock.resetCalls();
+        autoStart = { enabled: false, manuallyStopped: false };
         panicResult = { openPositions: 2, closed: ["TCS", "INFY"], executions: [{}, {}], failures: [], notes: [] };
     });
 
@@ -133,6 +148,37 @@ describe("Control Routes", () => {
         assert.strictEqual(res.statusCode, 200);
         assert.strictEqual(mockLoopService.stop.mock.callCount(), 1);
         assert.strictEqual(mockStopLossMonitor.stop.mock.callCount(), 1);
+    });
+
+    it("STOP and panic sell hold trading off against auto-start; START clears that", async () => {
+        const admin = { "x-admin-api-key": "test-key" };
+        await invokeApp({ method: "POST", url: "/api/control/stop", headers: admin });
+        assert.strictEqual(mockAutoTrading.markManualStop.mock.callCount(), 1);
+        await invokeApp({ method: "POST", url: "/api/control/panic-sell", body: { confirmToken: "PANIC-CONFIRM" }, headers: admin });
+        assert.strictEqual(mockAutoTrading.markManualStop.mock.callCount(), 2);
+        await invokeApp({ method: "POST", url: "/api/control/start", headers: admin });
+        assert.strictEqual(mockAutoTrading.clearManualStop.mock.callCount(), 1);
+        assert.deepStrictEqual(autoStart, { enabled: false, manuallyStopped: false });
+    });
+
+    it("GET/PUT /auto-start reads and saves the setting (admin only), and status shows it", async () => {
+        const admin = { "x-admin-api-key": "test-key" };
+        let res = await invokeApp({ method: "GET", url: "/api/control/auto-start", headers: admin });
+        assert.deepStrictEqual(res._getJSONData().data, { enabled: false, manuallyStopped: false });
+
+        res = await invokeApp({ method: "PUT", url: "/api/control/auto-start", body: { enabled: true }, headers: admin });
+        assert.strictEqual(res.statusCode, 200);
+        assert.deepStrictEqual(res._getJSONData().data, { enabled: true, manuallyStopped: false });
+        assert.deepStrictEqual(mockSettingsRepo.saveAutoStartTrading.mock.calls.at(-1)!.arguments, [true]);
+
+        res = await invokeApp({ method: "PUT", url: "/api/control/auto-start", body: { enabled: "yes" }, headers: admin });
+        assert.strictEqual(res.statusCode, 400);
+
+        res = await invokeApp({ method: "PUT", url: "/api/control/auto-start", body: { enabled: false } });
+        assert.notStrictEqual(res.statusCode, 200, "needs admin");
+
+        res = await invokeApp({ method: "GET", url: "/api/control/status", headers: admin });
+        assert.deepStrictEqual(res._getJSONData().autoStart, { enabled: true, manuallyStopped: false });
     });
 
     it("POST /panic-sell should fail without confirmation token", async () => {

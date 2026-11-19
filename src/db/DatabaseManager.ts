@@ -42,7 +42,11 @@ export interface PaperCashRecord {
     amount: number;
 }
 
-export type SettingsRecord = RiskLimitsRecord | ScannerUniverseRecord | PaperCashRecord;
+export interface AutoStartRecord {
+    enabled: boolean;
+}
+
+export type SettingsRecord = RiskLimitsRecord | ScannerUniverseRecord | PaperCashRecord | AutoStartRecord;
 
 export interface StopLossRecord {
     symbol: string;

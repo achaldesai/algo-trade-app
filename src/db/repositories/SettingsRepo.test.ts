@@ -43,4 +43,17 @@ describe("SettingsRepo paper starting cash", () => {
     assert.equal(reloaded.getPaperStartingCash("alice"), 5000);
     assert.deepEqual(reloaded.getRiskLimits("alice"), defaults, "not mistaken for risk limits");
   });
+
+  it("keeps auto-start trading off by default, and persists it when switched on", async () => {
+    const repo = new SettingsRepo(db, defaults);
+    repo.load();
+    assert.equal(repo.getAutoStartTrading(), false);
+    await repo.saveAutoStartTrading(true);
+    assert.equal(repo.getAutoStartTrading(), true);
+
+    const reloaded = new SettingsRepo(db, defaults);
+    reloaded.load();
+    assert.equal(reloaded.getAutoStartTrading(), true);
+    assert.deepEqual(reloaded.getRiskLimits("alice"), defaults, "not mistaken for risk limits");
+  });
 });

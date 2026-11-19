@@ -426,3 +426,74 @@ describe("TradingEngine.sellAllPositions", () => {
     assert.deepEqual(ledger.net(), { INFY: 10, ITC: 4 }, "partial fills are still recorded");
   });
 });
+
+// ─── WATCHLIST-only default and paper cash (ACH-35) ──────────────────────────
+
+describe("TradingEngine: symbol filter and paper cash", () => {
+  class ScriptStrategy extends BaseStrategy {
+    seenSymbols: string[] = [];
+    constructor(private readonly orders: BrokerOrderRequest[]) {
+      super("script", "Script", "test");
+    }
+    getParamSchema(): StrategyParamDefinition[] { return []; }
+    getDefaultParams(): Record<string, unknown> { return {}; }
+    async generateSignals(context: StrategyContext): Promise<StrategySignal[]> {
+      this.seenSymbols = context.market.ticks.map((t) => t.symbol);
+      return this.orders.length ? [{ strategyId: this.id, description: "", requestedOrders: this.orders }] : [];
+    }
+  }
+
+  function setup(orders: BrokerOrderRequest[], cash: number) {
+    const marketData = new MarketDataService();
+    for (const [symbol, price] of [["INFY", 870], ["TCS", 1000], ["UPL", 536]] as const) {
+      marketData.updateTick({ symbol, price, volume: 1 });
+    }
+    const broker = new PaperBroker((s) => marketData.getTick(s)?.price);
+    const strategy = new ScriptStrategy(orders);
+    const engine = new TradingEngine({
+      brokerFactory: async () => broker,
+      portfolioService: createPortfolioServiceStub().service,
+      marketData,
+      riskManager: createTestRiskManager(),
+      accountService: { getAccount: async () => ({ cash, equity: cash }) } as unknown as AccountService,
+    });
+    engine.registerStrategy(strategy);
+    return { engine, strategy };
+  }
+  const prices: Record<string, number> = { INFY: 870, TCS: 1000, UPL: 536 };
+  // Strategies always send the signal price, which the risk check needs.
+  const buy = (symbol: string, quantity: number): BrokerOrderRequest => ({ symbol, side: "BUY", quantity, type: "MARKET", price: prices[symbol] });
+
+  it("shows the strategy only the allowed symbols' ticks", async () => {
+    const { engine, strategy } = setup([], 100_000);
+    await engine.evaluate("script", "u1", undefined, { symbols: ["TCS", "INFY"] });
+    assert.deepEqual(strategy.seenSymbols.sort(), ["INFY", "TCS"], "the scanner pick UPL is hidden");
+    await engine.evaluate("script", "u1");
+    assert.deepEqual(strategy.seenSymbols.sort(), ["INFY", "TCS", "UPL"], "no filter: everything");
+  });
+
+  it("rejects a paper buy that costs more than the paper cash", async () => {
+    const { engine } = setup([buy("INFY", 10)], 5000);
+    const result = await engine.evaluate("script", "u1");
+    assert.deepEqual(result.executions[0].executions, []);
+    assert.equal(result.errors[0].message, "Insufficient paper cash: need ₹8700.00, have ₹5000.00");
+  });
+
+  it("fills a paper buy that fits, and spends the cash down across one signal", async () => {
+    const fits = setup([buy("INFY", 5)], 5000);
+    assert.equal((await fits.engine.evaluate("script", "u1")).executions[0].executions[0].filledQuantity, 5);
+
+    // ₹5,000: the first 3 × ₹1,000 fills (₹3,001.50 with 5 bps slippage), the second can't.
+    const two = setup([buy("TCS", 3), buy("TCS", 3)], 5000);
+    const result = await two.engine.evaluate("script", "u1");
+    assert.equal(result.executions[0].executions.length, 1);
+    assert.equal(result.errors[0].message, "Insufficient paper cash: need ₹3000.00, have ₹1998.50");
+  });
+
+  it("never blocks a paper sell", async () => {
+    const { engine } = setup([{ symbol: "TCS", side: "SELL", quantity: 10, type: "MARKET", price: 1000 }], 0);
+    const result = await engine.evaluate("script", "u1");
+    assert.equal(result.executions[0].executions[0].filledQuantity, 10);
+    assert.deepEqual(result.errors, []);
+  });
+});

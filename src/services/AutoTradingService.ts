@@ -19,6 +19,8 @@ export class AutoTradingService {
   private scanTimer: NodeJS.Timeout | null = null;
   private rotationTimer: NodeJS.Timeout | null = null;
   private lastPicks: string[] = [];
+  /** Set by STOP / panic sell; only START clears it. Not persisted. */
+  private manuallyStopped = false;
 
   // Market Pre-Open is at 9:00 AM IST. Normal trading starts at 9:15 AM IST.
   private readonly SCAN_HOUR_IST = 9;
@@ -33,8 +35,24 @@ export class AutoTradingService {
     private readonly stopLossMonitor: StopLossMonitor,
     private readonly portfolioService: PortfolioService,
     private readonly userRepository: UserRepo,
-    private readonly tradingLoop: TradingLoopService
+    private readonly tradingLoop: TradingLoopService,
+    /** Whether the routine may switch trading on (runtime setting, default off). */
+    private readonly autoStartEnabled: () => boolean = () => false,
   ) { }
+
+  /** STOP or panic sell: the morning routine must not switch trading back on. */
+  markManualStop(): void {
+    this.manuallyStopped = true;
+  }
+
+  /** START: trading was switched on deliberately; auto-start may apply again. */
+  clearManualStop(): void {
+    this.manuallyStopped = false;
+  }
+
+  getAutoStartStatus(): { enabled: boolean; manuallyStopped: boolean } {
+    return { enabled: this.autoStartEnabled(), manuallyStopped: this.manuallyStopped };
+  }
 
   /**
    * Start the auto-trading scheduler
@@ -120,6 +138,16 @@ export class AutoTradingService {
         await this.scanner.applyPicks(picks, this.tickerClient);
       } else {
         logger.warn("Ticker client not available. Cannot subscribe to picks.");
+      }
+
+      // Scanning and subscribing above are harmless; switching trading on is not.
+      if (!this.autoStartEnabled()) {
+        logger.info("Auto-start disabled; trading stays off until START");
+        return;
+      }
+      if (this.manuallyStopped) {
+        logger.info("Trading was stopped by hand; auto-start won't switch it back on until START");
+        return;
       }
 
       // Start Trading Loop (via injected instance, not static)

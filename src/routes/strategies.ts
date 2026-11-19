@@ -150,7 +150,7 @@ router.put(
 router.get(
   "/daily-status",
   asyncHandler(async (req, res) => {
-    const { dailyStrategyRunner, tradingLoopService, marketDataService, strategyConfigRepo, tradingEngine, accountService, brokerFactory } =
+    const { dailyStrategyRunner, tradingLoopService, marketDataService, strategyConfigRepo, tradingEngine, accountService, brokerFactory, autoTradingService } =
       getContainer(req);
     const userId = req.user!.userId;
     // Symbols that get live prices: the WATCHLIST (subscribed at startup), plus
@@ -185,6 +185,7 @@ router.get(
       data: {
         paperMode: isPaperMode(),
         tradingOn: tradingLoopService.getStatus().running,
+        autoStart: autoTradingService.getAutoStartStatus(),
         nextRunAt: runner.nextRunAt,
         lastRun: runner.lastRun,
         trackedSymbols: tracked,
