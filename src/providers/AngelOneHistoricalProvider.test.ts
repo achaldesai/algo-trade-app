@@ -27,6 +27,14 @@ class MockSmartAPI {
   }
 }
 
+// The real instrument master downloads ~155k symbols from Angel One, which
+// times out on CI runners. Tests only need a symbol -> token lookup.
+const instruments = {
+  isReady: () => true,
+  loadInstrumentMaster: async () => undefined,
+  getToken: (symbol: string) => ({ RELIANCE: "2885", TCS: "11536" })[symbol] ?? null,
+};
+
 describe("AngelOneHistoricalProvider", () => {
   const config = {
     apiKey: "test-key",
@@ -38,14 +46,14 @@ describe("AngelOneHistoricalProvider", () => {
   let provider: AngelOneHistoricalProvider;
 
   beforeEach(() => {
-    provider = new AngelOneHistoricalProvider(config);
+    provider = new AngelOneHistoricalProvider(config, { instruments });
     // Replace the internal SmartAPI with our mock
     (provider as any).smartApi = new MockSmartAPI();
     (provider as any).isAuthenticated = true;
   });
 
   it("should authenticate and set access token", async () => {
-    const freshProvider = new AngelOneHistoricalProvider(config);
+    const freshProvider = new AngelOneHistoricalProvider(config, { instruments });
     (freshProvider as any).smartApi = new MockSmartAPI();
 
     await freshProvider.authenticate();
@@ -89,6 +97,13 @@ describe("AngelOneHistoricalProvider", () => {
     assert.equal(candles.length, 2);
   });
 
+  it("fails clearly for a symbol missing from the instrument master", async () => {
+    await assert.rejects(
+      provider.fetchHistoricalData({ symbol: "NOPE", interval: "1day", fromDate: new Date("2025-01-01"), toDate: new Date("2025-01-02") }),
+      /Symbol token not found for NOPE/,
+    );
+  });
+
   it("should be disconnectable", async () => {
     await provider.disconnect();
     assert.equal(provider.isReady(), false);
@@ -98,7 +113,7 @@ describe("AngelOneHistoricalProvider", () => {
     const bseProvider = new AngelOneHistoricalProvider({
       ...config,
       defaultExchange: "BSE",
-    });
+    }, { instruments });
     (bseProvider as any).smartApi = new MockSmartAPI();
     (bseProvider as any).isAuthenticated = true;
 
