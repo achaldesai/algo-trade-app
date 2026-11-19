@@ -772,3 +772,22 @@ details.settings-section > *:not(summary) { padding: 0 16px 14px; }
 .bt-trades > summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; padding: 6px 0; }
 .bt-history-row { cursor: pointer; }
 .bt-history-row.active { background: var(--accent-soft); }
+
+/* ====================================================
+   Live strategies panel
+   ==================================================== */
+.live-status { display: grid; gap: 6px; font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
+.live-status strong { color: var(--text-primary); }
+.live-muted { color: var(--text-muted); font-size: 12px; }
+.live-paper { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px; }
+.live-paper input { width: 140px; }
+.live-cards { display: grid; gap: 10px; margin-top: 10px; }
+.live-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--card-bg-soft); }
+.live-card.unsaved { border-color: var(--warning); }
+.live-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.live-card-head h3 { font-size: 14px; margin: 0; }
+.live-chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--border); color: var(--text-secondary); }
+.live-toggle { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.live-card .settings-form { margin-top: 10px; }
+.live-card-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.bt-results-head { display: flex; align-items: center; gap: 10px; justify-content: space-between; flex-wrap: wrap; }

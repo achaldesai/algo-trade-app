@@ -187,6 +187,22 @@
                     </div>
                 </section>
             </div>
+            <details id="live-section" class="settings-section collapsible">
+                <summary><h2>🟢 Live Strategies</h2></summary>
+                <div class="live-body">
+                    <div id="live-status" class="live-status" role="status"></div>
+                    <form id="live-paper" class="live-paper hidden">
+                        <label for="live-paper-cash">Paper starting cash (₹)</label>
+                        <input type="number" id="live-paper-cash" min="0" step="500" required>
+                        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                        <span id="live-paper-balance" class="live-muted"></span>
+                    </form>
+                    <div id="live-first-save" class="bt-warnings hidden"></div>
+                    <div id="live-message" class="notification-result hidden"></div>
+                    <div id="live-cards" class="live-cards"></div>
+                    <p class="bt-note">Daily strategies run once a day at 15:15 IST, only while trading is on. Symbols must be in the WATCHLIST to get live prices; leave the field empty to trade the whole watchlist.</p>
+                </div>
+            </details>
             <details id="backtest-section" class="settings-section collapsible">
                 <summary><h2>📊 Backtest</h2></summary>
                 <div class="backtest-body">
@@ -236,7 +252,10 @@
                     <div id="bt-message" class="notification-result hidden"></div>
 
                     <div id="bt-results" class="hidden">
-                        <h3 id="bt-results-title" class="bt-subtitle"></h3>
+                        <div class="bt-results-head">
+                            <h3 id="bt-results-title" class="bt-subtitle"></h3>
+                            <button type="button" id="bt-use-live" class="btn btn-sm" title="Copy this run's strategy, settings and symbols into Live Strategies, to review and save">Use these settings live</button>
+                        </div>
                         <div id="bt-warnings" class="bt-warnings hidden" role="status"></div>
                         <div id="bt-metrics" class="bt-metrics"></div>
                         <div id="bt-chart" class="bt-chart"></div>
@@ -345,7 +364,9 @@
         })();
     </script>
     <script src="dashboard.js"></script>
+    <script src="params-form.js"></script>
     <script src="backtest.js"></script>
+    <script src="live.js"></script>
     <script>
         // Reveal the paper-mode Console link when the server is in paper mode.
         // /api/paper/pnl 404s outside paper mode, so a successful probe is the signal.

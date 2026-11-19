@@ -48,6 +48,9 @@
 ### Gap-up buys (ACH-32)
 - In backtests, a %-sized buy whose price opens higher the next day now buys as many shares as the cash covers, instead of being rejected outright, and the run says how many buys were resized. %-sized buys also keep 0.5% of cash back for costs and slippage. Your 50% RSI run (2021–2026) went from 3 rejected buys to none.
 
+### Live Strategies panel (ACH-33)
+- New dashboard panel to set up live or paper trading without the API. You can switch strategies on or off, set a daily strategy's settings and stocks, set paper starting cash, and see the daily run's status: trading on or off, next 15:15 IST run, last result, balance. "Use these settings live" on a backtest result copies its strategy, settings and stocks into the panel. The panel warns that saving any strategy setting means only the switched-on strategies run, VWAP included. Daily strategy configs can now name their own stocks; stocks with no price that day are skipped and reported.
+
 ### Known limitations (beta)
 - Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.
