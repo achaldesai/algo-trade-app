@@ -325,3 +325,51 @@ describe("ZerodhaBroker.getFunds", () => {
     assert.equal(await malformed.getFunds(), null);
   });
 });
+
+describe("ZerodhaBroker.getHoldings", () => {
+  const liveBroker = (getPositions: () => Promise<unknown>, getHoldings: () => Promise<unknown>) =>
+    new ZerodhaBroker(
+      { apiKey: "key", accessToken: "access", defaultExchange: "NSE", product: "CNC" },
+      { dependencies: { createClient: () => ({ ...buildKiteStub().stub, getPositions, getHoldings }) as unknown as Connect, now: () => now } },
+    );
+
+  it("nets delivery holdings with open positions, without double-counting today's holding sales", async () => {
+    const broker = liveBroker(
+      async () => ({
+        net: [
+          { tradingsymbol: "TCS", product: "CNC", quantity: 5 }, // bought today, not yet a holding
+          { tradingsymbol: "INFY", product: "CNC", quantity: -4 }, // sold from holdings today: already in used_quantity
+          { tradingsymbol: "ITC", product: "MIS", quantity: 20 }, // intraday
+        ],
+        day: [],
+      }),
+      async () => [
+        { tradingsymbol: "INFY", quantity: 10, used_quantity: 4, t1_quantity: 0 },
+        { tradingsymbol: "WIPRO", quantity: 50, used_quantity: 0, t1_quantity: 10 },
+        { tradingsymbol: "SOLD", quantity: 3, used_quantity: 3, t1_quantity: 0 },
+      ],
+    );
+    await broker.connect();
+    assert.deepEqual(
+      (await broker.getHoldings())!.sort((a, b) => a.symbol.localeCompare(b.symbol)),
+      [
+        { symbol: "INFY", quantity: 6 },
+        { symbol: "ITC", quantity: 20 },
+        { symbol: "TCS", quantity: 5 },
+        { symbol: "WIPRO", quantity: 50 },
+      ],
+    );
+  });
+
+  it("returns null without a session or when Kite fails (no paper fallback)", async () => {
+    const noSession = new ZerodhaBroker(baseConfig);
+    await noSession.connect();
+    assert.equal(await noSession.getHoldings(), null);
+
+    const failing = liveBroker(async () => {
+      throw new Error("TokenException");
+    }, async () => []);
+    await failing.connect();
+    assert.equal(await failing.getHoldings(), null);
+  });
+});

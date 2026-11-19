@@ -113,12 +113,15 @@ export class PaperBroker implements BrokerClient {
 
     // Prefer the live tick; fall back to any prior paper trade for this symbol.
     const livePrice = this.priceLookup?.(order.symbol);
+    // Last resort: a reference price sent with the order (e.g. the last price in
+    // the app's ledger when closing positions after hours / after a restart).
     const reference =
       livePrice ??
       this.trades
         .filter((item) => item.symbol === order.symbol)
         .map((item) => item.price)
-        .at(-1);
+        .at(-1) ??
+      (order.price && order.price > 0 ? order.price : undefined);
 
     if (!reference) {
       throw new Error(

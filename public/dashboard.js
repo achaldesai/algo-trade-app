@@ -726,11 +726,17 @@ panicBtn.addEventListener('click', async () => {
 
         const data = await res.json();
 
-        if (res.ok) {
-            alert(`Panic sell executed! Executions: ${data.data.executions.length}, Failures: ${data.data.failures.length}`);
+        // 207 = some positions could not be closed: still res.ok, so check success.
+        if (res.ok && data.success) {
+            alert(`✅ ${data.message}`);
+        } else if (res.ok) {
+            const failed = Object.values(data.data.users || {})
+                .flatMap((u) => (u.failures || []).map((f) => `${f.symbol}: ${f.error}`).concat(u.error ? [u.error] : []));
+            alert(`⚠️ ${data.message}\n\nNot closed:\n${failed.join('\n')}\n\nCheck your broker and close these by hand.`);
         } else {
             alert(`Failed: ${data.message}`);
         }
+        await updateLoopStatus();
     } catch (_error) {
         alert('Failed to execute panic sell');
     }

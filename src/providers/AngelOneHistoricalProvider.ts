@@ -6,6 +6,13 @@ import type { HistoricalCandle, HistoricalDataRequest } from "../types";
 import { getInstrumentMasterService } from "../services/InstrumentMasterService";
 import logger from "../utils/logger";
 
+/** The slice of InstrumentMasterService the provider needs (symbol -> token). */
+export interface InstrumentLookup {
+  isReady(): boolean;
+  loadInstrumentMaster(): Promise<void>;
+  getToken(symbol: string, exchange?: string): string | null;
+}
+
 export interface AngelOneConfig {
   apiKey: string;
   clientId: string;
@@ -22,9 +29,12 @@ export class AngelOneHistoricalProvider implements HistoricalDataProvider {
   private smartApi: typeof SmartAPI.prototype;
   private config: AngelOneConfig;
   private isAuthenticated = false;
+  private readonly instruments: () => InstrumentLookup;
 
-  constructor(config: AngelOneConfig) {
+  /** `instruments` defaults to the shared instrument master; tests pass a stub. */
+  constructor(config: AngelOneConfig, deps: { instruments?: InstrumentLookup } = {}) {
     this.config = config;
+    this.instruments = deps.instruments ? () => deps.instruments! : getInstrumentMasterService;
     this.smartApi = new SmartAPI({
       api_key: config.apiKey,
     });
@@ -113,7 +123,7 @@ export class AngelOneHistoricalProvider implements HistoricalDataProvider {
    * Angel One requires instrument tokens instead of symbols
    */
   private async getSymbolToken(symbol: string, exchange: string): Promise<string> {
-    const instrumentService = getInstrumentMasterService();
+    const instrumentService = this.instruments();
 
     // Ensure instrument master is loaded
     if (!instrumentService.isReady()) {

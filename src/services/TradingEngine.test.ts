@@ -11,6 +11,7 @@ import type {
 import MarketDataService from "./MarketDataService";
 import type PortfolioService from "./PortfolioService";
 import TradingEngine from "./TradingEngine";
+import PaperBroker from "../brokers/PaperBroker";
 import BaseStrategy, { type StrategyContext, type StrategyParamDefinition } from "../strategies/BaseStrategy";
 import { RiskManager } from "./RiskManager";
 import type AccountService from "./AccountService";
@@ -276,5 +277,152 @@ describe("TradingEngine broker fallback", () => {
     await engine.evaluate("guard-strategy", "test-user");
 
     assert.equal(unavailableEvents.length, 1);
+  });
+});
+
+// ─── Panic sell (ACH-34) ─────────────────────────────────────────────────────
+
+describe("TradingEngine.sellAllPositions", () => {
+  /** A ledger that nets trades per symbol, like PortfolioService. */
+  function ledgerOf(initial: Array<[string, "BUY" | "SELL", number, number]>) {
+    let seq = 0;
+    const trades: Trade[] = initial.map(([symbol, side, quantity, price]) => ({
+      id: `t${seq++}`,
+      symbol,
+      side,
+      quantity,
+      price,
+      executedAt: new Date(Date.UTC(2026, 10, 16, 4, seq)),
+    }));
+    const service = {
+      listTrades: () => [...trades].sort((a, b) => b.executedAt.getTime() - a.executedAt.getTime()),
+      getSnapshot: () => {
+        const net = new Map<string, number>();
+        for (const t of trades) net.set(t.symbol, (net.get(t.symbol) ?? 0) + (t.side === "BUY" ? t.quantity : -t.quantity));
+        return {
+          generatedAt: new Date(),
+          totalTrades: trades.length,
+          positions: [...net].map(([symbol, netQuantity]) => ({ symbol, netQuantity, averageEntryPrice: 0, unrealizedPnl: 0 })),
+        };
+      },
+      recordExternalTrade: async (_userId: string, trade: Trade) => void trades.push({ ...trade, executedAt: new Date(Date.UTC(2026, 10, 19, 16, seq++)) }),
+    } as unknown as PortfolioService;
+    const net = () => Object.fromEntries(
+      (service.getSnapshot("u") as PortfolioSnapshot).positions.filter((p) => p.netQuantity !== 0).map((p) => [p.symbol, p.netQuantity]),
+    );
+    return { service, trades, net };
+  }
+
+  const engineWith = (broker: BrokerClient, portfolioService: PortfolioService) =>
+    new TradingEngine({
+      brokerFactory: async () => broker,
+      portfolioService,
+      marketData: new MarketDataService(),
+      riskManager: createTestRiskManager(),
+    });
+
+  it("closes the ledger's net positions on a restarted paper broker, at the last ledger price", async () => {
+    // The 2026-11-19 case: five 10-share longs, server restarted, no live ticks.
+    const ledger = ledgerOf([
+      ["HEROMOTOCO", "BUY", 10, 5600],
+      ["HINDALCO", "BUY", 10, 926],
+      ["APOLLOHOSP", "BUY", 10, 8720],
+      ["BAJFINANCE", "BUY", 10, 1010],
+      ["INDUSINDBK", "BUY", 10, 980],
+    ]);
+    const broker = new PaperBroker(); // fresh: no in-memory trades, no price feed
+    const result = await engineWith(broker, ledger.service).sellAllPositions("u");
+
+    assert.equal(result.openPositions, 5);
+    assert.deepEqual([...result.closed].sort(), ["APOLLOHOSP", "BAJFINANCE", "HEROMOTOCO", "HINDALCO", "INDUSINDBK"]);
+    assert.deepEqual(result.failures, []);
+    assert.deepEqual(ledger.net(), {}, "the ledger is flat afterwards");
+    const apollo = result.executions.find((e) => e.request.symbol === "APOLLOHOSP")!;
+    assert.deepEqual([apollo.request.side, apollo.request.quantity], ["SELL", 10]);
+    assert.equal(apollo.averagePrice, Number((8720 * (1 - 0.0005)).toFixed(4)), "last ledger price less slippage");
+  });
+
+  it("sells the net quantity, skips flat symbols, and covers a short with a BUY", async () => {
+    const ledger = ledgerOf([
+      ["TCS", "BUY", 10, 2400],
+      ["TCS", "SELL", 4, 2450],
+      ["INFY", "BUY", 5, 1140],
+      ["INFY", "SELL", 5, 1150],
+      ["ITC", "SELL", 3, 400],
+    ]);
+    const result = await engineWith(new PaperBroker(), ledger.service).sellAllPositions("u");
+    assert.deepEqual(
+      result.executions.map((e) => [e.request.symbol, e.request.side, e.request.quantity]).sort(),
+      [["ITC", "BUY", 3], ["TCS", "SELL", 6]],
+    );
+    assert.deepEqual(ledger.net(), {});
+  });
+
+  it("caps each close at what the broker really holds, and leaves holdings the app didn't buy", async () => {
+    const ledger = ledgerOf([
+      ["TCS", "BUY", 10, 2400],
+      ["INFY", "BUY", 10, 1140],
+      ["RELIANCE", "BUY", 5, 1340],
+    ]);
+    const placed: string[] = [];
+    const broker = {
+      name: "zerodha",
+      connect: async () => undefined,
+      isConnected: () => true,
+      // INFY: only 4 left at the broker; RELIANCE: none; WIPRO: the user's own holding.
+      getHoldings: async () => [
+        { symbol: "TCS", quantity: 10 },
+        { symbol: "INFY", quantity: 4 },
+        { symbol: "WIPRO", quantity: 50 },
+      ],
+      placeOrder: async (order: BrokerOrderRequest) => {
+        placed.push(`${order.side} ${order.quantity} ${order.symbol}`);
+        return { id: order.symbol, request: order, status: "FILLED", filledQuantity: order.quantity, averagePrice: 100, executedAt: new Date() };
+      },
+    } as unknown as BrokerClient;
+
+    const result = await engineWith(broker, ledger.service).sellAllPositions("u");
+    assert.deepEqual(placed.sort(), ["SELL 10 TCS", "SELL 4 INFY"].sort());
+    assert.deepEqual(result.notes.sort(), ["INFY: ledger 10, broker 4; closing 4", "RELIANCE: ledger 5, broker 0; closing 0"]);
+    assert.deepEqual(result.closed.sort(), ["INFY", "TCS"]);
+  });
+
+  it("closes the ledger quantities, with a note, when the broker can't report holdings", async () => {
+    const ledger = ledgerOf([["TCS", "BUY", 10, 2400]]);
+    const broker = {
+      name: "zerodha",
+      connect: async () => undefined,
+      isConnected: () => true,
+      getHoldings: async () => null,
+      placeOrder: async (order: BrokerOrderRequest) => ({ id: "x", request: order, status: "FILLED", filledQuantity: order.quantity, averagePrice: 2400, executedAt: new Date() }),
+    } as unknown as BrokerClient;
+    const result = await engineWith(broker, ledger.service).sellAllPositions("u");
+    assert.deepEqual(result.closed, ["TCS"]);
+    assert.deepEqual(result.notes, ["Broker holdings unavailable: closing the ledger quantities unverified"]);
+  });
+
+  it("reports a rejected or partly filled close as a failure, and still closes the rest", async () => {
+    const ledger = ledgerOf([
+      ["TCS", "BUY", 10, 2400],
+      ["INFY", "BUY", 10, 1140],
+      ["ITC", "BUY", 10, 400],
+    ]);
+    const broker = {
+      name: "paper",
+      connect: async () => undefined,
+      isConnected: () => true,
+      placeOrder: async (order: BrokerOrderRequest) => {
+        if (order.symbol === "INFY") throw new Error("RMS: order rejected");
+        const filled = order.symbol === "ITC" ? 6 : order.quantity;
+        return { id: order.symbol, request: order, status: filled < order.quantity ? "PARTIALLY_FILLED" : "FILLED", filledQuantity: filled, averagePrice: 100, executedAt: new Date() };
+      },
+    } as unknown as BrokerClient;
+    const result = await engineWith(broker, ledger.service).sellAllPositions("u");
+    assert.deepEqual(result.closed, ["TCS"]);
+    assert.deepEqual(
+      result.failures.map((f) => [f.request.symbol, f.error]).sort(),
+      [["INFY", "RMS: order rejected"], ["ITC", "Only 6 of 10 filled (PARTIALLY_FILLED)"]],
+    );
+    assert.deepEqual(ledger.net(), { INFY: 10, ITC: 4 }, "partial fills are still recorded");
   });
 });
