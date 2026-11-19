@@ -1,7 +1,7 @@
 
 import { EventEmitter } from "events";
 import type DatabaseManager from "../DatabaseManager";
-import type { PaperCashRecord } from "../DatabaseManager";
+import type { AutoStartRecord, PaperCashRecord } from "../DatabaseManager";
 import logger from "../../utils/logger";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -30,6 +30,7 @@ export interface RiskLimits {
  */
 const UNIVERSE_KEY = "scanner:universe";
 const PAPER_CASH_PREFIX = "paperStartingCash:";
+const AUTO_START_KEY = "autoStartTrading";
 
 /** Paper-mode account balance before any trades, unless the user sets one. */
 export const DEFAULT_PAPER_STARTING_CASH = 100_000;
@@ -40,6 +41,7 @@ export class SettingsRepo extends EventEmitter {
     private readonly defaults: RiskLimits;
     private universeCache: string[] | undefined;
     private readonly paperCashCache = new Map<string, number>();
+    private autoStartTrading = false;
 
     constructor(db: DatabaseManager, defaults: RiskLimits) {
         super();
@@ -64,6 +66,8 @@ export class SettingsRepo extends EventEmitter {
             } else if (typeof key === "string" && key.startsWith(PAPER_CASH_PREFIX)) {
                 const amount = (value as PaperCashRecord).amount;
                 if (typeof amount === "number") this.paperCashCache.set(key.slice(PAPER_CASH_PREFIX.length), amount);
+            } else if (key === AUTO_START_KEY) {
+                this.autoStartTrading = (value as AutoStartRecord).enabled === true;
             } else if (key === UNIVERSE_KEY && value && Array.isArray((value as { symbols?: unknown }).symbols)) {
                 this.universeCache = (value as { symbols: string[] }).symbols;
             }
@@ -110,6 +114,19 @@ export class SettingsRepo extends EventEmitter {
      */
     getDefaults(): RiskLimits {
         return { ...this.defaults };
+    }
+
+    /**
+     * Whether the morning auto-trading routine may switch trading on by itself
+     * (system-wide). Off by default: trading only starts on START.
+     */
+    getAutoStartTrading(): boolean {
+        return this.autoStartTrading;
+    }
+
+    async saveAutoStartTrading(enabled: boolean): Promise<void> {
+        await this.db.handles.settings.put(AUTO_START_KEY, { enabled });
+        this.autoStartTrading = enabled;
     }
 
     /** Paper-mode starting balance for a user (default ₹1,00,000). */

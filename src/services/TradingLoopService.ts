@@ -10,12 +10,18 @@ export type EvaluationMode = "parallel" | "sequential";
 export interface TradingLoopOptions {
     evaluationMode?: EvaluationMode;
     filterBySymbol?: boolean;
+    /**
+     * Symbols the no-config default may trade (the WATCHLIST). Scanner picks are
+     * subscribed too, but only strategies a user switched on may trade them.
+     */
+    defaultSymbols?: string[];
 }
 
 interface PlannedEvaluation {
     strategyId: string;
     userId: string;
     params?: Record<string, unknown>;
+    symbols?: string[];
 }
 
 /**
@@ -25,7 +31,8 @@ interface PlannedEvaluation {
  * - If a user has strategy configs, only enabled strategies are evaluated
  *   with the user's custom params.
  * - If a user has NO configs at all, ALL tick strategies are evaluated
- *   with default params (opt-in on first config save).
+ *   with default params (opt-in on first config save), on the WATCHLIST
+ *   (`defaultSymbols`) only, never on scanner picks.
  * - Daily (`1day`) strategies are never evaluated here; DailyStrategyRunner
  *   runs them once per trading day.
  */
@@ -33,6 +40,7 @@ export class TradingLoopService {
     private isRunning = false;
     private evaluationMode: EvaluationMode = "parallel";
     private filterBySymbol = false;
+    private readonly defaultSymbols?: string[];
     private evaluationInProgress = false;
 
     constructor(
@@ -48,6 +56,7 @@ export class TradingLoopService {
         if (options?.filterBySymbol !== undefined) {
             this.filterBySymbol = options.filterBySymbol;
         }
+        this.defaultSymbols = options?.defaultSymbols;
     }
 
     start(): void {
@@ -90,7 +99,7 @@ export class TradingLoopService {
     private planEvaluations(userId: string, tickStrategies: { id: string }[]): PlannedEvaluation[] {
         const configs = this.strategyConfigRepo.getAllConfigs(userId);
         if (configs.length === 0) {
-            return tickStrategies.map((s) => ({ strategyId: s.id, userId }));
+            return tickStrategies.map((s) => ({ strategyId: s.id, userId, symbols: this.defaultSymbols }));
         }
         const tickIds = new Set(tickStrategies.map((s) => s.id));
         return configs
@@ -118,11 +127,11 @@ export class TradingLoopService {
 
             if (this.evaluationMode === "parallel") {
                 await Promise.all(
-                    evaluations.map((e) => this.tradingEngine.evaluate(e.strategyId, e.userId, e.params)),
+                    evaluations.map((e) => this.tradingEngine.evaluate(e.strategyId, e.userId, e.params, { symbols: e.symbols })),
                 );
             } else {
                 for (const e of evaluations) {
-                    await this.tradingEngine.evaluate(e.strategyId, e.userId, e.params);
+                    await this.tradingEngine.evaluate(e.strategyId, e.userId, e.params, { symbols: e.symbols });
                 }
             }
 

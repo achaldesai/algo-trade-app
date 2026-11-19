@@ -105,7 +105,11 @@ export class TradingEngine extends EventEmitter {
      * the strategy as `context.account` (for "% of equity" sizing). If it
      * can't be read, the strategy gets no account and sizes no buys.
      */
-    options: { bars?: Record<string, HistoricalCandle[]>; withAccount?: boolean } = {},
+    /**
+     * `symbols`: only show the strategy these symbols' ticks (e.g. the
+     * WATCHLIST for the no-config default), not everything subscribed.
+     */
+    options: { bars?: Record<string, HistoricalCandle[]>; withAccount?: boolean; symbols?: string[] } = {},
   ): Promise<StrategyEvaluationResult> {
     const strategy = this.strategies.get(strategyId);
     if (!strategy) {
@@ -140,7 +144,11 @@ export class TradingEngine extends EventEmitter {
       } satisfies StrategyEvaluationResult;
     }
 
-    const marketSnapshot = this.marketData.getSnapshot();
+    const fullSnapshot = this.marketData.getSnapshot();
+    const allowed = options.symbols ? new Set(options.symbols) : undefined;
+    const marketSnapshot = allowed
+      ? { ...fullSnapshot, ticks: fullSnapshot.ticks.filter((t) => allowed.has(t.symbol)) }
+      : fullSnapshot;
     const portfolioSnapshot = await this.portfolioService.getSnapshot(userId);
 
     const broker = activeBroker;
@@ -238,6 +246,11 @@ export class TradingEngine extends EventEmitter {
       return { signal, executions, failures };
     }
 
+    // Paper buys can't spend more than the paper account holds (the paper
+    // broker itself fills anything). Read once per signal, then spent down.
+    let paperCash: number | undefined;
+    const checksPaperCash = broker.name === "paper" && this.accountService !== undefined;
+
     // Normal execution
     for (const order of signal.requestedOrders) {
       try {
@@ -255,7 +268,18 @@ export class TradingEngine extends EventEmitter {
           throw new Error(`Risk check failed: ${riskResult.reason}`);
         }
 
+        if (checksPaperCash && order.side === "BUY") {
+          paperCash ??= (await this.accountService!.getAccount(userId, broker))?.cash;
+          const cost = refPrice * order.quantity;
+          if (paperCash !== undefined && cost > paperCash) {
+            throw new Error(`Insufficient paper cash: need ₹${cost.toFixed(2)}, have ₹${paperCash.toFixed(2)}`);
+          }
+        }
+
         const execution = await broker.placeOrder(order);
+        if (checksPaperCash && paperCash !== undefined && execution.filledQuantity > 0) {
+          paperCash += (order.side === "BUY" ? -1 : 1) * execution.averagePrice * execution.filledQuantity;
+        }
         this.riskManager.recordExecution(userId, execution);
         executions.push(execution);
 

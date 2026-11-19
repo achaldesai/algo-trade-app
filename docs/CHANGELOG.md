@@ -54,6 +54,13 @@
 ### Panic sell actually sells (ACH-34)
 - Panic sell used to read the broker's *trade* list as positions. In paper mode that list is empty after a restart, so it closed nothing while reporting success. With Zerodha it would only have seen today's trades, missing older holdings. It now closes net positions from the app's own records and, for Zerodha, caps each sale at what the account actually holds, never touching holdings the app didn't buy. Paper fills use the last known price after hours. It reports "closed X of Y" and is only a success when everything closed; stop-losses of closed positions are removed. The dashboard alert now shows what didn't close.
 
+### Trading no longer switches itself on (ACH-35)
+- The 09:00 IST auto-trading routine used to switch trading on every weekday morning, even after STOP or panic sell. Users without saved strategy settings then had VWAP trade the scanner's picks. Now:
+  - auto-start is an opt-in setting, **off by default**, shown in Live Strategies with a switch for admins;
+  - STOP and panic sell keep trading off until someone presses START;
+  - the default VWAP only trades WATCHLIST stocks;
+  - paper buys can't spend more than the paper cash.
+
 ### Known limitations (beta)
 - Backtests use daily bars only, since the historical providers have no intraday data. With the default fixed share count, backtests are usually far less invested than buy-and-hold (see `exposurePct`); use percent sizing to compare fairly.
 - Daily strategies trade at 15:15 IST at the latest price. Holidays are inferred from the absence of ticks, not from an exchange calendar.

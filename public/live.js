@@ -52,6 +52,16 @@
         lines.push(status.tradingOn
             ? '<div><strong>Trading is on.</strong></div>'
             : '<div class="bt-warnings">Trading is off. Daily strategies only run while trading is on (START TRADING, admin).</div>');
+        const auto = status.autoStart || { enabled: false, manuallyStopped: false };
+        const isAdmin = (() => { try { return JSON.parse(sessionStorage.getItem('authUser') || '{}').role === 'ADMIN'; } catch { return false; } })();
+        const autoText = auto.enabled
+            ? (auto.manuallyStopped
+                ? 'on, but held off: trading was stopped by hand and stays off until START'
+                : 'on: trading switches itself on at 09:00 IST on weekdays')
+            : 'off: trading only switches on when an admin presses START TRADING';
+        lines.push(`<div>Auto-start trading: <strong>${esc(autoText)}</strong>${isAdmin
+            ? ` <label class="live-muted"><input type="checkbox" id="live-auto-start"${auto.enabled ? ' checked' : ''}> allow auto-start</label>`
+            : ''}</div>`);
         lines.push(`<div>Next daily run: <strong>${status.nextRunAt ? esc(ist(status.nextRunAt)) + ' IST' : 'not scheduled'}</strong></div>`);
         const last = status.lastRun;
         if (last) {
@@ -175,6 +185,21 @@
     cardsEl.addEventListener('change', (event) => {
         const card = event.target.closest('.live-card');
         if (card) card.classList.add('unsaved');
+    });
+
+    statusEl.addEventListener('change', (event) => {
+        if (event.target.id !== 'live-auto-start') return;
+        const enabled = event.target.checked;
+        apiFetch('/api/control/auto-start', { method: 'PUT', body: JSON.stringify({ enabled }) }, true)
+            .then(async (res) => {
+                if (!res.ok) throw new Error(await readError(res));
+                showMessage(`Auto-start trading ${enabled ? 'allowed' : 'turned off'}.`, 'success');
+                await loadStatus();
+            })
+            .catch((error) => {
+                showMessage(error.message, 'error');
+                loadStatus().catch(() => {});
+            });
     });
 
     paperForm.addEventListener('submit', (event) => {

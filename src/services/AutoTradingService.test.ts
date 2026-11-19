@@ -108,27 +108,51 @@ describe("AutoTradingService", () => {
     assert.equal(scanCount, 1);
   });
 
-  it("should start trading loop and stop-loss when they are stopped", async () => {
-    let loopStarted = false;
-    let stopLossStarted = false;
-
-    mockTradingLoop.start = () => { loopStarted = true; };
+  // Auto-start is opt-in (ACH-35): scanning is harmless, switching trading on is not.
+  const routine = (autoStart: boolean) => {
+    const started = { loop: false, stopLoss: false, scanned: false };
+    mockTradingLoop.start = () => { started.loop = true; };
     mockTradingLoop.getStatus = () => ({ running: false, mode: "parallel" });
-    mockStopLossMonitor.start = () => { stopLossStarted = true; };
+    mockStopLossMonitor.start = () => { started.stopLoss = true; };
     mockStopLossMonitor.isRunning = () => false;
-
+    const scanner = { ...mockScanner, scan: async (n: number) => { started.scanned = true; return mockScanner.scan(n); } };
     const service = new AutoTradingService(
-      mockScanner,
+      scanner as any,
       null,
       mockStopLossMonitor as any,
       mockPortfolioService as any,
       mockUserRepo as any,
       mockTradingLoop as any,
+      () => autoStart,
     );
+    return { service, started };
+  };
 
+  it("starts the trading loop and stop-loss monitor when auto-start is on", async () => {
+    const { service, started } = routine(true);
     await service.executeDailyRoutine();
-    assert.equal(loopStarted, true);
-    assert.equal(stopLossStarted, true);
+    assert.deepEqual(started, { loop: true, stopLoss: true, scanned: true });
+  });
+
+  it("only scans when auto-start is off (the default), leaving trading off", async () => {
+    const { service, started } = routine(false);
+    await service.executeDailyRoutine();
+    assert.deepEqual(started, { loop: false, stopLoss: false, scanned: true });
+
+    const defaulted = new AutoTradingService(mockScanner, null, mockStopLossMonitor as any, mockPortfolioService as any, mockUserRepo as any, mockTradingLoop as any);
+    assert.deepEqual(defaulted.getAutoStartStatus(), { enabled: false, manuallyStopped: false }, "off unless configured");
+  });
+
+  it("stays off after a manual STOP / panic sell, even with auto-start on, until START", async () => {
+    const { service, started } = routine(true);
+    service.markManualStop();
+    await service.executeDailyRoutine();
+    assert.equal(started.loop, false);
+    assert.deepEqual(service.getAutoStartStatus(), { enabled: true, manuallyStopped: true });
+
+    service.clearManualStop();
+    await service.executeDailyRoutine();
+    assert.equal(started.loop, true);
   });
 
   it("should not restart already-running trading loop", async () => {

@@ -210,6 +210,7 @@ describe("/api/strategies config symbols and daily status", () => {
     marketDataService: { getTrackedSymbols: () => [] },
     dailyStrategyRunner: { getStatus: () => ({ scheduled: true, nextRunAt: "2026-11-16T09:45:00.000Z", lastRun: null }) },
     tradingLoopService: { getStatus: () => ({ running: false }) },
+    autoTradingService: { getAutoStartStatus: () => ({ enabled: false, manuallyStopped: false }) },
     brokerFactory: { getBroker: async () => ({ name: "paper" }) },
     accountService: { getAccount: async () => account },
   } as unknown as AppContainer;
@@ -278,6 +279,7 @@ describe("/api/strategies config symbols and daily status", () => {
     const { status, body } = await call("GET", "/api/strategies/daily-status");
     assert.equal(status, 200);
     assert.equal(body.data.tradingOn, false);
+    assert.deepEqual(body.data.autoStart, { enabled: false, manuallyStopped: false });
     assert.equal(body.data.nextRunAt, "2026-11-16T09:45:00.000Z");
     assert.deepEqual(body.data.account, { cash: 5000, equity: 5000 });
     assert.equal(typeof body.data.paperMode, "boolean");

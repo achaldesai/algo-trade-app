@@ -61,8 +61,8 @@ describe("TradingLoopService", () => {
         ];
         type Config = { strategyId: string; enabled: boolean; params: Record<string, unknown> };
 
-        async function evaluatedFor(configs: Config[]) {
-            const evaluate = mock.fn(async (_strategyId: string) => ({}));
+        async function evaluateCallsFor(configs: Config[], options?: { defaultSymbols?: string[] }) {
+            const evaluate = mock.fn(async (_strategyId: string, _userId: string, _params?: unknown, _opts?: { symbols?: string[] }) => ({}));
             const marketData = { on: mock.fn(), off: mock.fn() };
             const loop = new TradingLoopService(
                 marketData as unknown as MarketDataService,
@@ -73,12 +73,24 @@ describe("TradingLoopService", () => {
                     getAllConfigs: () => configs,
                     getActiveStrategies: () => configs.filter((c) => c.enabled),
                 } as unknown as StrategyConfigRepo,
+                options,
             );
             loop.start();
             const handler = marketData.on.mock.calls[0].arguments[1] as (t: unknown) => Promise<void>;
             await handler({ symbol: "TCS", price: 1, volume: 1, timestamp: new Date() });
-            return evaluate.mock.calls.map((c) => c.arguments[0]);
+            return evaluate.mock.calls.map((c) => ({ strategyId: c.arguments[0], symbols: c.arguments[3]?.symbols }));
         }
+        const evaluatedFor = async (configs: Config[]) => (await evaluateCallsFor(configs)).map((c) => c.strategyId);
+
+        it("limits the no-config default to the WATCHLIST, never scanner picks (ACH-35)", async () => {
+            const calls = await evaluateCallsFor([], { defaultSymbols: ["RELIANCE", "TCS"] });
+            assert.deepStrictEqual(calls, [{ strategyId: "vwap", symbols: ["RELIANCE", "TCS"] }]);
+        });
+
+        it("doesn't limit strategies the user switched on themselves", async () => {
+            const calls = await evaluateCallsFor([{ strategyId: "vwap", enabled: true, params: {} }], { defaultSymbols: ["RELIANCE"] });
+            assert.deepStrictEqual(calls, [{ strategyId: "vwap", symbols: undefined }]);
+        });
 
         it("evaluates only tick strategies when the user has no configs", async () => {
             assert.deepStrictEqual(await evaluatedFor([]), ["vwap"]);

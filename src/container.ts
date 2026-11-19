@@ -311,7 +311,8 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     marketDataService,
     tradingEngine,
     userRepo,
-    strategyConfigRepo
+    strategyConfigRepo,
+    { defaultSymbols: env.watchlist.map((s) => s.toUpperCase()) },
   );
 
   const autoTradingService = new AutoTradingService(
@@ -320,7 +321,8 @@ export function createContainer(dbManager: DatabaseManager): AppContainer {
     stopLossMonitor,
     portfolioService,
     userRepo,
-    tradingLoopService
+    tradingLoopService,
+    () => settingsRepo.getAutoStartTrading(),
   );
 
   const dailyStrategyRunner = new DailyStrategyRunner({
