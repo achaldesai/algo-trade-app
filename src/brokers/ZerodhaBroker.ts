@@ -3,7 +3,7 @@ import { authenticator } from "otplib";
 import { KiteConnect } from "kiteconnect";
 import PaperBroker from "./PaperBroker";
 import type BrokerClient from "./BrokerClient";
-import type { BrokerFunds } from "./BrokerClient";
+import type { BrokerFunds, BrokerHolding } from "./BrokerClient";
 import type {
   BrokerOrderExecution,
   BrokerOrderRequest,
@@ -467,6 +467,31 @@ export class ZerodhaBroker implements BrokerClient {
       return typeof cash === "number" && Number.isFinite(cash) ? { cash } : null;
     } catch (error) {
       logger.warn({ err: error }, "Failed to fetch Zerodha funds");
+      return null;
+    }
+  }
+
+  /**
+   * Net quantity per symbol across delivery holdings and open positions.
+   * Holdings: settled + T1 (`quantity`) minus what was already sold today
+   * (`used_quantity`). Positions (`net`): everything except negative CNC
+   * quantities, which are today's sales of holdings already counted in
+   * `used_quantity`. Null without a session or on error (no paper fallback).
+   */
+  async getHoldings(): Promise<BrokerHolding[] | null> {
+    if (!this.kiteSessionActive || !this.kite) return null;
+    try {
+      const [positions, holdings] = await Promise.all([this.kite.getPositions(), this.kite.getHoldings()]);
+      const net = new Map<string, number>();
+      const add = (symbol: string, quantity: number) => net.set(symbol, (net.get(symbol) ?? 0) + quantity);
+      for (const h of holdings ?? []) add(h.tradingsymbol, (h.quantity ?? 0) - (h.used_quantity ?? 0));
+      for (const p of positions?.net ?? []) {
+        if (p.product === "CNC" && p.quantity < 0) continue;
+        add(p.tradingsymbol, p.quantity ?? 0);
+      }
+      return [...net].filter(([, quantity]) => quantity !== 0).map(([symbol, quantity]) => ({ symbol, quantity }));
+    } catch (error) {
+      logger.warn({ err: error }, "Failed to fetch Zerodha holdings/positions");
       return null;
     }
   }

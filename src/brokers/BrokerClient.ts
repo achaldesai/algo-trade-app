@@ -27,6 +27,17 @@ export interface BrokerClient {
    * Optional: brokers without it (paper, Angel One) are treated as null.
    */
   getFunds?(): Promise<BrokerFunds | null>;
+  /**
+   * What the account actually holds, net per symbol (positive = long), or null
+   * when the broker can't say. Optional: the paper broker has no state that
+   * survives a restart, so the app's own ledger is its truth.
+   */
+  getHoldings?(): Promise<BrokerHolding[] | null>;
+}
+
+export interface BrokerHolding {
+  symbol: string;
+  quantity: number;
 }
 
 export interface BrokerFunds {

@@ -60,7 +60,7 @@ router.post("/panic-sell", async (req, res, next) => {
 
         logger.warn("🚨 PANIC SELL TRIGGERED 🚨");
 
-        const { tradingLoopService, stopLossMonitor, tradingEngine, userRepo } = getContainer(req);
+        const { tradingLoopService, stopLossMonitor, tradingEngine, userRepo, stopLossRepo } = getContainer(req);
 
         // Stop loop and monitor first
         try {
@@ -70,27 +70,43 @@ router.post("/panic-sell", async (req, res, next) => {
             logger.debug({ err: error }, "Failed to stop services during panic sell (possibly not running)");
         }
 
-        const users = userRepo.listUsers();
+        let openPositions = 0;
+        let closedCount = 0;
+        let failedCount = 0;
+        const users: Record<string, unknown> = {};
 
-        let totalExecuted = 0;
-        let totalFailed = 0;
-        const resultsByUserId: Record<string, unknown> = {};
-
-        for (const user of users) {
+        for (const user of userRepo.listUsers()) {
             try {
                 const result = await tradingEngine.sellAllPositions(user.id);
-                totalExecuted += result.executions.length;
-                totalFailed += result.failures.length;
-                resultsByUserId[user.id] = result;
+                openPositions += result.openPositions;
+                closedCount += result.closed.length;
+                failedCount += result.failures.length;
+                // A closed position needs no stop-loss.
+                for (const symbol of result.closed) await stopLossRepo.delete(user.id, symbol);
+                users[user.id] = {
+                    openPositions: result.openPositions,
+                    closed: result.closed,
+                    failures: result.failures.map((f) => ({ symbol: f.request.symbol, side: f.request.side, quantity: f.request.quantity, error: f.error })),
+                    notes: result.notes,
+                };
             } catch (err) {
+                failedCount++;
+                users[user.id] = { error: err instanceof Error ? err.message : "Panic sell failed" };
                 logger.error({ err, userId: user.id }, "Panic sell failed for user");
             }
         }
 
-        res.json({
-            success: true,
-            message: "Panic sell executed across all users",
-            data: { executedCount: totalExecuted, failedCount: totalFailed, details: resultsByUserId },
+        // Only "success" when nothing is left open that should have closed.
+        const success = failedCount === 0;
+        const message = openPositions === 0
+            ? "Panic sell: no open positions"
+            : `Panic sell: closed ${closedCount} of ${openPositions} open positions${failedCount ? `, ${failedCount} failed` : ""}`;
+        logger.warn({ openPositions, closedCount, failedCount }, message);
+
+        res.status(success ? 200 : 207).json({
+            success,
+            message,
+            data: { openPositions, closedCount, failedCount, users },
         });
     } catch (error) {
         next(error);

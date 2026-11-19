@@ -81,3 +81,21 @@ describe("PaperBroker", () => {
     assert.equal(await broker.getQuote("UNKNOWN", "BUY"), null);
   });
 });
+
+describe("PaperBroker reference price (panic sell after a restart)", () => {
+  it("fills a MARKET order at the reference price when it has no tick or prior trade", async () => {
+    const broker = new PaperBroker();
+    await broker.connect();
+    const execution = await broker.placeOrder({ symbol: "TCS", side: "SELL", quantity: 10, type: "MARKET", price: 2400 });
+    assert.equal(execution.averagePrice, Number((2400 * (1 - 0.0005)).toFixed(4)));
+  });
+
+  it("refuses to fill with no price at all, rather than at ₹0", async () => {
+    const broker = new PaperBroker();
+    await broker.connect();
+    await assert.rejects(
+      broker.placeOrder({ symbol: "TCS", side: "SELL", quantity: 10, type: "MARKET", price: 0 }),
+      /cannot fill MARKET order for TCS/,
+    );
+  });
+});

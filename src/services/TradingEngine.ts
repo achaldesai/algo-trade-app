@@ -33,6 +33,17 @@ export interface TradingEngineOptions {
   accountService?: AccountService;
 }
 
+export interface PanicSellResult {
+  /** Open positions in the ledger when the panic sell started. */
+  openPositions: number;
+  /** Symbols fully closed. */
+  closed: string[];
+  executions: BrokerOrderExecution[];
+  failures: BrokerOrderFailure[];
+  /** Ledger/broker mismatches and other caveats, for the response. */
+  notes: string[];
+}
+
 export interface StrategyEvaluationResult {
   strategyId: string;
   snapshot: {
@@ -289,59 +300,85 @@ export class TradingEngine extends EventEmitter {
     return error;
   }
 
-  async sellAllPositions(userId: string): Promise<{ executions: BrokerOrderExecution[]; failures: BrokerOrderFailure[] }> {
+  /**
+   * Close every open position for a user (panic sell).
+   *
+   * Positions come from the app's own ledger (net quantity per symbol), not
+   * from the broker's trade list, which is today's trades (Zerodha) or empty
+   * after a restart (paper). Where the broker can report what it really holds
+   * (`getHoldings`), each close is capped at that: the app never sells shares
+   * the account doesn't hold, and never touches holdings it didn't buy.
+   */
+  async sellAllPositions(userId: string): Promise<PanicSellResult> {
     const executions: BrokerOrderExecution[] = [];
     const failures: BrokerOrderFailure[] = [];
+    const closed: string[] = [];
+    const notes: string[] = [];
 
-    let activeBroker: BrokerClient;
+    const broker = await this.brokerFactory(userId);
+    await this.ensureBrokerConnected(broker);
+
+    const ledger = this.portfolioService.getSnapshot(userId).positions.filter((p) => p.netQuantity !== 0);
+    const trades = this.portfolioService.listTrades(userId); // newest first
+    const lastPrice = (symbol: string) => trades.find((t) => t.symbol === symbol)?.price;
+
+    let held: Map<string, number> | undefined;
     try {
-      activeBroker = await this.brokerFactory(userId);
-      await this.ensureBrokerConnected(activeBroker);
-      const positions = await activeBroker.getPositions();
-
-      for (const position of positions) {
-        if (position.quantity === 0) continue;
-
-        // Determine side to close
-        const side = position.quantity > 0 ? "SELL" : "BUY";
-        const quantity = Math.abs(position.quantity);
-
-        const order: BrokerOrderRequest = {
-          symbol: position.symbol,
-          side,
-          quantity,
-          type: "MARKET",
-          tag: `PANIC-SELL-${Date.now()}`,
-          price: 0, // Market order
-        };
-
-        try {
-          const execution = await activeBroker.placeOrder(order);
-          executions.push(execution);
-
-          if (execution.filledQuantity > 0) {
-            const trade: Trade = {
-              id: execution.id,
-              symbol: execution.request.symbol,
-              side: execution.request.side,
-              quantity: execution.filledQuantity,
-              price: execution.averagePrice,
-              executedAt: execution.executedAt,
-            };
-            await this.portfolioService.recordExternalTrade(userId, trade);
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "Panic sell failed";
-          failures.push({ request: order, error: message, details: this.serializeError(error) });
-          logger.error({ err: error, symbol: position.symbol }, "Failed to close position during panic sell");
-        }
-      }
+      const holdings = await broker.getHoldings?.();
+      if (holdings) held = new Map(holdings.map((h) => [h.symbol, h.quantity]));
     } catch (error) {
-      logger.error({ err: error }, "Failed to fetch positions for panic sell");
-      throw error;
+      logger.warn({ err: error, userId }, "Could not read broker holdings for panic sell; using the ledger only");
+    }
+    if (broker.getHoldings && !held) notes.push("Broker holdings unavailable: closing the ledger quantities unverified");
+
+    for (const position of ledger) {
+      let quantity = position.netQuantity;
+      if (held) {
+        const brokerQty = held.get(position.symbol) ?? 0;
+        // Same direction, and never more than the broker holds.
+        const capped = Math.sign(brokerQty) === Math.sign(quantity) ? Math.sign(quantity) * Math.min(Math.abs(quantity), Math.abs(brokerQty)) : 0;
+        if (capped !== quantity) {
+          notes.push(`${position.symbol}: ledger ${quantity}, broker ${brokerQty}; closing ${capped}`);
+          logger.warn({ userId, symbol: position.symbol, ledger: quantity, broker: brokerQty }, "Panic sell: ledger and broker disagree");
+        }
+        quantity = capped;
+      }
+      if (quantity === 0) continue;
+
+      const order: BrokerOrderRequest = {
+        symbol: position.symbol,
+        side: quantity > 0 ? "SELL" : "BUY",
+        quantity: Math.abs(quantity),
+        type: "MARKET",
+        tag: `PANIC-SELL-${Date.now()}`,
+        // Reference only: brokers fill MARKET orders at the market; the paper
+        // broker uses it when it has no live or prior price (after a restart).
+        price: this.marketData.getTick(position.symbol)?.price ?? lastPrice(position.symbol) ?? 0,
+      };
+
+      try {
+        const execution = await broker.placeOrder(order);
+        executions.push(execution);
+        if (execution.filledQuantity > 0) {
+          await this.portfolioService.recordExternalTrade(userId, {
+            id: execution.id,
+            symbol: execution.request.symbol,
+            side: execution.request.side,
+            quantity: execution.filledQuantity,
+            price: execution.averagePrice,
+            executedAt: execution.executedAt,
+          });
+        }
+        if (execution.filledQuantity >= order.quantity) closed.push(position.symbol);
+        else failures.push({ request: order, error: `Only ${execution.filledQuantity} of ${order.quantity} filled (${execution.status})` });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Panic sell failed";
+        failures.push({ request: order, error: message, details: this.serializeError(error) });
+        logger.error({ err: error, symbol: position.symbol }, "Failed to close position during panic sell");
+      }
     }
 
-    return { executions, failures };
+    return { openPositions: ledger.length, closed, executions, failures, notes };
   }
 }
 

@@ -23,8 +23,14 @@ const mockStopLossMonitor = {
     getStatus: mock.fn(() => ({ monitoring: true, activeStopLosses: 5 })),
 };
 
+type PanicResult = { openPositions: number; closed: string[]; executions: unknown[]; failures: { request: { symbol: string; side: string; quantity: number }; error: string }[]; notes: string[] };
+let panicResult: PanicResult = { openPositions: 2, closed: ["TCS", "INFY"], executions: [{}, {}], failures: [], notes: [] };
 const mockTradingEngine = {
-    sellAllPositions: mock.fn(async () => ({ executions: [], failures: [] })),
+    sellAllPositions: mock.fn(async () => panicResult),
+};
+
+const mockStopLossRepo = {
+    delete: mock.fn(async () => undefined),
 };
 
 const mockUserRepo = {
@@ -37,6 +43,7 @@ const mockContainer = {
     stopLossMonitor: mockStopLossMonitor,
     tradingLoopService: mockLoopService,
     userRepo: mockUserRepo,
+    stopLossRepo: mockStopLossRepo,
     dailyStrategyRunner: {
         getStatus: () => ({ scheduled: true, nextRunAt: "2026-11-09T09:45:00.000Z", lastRun: null }),
     },
@@ -85,6 +92,8 @@ describe("Control Routes", () => {
         mockStopLossMonitor.start.mock.resetCalls();
         mockStopLossMonitor.stop.mock.resetCalls();
         mockTradingEngine.sellAllPositions.mock.resetCalls();
+        mockStopLossRepo.delete.mock.resetCalls();
+        panicResult = { openPositions: 2, closed: ["TCS", "INFY"], executions: [{}, {}], failures: [], notes: [] };
     });
 
     it("GET /status should return combined status", async () => {
@@ -152,5 +161,34 @@ describe("Control Routes", () => {
         assert.strictEqual(mockStopLossMonitor.stop.mock.callCount(), 1);
         // One user in mock, so sellAllPositions should be called once
         assert.strictEqual(mockTradingEngine.sellAllPositions.mock.callCount(), 1);
+        const body = res._getJSONData();
+        assert.strictEqual(body.success, true);
+        assert.strictEqual(body.message, "Panic sell: closed 2 of 2 open positions");
+        assert.deepStrictEqual(
+            mockStopLossRepo.delete.mock.calls.map((c) => c.arguments),
+            [["test-panic-user", "TCS"], ["test-panic-user", "INFY"]],
+            "stop-losses of closed positions are removed",
+        );
+    });
+
+    it("POST /panic-sell is not a success when a position could not be closed", async () => {
+        panicResult = {
+            openPositions: 2,
+            closed: ["TCS"],
+            executions: [{}],
+            failures: [{ request: { symbol: "INFY", side: "SELL", quantity: 10 }, error: "no price" }],
+            notes: [],
+        };
+        const res = await invokeApp({
+            method: "POST",
+            url: "/api/control/panic-sell",
+            body: { confirmToken: "PANIC-CONFIRM" },
+            headers: { "x-admin-api-key": "test-key" },
+        });
+        assert.strictEqual(res.statusCode, 207);
+        const body = res._getJSONData();
+        assert.strictEqual(body.success, false);
+        assert.strictEqual(body.message, "Panic sell: closed 1 of 2 open positions, 1 failed");
+        assert.deepStrictEqual(body.data.users["test-panic-user"].failures, [{ symbol: "INFY", side: "SELL", quantity: 10, error: "no price" }]);
     });
 });
